@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WorldTime FW</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:1.5rem;max-width:48rem}
+h1{margin:0 0 1rem 0}
+section{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem;margin-bottom:1rem}
+button{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:.4rem .9rem;border-radius:.4rem;cursor:pointer;font-size:.875rem}
+button:hover{background:#334155}
+button.primary{background:#059669;border-color:#059669}
+button.primary:hover{background:#10b981}
+input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:.4rem .6rem;border-radius:.4rem;font-family:monospace}
+.net{display:flex;justify-content:space-between;padding:.4rem .6rem;background:#0f172a;border-radius:.3rem;margin-bottom:.2rem;cursor:pointer;font-size:.875rem}
+.net:hover{background:#334155}
+code{background:#0f172a;padding:.1rem .3rem;border-radius:.2rem;font-size:.875em}
+.ok{color:#34d399}.warn{color:#fbbf24}.err{color:#f87171}
+.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.col{display:flex;flex-direction:column;gap:.25rem}
+label span{font-size:.75rem;color:#94a3b8}
+#msg{margin-top:.5rem;font-size:.875rem;min-height:1.2em}
+</style>
+</head>
+<body>
+<h1>WorldTime FW <span style="font-size:.75em;color:#64748b">(Phase 1)</span></h1>
+
+<section>
+  <h2>Estado</h2>
+  <div id="status">cargando...</div>
+</section>
+
+<section>
+  <h2>WiFi</h2>
+  <div id="wifi-status" style="margin-bottom:.75rem">-</div>
+  <div class="row" style="margin-bottom:.75rem">
+    <button id="scan">Buscar redes</button>
+  </div>
+  <div id="nets" style="margin-bottom:.75rem"></div>
+  <div class="row" style="margin-bottom:.75rem">
+    <label class="col"><span>SSID</span><input id="ssid"/></label>
+    <label class="col"><span>Password</span><input id="pwd" type="password"/></label>
+  </div>
+  <button class="primary" id="connect">Conectar y reiniciar</button>
+  <div id="msg"></div>
+</section>
+
+<script>
+const $=s=>document.querySelector(s);
+async function loadStatus(){
+  const r=await fetch('/api/status'); const d=await r.json();
+  $('#status').innerHTML=`<code>${d.ip||'-'}</code> · uptime ${d.uptime_sec}s · heap ${(d.heap_free/1024).toFixed(1)}KB · psram ${(d.psram_free/1024).toFixed(1)}KB${d.rssi?' · '+d.rssi+' dBm':''}`;
+}
+async function loadWifi(){
+  const r=await fetch('/api/wifi'); const d=await r.json();
+  let html='';
+  if(d.mode==='sta') html=`<span class="ok">Conectado</span> a <code>${d.current_ssid}</code> · IP <code>${d.ip}</code>`;
+  else if(d.mode==='ap') html=`<span class="warn">Modo AP</span> · SSID <code>${d.ap_ssid}</code> · IP <code>${d.ip}</code>`;
+  else html=`<span class="err">Sin conexion</span>`;
+  $('#wifi-status').innerHTML=html;
+  if(d.current_ssid && !$('#ssid').value) $('#ssid').value=d.current_ssid;
+}
+$('#scan').onclick=async()=>{
+  const btn=$('#scan'); btn.disabled=true; btn.textContent='Buscando...';
+  try{
+    const r=await fetch('/api/wifi/scan'); const d=await r.json();
+    const box=$('#nets'); box.innerHTML='';
+    (d.networks||[]).forEach(n=>{
+      const div=document.createElement('div');
+      div.className='net';
+      div.innerHTML=`<span>${n.ssid} ${n.secure?'🔒':''}</span><span>${n.rssi} dBm</span>`;
+      div.onclick=()=>{ $('#ssid').value=n.ssid; $('#pwd').focus(); };
+      box.appendChild(div);
+    });
+  }finally{ btn.disabled=false; btn.textContent='Buscar redes'; }
+};
+$('#connect').onclick=async()=>{
+  const ssid=$('#ssid').value.trim(), password=$('#pwd').value;
+  if(!ssid){ $('#msg').innerHTML='<span class="err">Falta SSID</span>'; return; }
+  if(!confirm(`Conectar a "${ssid}" y reiniciar?`)) return;
+  try{
+    const r=await fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,password})});
+    const d=await r.json();
+    if(d.error) throw new Error(d.error);
+    $('#msg').innerHTML='<span class="ok">Guardado. Reiniciando — reconecta a la nueva red.</span>';
+  }catch(e){ $('#msg').innerHTML='<span class="err">Error: '+e.message+'</span>'; }
+};
+loadStatus(); loadWifi();
+setInterval(loadStatus, 5000);
+</script>
+</body></html>
