@@ -79,8 +79,10 @@ void begin();               // Carga desde NVS o siembra defaults.
 bool save();                // Serializa cfg actual y persiste.
 
 // Helpers para los handlers HTTP.
-void writeJson(JsonDocument& doc);    // build JSON respuesta GET /api/config
-bool applyPatch(JsonDocument& doc);   // aplicar JSON parcial; true si cities cambian
+void writeJson(JsonDocument& doc);        // build JSON respuesta GET /api/config (incluye rgb_order para UI)
+void writeBackupJson(JsonDocument& doc);  // backup exportable: SOLO lo que esta en cfg.json (sin claves NVS)
+bool applyPatch(JsonDocument& doc);       // aplicar JSON parcial; true si cities cambian
+bool setRgbOrder(const String& v);        // setter dedicado (NVS); endpoint /api/rgb_order
 
 // WiFi (separado de cfg para no aparecer en backups JSON).
 WifiCreds getWifi();

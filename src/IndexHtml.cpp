@@ -466,6 +466,7 @@ code{
 const $ = s => document.querySelector(s);
 let cfg = null, curIcon = 'SUN', curFrame = 0, curColor = 1;
 let playTimer = null;
+let initialRgbOrder = null;   // baseline para detectar cambio en el selector RGB/RBG
 
 function setMsg(t, kind){
   const m = $('#msg');
@@ -512,6 +513,7 @@ async function loadConfig(){
     $('#blink').checked = cfg.colon_blink;
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
+    initialRgbOrder = $('#rgb-order').value;
     renderCities();
     renderIconPicker();
     renderPalette();
@@ -745,9 +747,17 @@ $('#save').onclick = async () => {
     },
     palette: cfg.palette,
     icons: cfg.icons,
-    rgb_order: $('#rgb-order').value,
   };
   try{
+    // rgb_order vive en NVS, endpoint dedicado. Solo lo enviamos si cambio.
+    const newRgb = $('#rgb-order').value;
+    if (newRgb !== initialRgbOrder) {
+      const rr = await fetch('/api/rgb_order', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({rgb_order: newRgb})});
+      const rd = await rr.json();
+      if (!rd.ok) throw new Error('rgb_order: '+(rd.error||'fallo'));
+      initialRgbOrder = newRgb;
+    }
     const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(patch)});
     const d = await r.json();
@@ -759,7 +769,9 @@ $('#save').onclick = async () => {
 
 $('#cfg-export').onclick = async () => {
   try{
-    const r = await fetch('/api/config'); const txt = await r.text();
+    // /api/config/export devuelve SOLO el contenido de cfg.json (sin rgb_order
+    // ni claves NVS), para que el backup sea portable entre devices.
+    const r = await fetch('/api/config/export'); const txt = await r.text();
     let body = txt; try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch{}
     const a = document.createElement('a');
     a.href = 'data:application/json;charset=utf-8,'+encodeURIComponent(body);

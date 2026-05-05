@@ -120,7 +120,9 @@ static void buildJson(JsonDocument& doc) {
     nm["brightness"] = cfg.nightMode.brightness;
     JsonArray pal = doc["palette"].to<JsonArray>();
     for (int i = 0; i < 16; i++) pal.add(cfg.palette[i]);
-    doc["rgb_order"] = cfg.rgbOrder;
+    // rgb_order NO se incluye aqui: vive en NVS por ser identidad de hardware
+    // (cableado G/B del panel especifico) y no debe viajar en backups
+    // exportables. writeJson() lo añade aparte para responder /api/config.
     Icons::serializeAll(doc["icons"].to<JsonObject>());
 }
 
@@ -171,12 +173,33 @@ static bool applyJson(JsonDocument& doc) {
     }
     JsonObjectConst icons = doc["icons"].as<JsonObjectConst>();
     if (!icons.isNull()) Icons::deserializeAll(icons);
-    String rgbo = doc["rgb_order"] | String("");
-    if (rgbo == "RGB" || rgbo == "RBG") cfg.rgbOrder = rgbo;
+    // rgb_order NO se aplica desde aqui — es identidad per-device almacenada
+    // en NVS. Se setea via setRgbOrder() (endpoint dedicado /api/rgb_order),
+    // asi un restore desde backup no la sobreescribe accidentalmente.
     return citiesChanged;
 }
 
-void writeJson(JsonDocument& doc) { buildJson(doc); }
+// writeJson para /api/config: incluye rgb_order para que la UI lo muestre,
+// aunque no este en cfg.json (no viaja en backups).
+void writeJson(JsonDocument& doc) {
+    buildJson(doc);
+    doc["rgb_order"] = cfg.rgbOrder;
+}
+
+// writeBackupJson: solo lo que vive en cfg.json (sin rgb_order ni claves NVS).
+// Lo que devuelve este builder es exactamente el contenido del fichero
+// persistido y lo que un restore aceptaria de vuelta.
+void writeBackupJson(JsonDocument& doc) { buildJson(doc); }
+
+// Setter dedicado para rgb_order (endpoint /api/rgb_order).
+bool setRgbOrder(const String& v) {
+    if (v != "RGB" && v != "RBG") return false;
+    if (cfg.rgbOrder != v) {
+        cfg.rgbOrder = v;
+        prefs.putString("rgb_order", v);
+    }
+    return true;
+}
 bool applyPatch(JsonDocument& doc) { return applyJson(doc); }
 
 void begin() {
@@ -263,6 +286,17 @@ void begin() {
         prefs.remove("wxcache");
         Serial.println("[nvs] removed legacy wxcache key");
     }
+
+    // rgb_order: NVS es la fuente de verdad. Si tiene valor, sobrescribe lo que
+    // applyJson haya cargado de cfg.json. En el primer boot tras el cambio,
+    // applyJson ya escribio NVS desde el cfg.json legacy, asi que ambos coinciden.
+    String storedRgb = prefs.getString("rgb_order", "");
+    if (storedRgb == "RGB" || storedRgb == "RBG") {
+        cfg.rgbOrder = storedRgb;
+    }
+    Serial.printf("[config] rgb_order=%s (source=%s)\n",
+                  cfg.rgbOrder.c_str(),
+                  storedRgb.length() > 0 ? "nvs" : "default/cfg.json");
 
     captureNvsStats();
     captureFsStats();

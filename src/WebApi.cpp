@@ -137,7 +137,17 @@ void begin() {
                       (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
     }
 
-    // ---------- /api/config GET ----------
+    // /api/config/export ANTES que /api/config: ESPAsyncWebServer matchea por
+    // prefix con barra, asi que /api/config atraparia /api/config/export si se
+    // registrase primero. Devuelve SOLO el contenido portable de cfg.json
+    // (sin rgb_order ni claves NVS).
+    server.on("/api/config/export", HTTP_GET, [](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        Config::writeBackupJson(doc);
+        sendJson(req, doc);
+    });
+
+    // ---------- /api/config GET (UI: incluye rgb_order para mostrar) ----------
     server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest* req) {
         JsonDocument doc;
         Config::writeJson(doc);
@@ -216,6 +226,22 @@ void begin() {
     });
     server.on("/api/status", HTTP_GET, handleGetStatus);
 
+    // Setter dedicado de rgb_order (vive en NVS, separado del cfg).
+    server.on("/api/rgb_order", HTTP_POST,
+        [](AsyncWebServerRequest* req) {},
+        nullptr,
+        [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+            accumulateJsonBody(req, data, len, index, total,
+                [](AsyncWebServerRequest* req, JsonDocument& doc) {
+                    String v = doc["rgb_order"] | String("");
+                    bool ok = Config::setRgbOrder(v);
+                    JsonDocument res;
+                    res["ok"] = ok;
+                    if (!ok) res["error"] = "invalid value (RGB|RBG)";
+                    sendJson(req, res);
+                });
+        });
+
     // Diagnostico NVS (para debug del bug OTA-resetea-config). Devuelve snapshot
     // del estado al boot + delta tras leer config.
     server.on("/api/diag/nvs", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -243,6 +269,7 @@ void begin() {
         doc["fs_cfg_file_len"] = d.fsCfgFileLen;
         doc["fs_total"] = d.fsTotal;
         doc["fs_used"] = d.fsUsed;
+        doc["rgb_order"] = Config::cfg.rgbOrder;
         sendJson(req, doc);
     });
 
