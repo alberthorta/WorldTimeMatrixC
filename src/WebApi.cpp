@@ -209,6 +209,10 @@ void begin() {
         doc["url"] = dbg.lastUrl;
         doc["http"] = dbg.httpCode;
         doc["attempts"] = dbg.attempts;
+        // age_ms = "hace cuanto fue el ultimo fetch" calculado en el device,
+        // ya que last_at_ms es millis() (relativo al boot) y no se puede
+        // comparar con el reloj del navegador.
+        doc["age_ms"] = dbg.lastAtMs ? (uint32_t)(millis() - dbg.lastAtMs) : 0;
         doc["last_at_ms"] = dbg.lastAtMs;
         doc["err"] = dbg.lastError;
         doc["body"] = dbg.lastBody;

@@ -803,8 +803,7 @@ async function renderWxDebug(){
     const r = await fetch(`/api/weather/debug?idx=${curWxIdx}&provider=${curWxProvider}`);
     const d = await r.json();
     $('#wx-modal-title').textContent = `Debug meteo · ${d.name || ('city '+d.idx)}`;
-    const ageMs = d.last_at_ms ? (Date.now() - d.last_at_ms) : null;
-    const ageStr = ageMs !== null ? `hace ${fmtUp(ageMs/1000)}` : 'nunca';
+    const ageStr = (d.age_ms && d.last_at_ms) ? `hace ${fmtUp(d.age_ms/1000)}` : 'nunca';
     const httpClass = d.http === 200 ? 'text-accent' : (d.http>0?'text-warn':'text-muted');
     const tabs = `
       <div class="modal-tabs">
