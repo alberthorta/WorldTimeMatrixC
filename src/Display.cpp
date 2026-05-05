@@ -36,11 +36,13 @@ static constexpr int DIV_YS[3] = {7, 15, 23};
 static constexpr int ICON_Y_OFFSET = -5;            // desde baseline -> top del icono
 static constexpr int NAME_X = 1;
 
-// Offsets ajustables del bloque "HH:MM" relativo a TIME_X.
-static constexpr int TIME_X = 25;
+// Layout del bloque "HH:MM": right-aligned. TIME_RIGHT_X es la posicion final
+// fija del bloque (donde caia el ultimo digito con la antigua rejilla monospace
+// 4px/digito). Cuando aparecen "1"s, el bloque se compacta hacia la derecha
+// creciendo por la izquierda.
+static constexpr int TIME_RIGHT_X = 43;  // = 25 + 18 (worst case 4+4+2+4+4)
 static constexpr int RIGHT_MARGIN = 1;   // pixeles libres al borde derecho
-static constexpr int COLON_DX = 8;     // gap desde inicio HH hasta ":"
-static constexpr int MM_DX = 10;       // gap desde inicio HH hasta inicio MM
+static constexpr int COLON_W = 2;        // avance horizontal del ":" (1px glifo + 1px gap)
 static constexpr int COLON_Y_OFFSET = 0;  // ":" alineado con HH/MM
 
 // RGB888 -> RGB565 (5 bits R, 6 bits G, 5 bits B).
@@ -182,21 +184,22 @@ static int textWidth(const char* s) {
     return (int)w;
 }
 
-// Dibuja un digito en una rejilla fija. tom-thumb tiene "1" de 2px y resto 3px;
-// para que la hora se vea monospace (como un reloj) el "1" lo desplazamos +1px
-// dentro de su slot.
-static void drawDigit(char d, int x, int y) {
+// Avance horizontal de un digito incluyendo 1px de gap. tom-thumb tiene "1" de
+// 2px y resto 3px; con avance variable evitamos el "hueco" que dejaba el slot
+// fijo monospace cuando aparecia un 1.
+static int digitAdvance(char d) { return (d == '1') ? 3 : 4; }
+
+static int drawDigit(char d, int x, int y) {
     char c[2] = {d, 0};
-    int offset = (d == '1') ? 1 : 0;
-    dma->setCursor(x + offset, y);
+    dma->setCursor(x, y);
     dma->print(c);
+    return x + digitAdvance(d);
 }
 
-// Dibuja "DD" en x con paso fijo (4px por slot).
+// Dibuja "DD" empezando en x; devuelve la x posterior al ultimo digito.
 static int drawTwoDigits(const char* s, int x, int y) {
-    drawDigit(s[0], x, y);
-    drawDigit(s[1], x + 4, y);
-    return x + 8;
+    x = drawDigit(s[0], x, y);
+    return drawDigit(s[1], x, y);
 }
 
 void renderRows(const Row rows[4]) {
@@ -230,13 +233,16 @@ void renderRows(const Row rows[4]) {
             char hh[3], mm[3];
             snprintf(hh, sizeof(hh), "%02u", r.hour);
             snprintf(mm, sizeof(mm), "%02u", r.minute);
+            int blockW = digitAdvance(hh[0]) + digitAdvance(hh[1]) + COLON_W
+                       + digitAdvance(mm[0]) + digitAdvance(mm[1]);
+            int xStart = TIME_RIGHT_X - blockW;
             dma->setTextColor(r.color);
-            drawTwoDigits(hh, TIME_X, y);
+            int xCur = drawTwoDigits(hh, xStart, y);
             if (r.showColon) {
-                dma->setCursor(TIME_X + COLON_DX, y + COLON_Y_OFFSET);
+                dma->setCursor(xCur, y + COLON_Y_OFFSET);
                 dma->print(":");
             }
-            drawTwoDigits(mm, TIME_X + MM_DX, y);
+            drawTwoDigits(mm, xCur + COLON_W, y);
         }
 
         if (r.hasWeather) {
