@@ -59,6 +59,40 @@ static RowAnimState animState[4] = {
     {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}
 };
 
+// Preview state: cuando activo, la fila 0 muestra g_previewFrames en vez del
+// icono derivado de la meteo. Se setea desde la UI (POST /api/icons/preview)
+// con los frames del icono que el usuario esta editando — asi puede ver en
+// el panel real lo que hace sin tener que guardar.
+static std::vector<Icons::Frame> g_previewFrames;
+static RowAnimState g_previewState = {-1, 0, 0};
+static bool g_previewActive = false;
+static uint32_t g_previewExpireMs = 0;
+
+void setIconPreview(const std::vector<Icons::Frame>& frames, uint32_t duration_ms) {
+    g_previewActive = false;          // pausa lecturas mientras swap
+    g_previewFrames = frames;          // copia
+    g_previewState = {-1, 0, 0};
+    g_previewExpireMs = duration_ms ? (millis() + duration_ms) : 0;
+    g_previewActive = !g_previewFrames.empty();
+}
+void clearIconPreview() { g_previewActive = false; }
+bool isIconPreviewActive() { return g_previewActive; }
+
+static const Icons::Frame* tickPreviewAnim() {
+    if (g_previewFrames.empty()) return nullptr;
+    uint32_t now = millis();
+    int n = (int)g_previewFrames.size();
+    if (g_previewState.iconType < 0) {
+        g_previewState.iconType = 1;     // marker "ya inicializado"
+        g_previewState.frameIdx = 0;
+        g_previewState.nextChangeMs = now + g_previewFrames[0].ms;
+    } else if (n > 1 && (int32_t)(now - g_previewState.nextChangeMs) >= 0) {
+        g_previewState.frameIdx = (g_previewState.frameIdx + 1) % n;
+        g_previewState.nextChangeMs = now + g_previewFrames[g_previewState.frameIdx].ms;
+    }
+    return &g_previewFrames[g_previewState.frameIdx];
+}
+
 static const Icons::IconDef* iconDefForType(IconType::Value v) {
     if (v < 0 || (int)v >= Icons::NUM_ICONS) return nullptr;
     return &Icons::icons[(int)v];
@@ -247,7 +281,18 @@ void renderRows(const Row rows[4]) {
 
         if (r.hasWeather) {
             // Icono fijo (no se desplaza con la temp), animado segun frames.
-            const Icons::Frame* f = tickRowAnim(i, r.icon);
+            // Fila 0 puede tener preview override (icono en edicion).
+            const Icons::Frame* f = nullptr;
+            if (i == 0 && g_previewActive) {
+                if (g_previewExpireMs && (int32_t)(millis() - g_previewExpireMs) >= 0) {
+                    g_previewActive = false;
+                    f = tickRowAnim(i, r.icon);
+                } else {
+                    f = tickPreviewAnim();
+                }
+            } else {
+                f = tickRowAnim(i, r.icon);
+            }
             if (f) drawFrame(iconX, y + ICON_Y_OFFSET, *f);
 
             // Temperatura right-aligned. El "°" lo dibujamos a mano (2x2 al top

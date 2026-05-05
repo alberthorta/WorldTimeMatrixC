@@ -6,6 +6,9 @@
 
 #include <Arduino.h>
 #include <stdint.h>
+#include <vector>
+
+#include "Icons.h"
 
 namespace Display {
 
@@ -38,5 +41,12 @@ void renderRows(const Row rows[4]);
 void clear();
 
 uint16_t rgb888to565(uint32_t rgb);
+
+// Preview: sobrescribe el icono de la fila 0 con frames ad-hoc (p.ej. icono
+// en edicion). duration_ms=0 → indefinido; >0 → auto-stop tras ese tiempo
+// (failsafe por si el navegador desconecta sin enviar stop).
+void setIconPreview(const std::vector<Icons::Frame>& frames, uint32_t duration_ms);
+void clearIconPreview();
+bool isIconPreviewActive();
 
 }  // namespace Display

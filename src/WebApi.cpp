@@ -265,6 +265,50 @@ void begin() {
     });
     server.on("/api/status", HTTP_GET, handleGetStatus);
 
+    // --- Preview de icono en device ---
+    // /api/icons/preview/stop ANTES que /api/icons/preview por prefix matching.
+    server.on("/api/icons/preview/stop", HTTP_POST, [](AsyncWebServerRequest* req) {
+        Display::clearIconPreview();
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+    // POST /api/icons/preview con body {frames:[{px:[[..]],ms:500},...], duration_ms:60000}
+    // Sobrescribe el icono de la fila 0 con los frames recibidos. Util para
+    // testear iconos en edicion sin tener que guardar la config.
+    server.on("/api/icons/preview", HTTP_POST,
+        [](AsyncWebServerRequest* req) {},
+        nullptr,
+        [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+            accumulateJsonBody(req, data, len, index, total,
+                [](AsyncWebServerRequest* req, JsonDocument& doc) {
+                    JsonArray arr = doc["frames"].as<JsonArray>();
+                    std::vector<Icons::Frame> frames;
+                    if (!arr.isNull()) {
+                        for (JsonObject f : arr) {
+                            Icons::Frame fr{};
+                            fr.ms = f["ms"] | 500;
+                            JsonArray rows = f["px"].as<JsonArray>();
+                            if (!rows.isNull()) {
+                                for (int y = 0; y < Icons::ICON_H && y < (int)rows.size(); y++) {
+                                    JsonArray cols = rows[y].as<JsonArray>();
+                                    if (cols.isNull()) continue;
+                                    for (int x = 0; x < Icons::ICON_W && x < (int)cols.size(); x++) {
+                                        fr.px[y][x] = (uint8_t)((int)cols[x] & 0xFF);
+                                    }
+                                }
+                            }
+                            frames.push_back(fr);
+                        }
+                    }
+                    uint32_t dur = doc["duration_ms"] | 60000U;   // failsafe 60s
+                    Display::setIconPreview(frames, dur);
+                    JsonDocument res;
+                    res["ok"] = !frames.empty();
+                    res["frames"] = (int)frames.size();
+                    res["duration_ms"] = dur;
+                    sendJson(req, res);
+                });
+        });
+
     // --- Provider meteo Tomorrow.io (NVS, no en backups) ---
     // La api_key se devuelve en plano: el panel admin solo es accesible en LAN
     // y vale más la transparencia para verificar/editar. Si en algún momento

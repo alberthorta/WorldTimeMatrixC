@@ -401,6 +401,7 @@ code{
     <div id="icon-frames" class="row gap-1"></div>
     <button id="frame-add" class="btn btn-sm">+ Frame</button>
     <button id="frame-play" class="btn btn-sm"><span class="text-accent">▶</span> Play</button>
+    <button id="frame-play-device" class="btn btn-sm" title="Reproduce este icono en la fila 0 del panel real"><span style="color:#60a5fa">📺</span> Device</button>
   </div>
   <label style="display:block;margin-bottom:1rem;max-width:10rem">
     <span class="label">Duración frame (ms)</span>
@@ -739,6 +740,33 @@ function startPlay(){
   playTimer = setTimeout(tick, fr[curFrame].ms || 500);
 }
 $('#frame-play').addEventListener('click', () => { playTimer ? stopPlay() : startPlay(); });
+
+// --- Play on device ---
+let devicePlaying = false;
+async function startDevicePlay(){
+  const frames = curFrames();
+  if (!frames || !frames.length) { setMsg('Sin frames', 'err'); return; }
+  try{
+    const r = await fetch('/api/icons/preview', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({frames, duration_ms: 120000})});  // 2min failsafe
+    const d = await r.json();
+    if (!d.ok) throw new Error('preview rechazado');
+    devicePlaying = true;
+    $('#frame-play-device').innerHTML = '<span style="color:#f87171">■</span> Stop';
+    setMsg(`Preview en device (${d.frames} frames, ${d.duration_ms/1000}s max)`, 'ok');
+  }catch(e){ setMsg('Error: '+e.message, 'err'); }
+}
+async function stopDevicePlay(){
+  try{
+    await fetch('/api/icons/preview/stop', {method:'POST'});
+  }catch(e){}
+  devicePlaying = false;
+  $('#frame-play-device').innerHTML = '<span style="color:#60a5fa">📺</span> Device';
+  setMsg('Preview detenido', 'ok');
+}
+$('#frame-play-device').addEventListener('click', () => {
+  devicePlaying ? stopDevicePlay() : startDevicePlay();
+});
 
 async function loadWeather(){
   try{
