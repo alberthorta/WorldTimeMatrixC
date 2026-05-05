@@ -216,15 +216,20 @@ void begin() {
         sendJson(req, doc);
     });
     // Trigger sincrono: fuerza un fetch del idx dado y devuelve estado.
+    // Param opcional `provider`: "openmeteo" (default) | "tomorrow"
     server.on("/api/weather/fetch", HTTP_GET, [](AsyncWebServerRequest* req) {
         int idx = 0;
         if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
         idx = constrain(idx, 0, 3);
-        bool ok = Weather::fetchOneSync(idx);
-        const auto& dbg = Weather::debugInfo[idx];
+        String provider = "openmeteo";
+        if (req->hasParam("provider")) provider = req->getParam("provider")->value();
+        bool isTio = (provider == "tomorrow");
+        bool ok = isTio ? Weather::fetchOneTomorrowSync(idx) : Weather::fetchOneSync(idx);
+        const auto& dbg = isTio ? Weather::debugInfoTio[idx] : Weather::debugInfo[idx];
         JsonDocument doc;
         doc["ok"] = ok;
         doc["idx"] = idx;
+        doc["provider"] = provider;
         doc["http"] = dbg.httpCode;
         doc["err"] = dbg.lastError;
         sendJson(req, doc);
@@ -232,6 +237,7 @@ void begin() {
     server.on("/api/weather", HTTP_GET, [](AsyncWebServerRequest* req) {
         JsonDocument doc;
         doc["utc_now"] = (uint32_t)time(nullptr);
+        doc["tomorrow_active"] = Config::hasTomorrowSettings();
         JsonArray arr = doc["cities"].to<JsonArray>();
         for (int i = 0; i < 4; i++) {
             const auto& cc = Config::cfg.cities[i];

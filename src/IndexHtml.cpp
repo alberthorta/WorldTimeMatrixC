@@ -754,12 +754,33 @@ async function loadWeather(){
       const off  = c.has_data ? `${(c.offset_sec/3600).toFixed(1)}h` : '-';
       const codeStr = c.has_data ? `<span class="${srcClass}">${c.code}</span>` : '<span class="text-muted">-</span>';
       tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td>${codeStr}</td><td>${day}</td><td></td>`;
-      const btn = document.createElement('button');
-      btn.className = 'icon-btn';
-      btn.textContent = '?';
-      btn.title = 'Ver URL llamada y respuesta';
-      btn.onclick = () => openWxDebug(idx);
-      tr.lastElementChild.appendChild(btn);
+      const cell = tr.lastElementChild;
+      cell.style.whiteSpace = 'nowrap';
+      const btnDbg = document.createElement('button');
+      btnDbg.className = 'icon-btn';
+      btnDbg.textContent = '?';
+      btnDbg.title = 'Ver URL llamada y respuesta';
+      btnDbg.onclick = () => openWxDebug(idx);
+      cell.appendChild(btnDbg);
+      // Botón de refetch Tomorrow.io: solo si el provider está configurado.
+      if (d.tomorrow_active) {
+        const btnTio = document.createElement('button');
+        btnTio.className = 'icon-btn';
+        btnTio.style.marginLeft = '.25rem';
+        btnTio.textContent = '↻';
+        btnTio.title = 'Forzar fetch Tomorrow.io';
+        btnTio.onclick = async () => {
+          btnTio.disabled = true; btnTio.textContent = '…';
+          try {
+            const r = await fetch(`/api/weather/fetch?idx=${idx}&provider=tomorrow`);
+            const rd = await r.json();
+            if (!rd.ok) setMsg(`Tio idx=${idx}: HTTP ${rd.http} ${rd.err||''}`, 'err');
+            else setMsg(`Tio idx=${idx} actualizado`, 'ok');
+          } catch(e) { setMsg('Error: '+e.message, 'err'); }
+          finally { loadWeather(); }
+        };
+        cell.appendChild(btnTio);
+      }
       tbody.appendChild(tr);
     });
   }catch(e){}
