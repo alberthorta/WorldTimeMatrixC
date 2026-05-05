@@ -2,6 +2,7 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include "Config.h"
 
@@ -18,6 +19,19 @@ static bool tryConnect(const String& ssid, const String& password, uint32_t time
     if (ssid.isEmpty()) return false;
     Serial.printf("[wifi] connect to %s\n", ssid.c_str());
     WiFi.mode(WIFI_STA);
+    // Hostname ANTES de begin: si lo cambiamos despues, DHCP ya negocio con
+    // el nombre auto-generado y algunos APs/routers tardan en propagar el
+    // nuevo, dejando el device alcanzable solo via IP por minutos.
+    // Pre-fix con last3 del MAC para que sea unico hasta que sepamos el IP.
+    uint8_t mac[6]; WiFi.macAddress(mac);
+    char tmpHost[24];
+    snprintf(tmpHost, sizeof(tmpHost), "WorldTime-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    WiFi.setHostname(tmpHost);
+    // Power save off: por defecto el ESP32 entra en sleep entre beacons.
+    // En APs marginales esto retrasa muchisimo la atencion de TCP incoming
+    // y puede hacer que el server HTTP "tarde" en responder aunque este up.
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
     WiFi.begin(ssid.c_str(), password.c_str());
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -28,7 +42,13 @@ static bool tryConnect(const String& ssid, const String& password, uint32_t time
         }
         delay(200);
     }
-    Serial.printf("[wifi] ok ip=%s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[wifi] ok ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    // Forzar 802.11b post-asociacion: DSSS modulation aguanta bajo RSSI mucho
+    // mejor que OFDM (11g/n). Trade-off: max 11 Mbps en lugar de 54+ — para
+    // JSON pequeño es más que suficiente y el link queda estable, sin la fase
+    // de minutos de rate adaptation que sufrimos en redes marginales.
+    esp_err_t e = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
+    Serial.printf("[wifi] force 11b: %s\n", e == ESP_OK ? "ok" : "fail");
     return true;
 }
 
