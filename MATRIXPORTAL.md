@@ -259,6 +259,103 @@ MDNS.addService("http", "tcp", 80);
 - `class Server` (en Arduino Ethernet/WiFi) → no llames a tu módulo `Server`. Renombra a `WebApi`, `HttpApi`, etc.
 - Macros `min`/`max` → ArduinoJson y otros se llevan mal con ellas. En código moderno usar `std::min`/`std::max` o paréntesis defensivos.
 
+## Otros periféricos disponibles
+
+Lo que viene **en la placa** además del HUB75:
+
+- **LIS3DH accelerómetro 3-axis** (I2C 0x18 o 0x19): detección de orientación, tap, motion. Lib `Adafruit_LIS3DH`. Útil para "girar la matriz", apagar al detectar que se ha tumbado, etc.
+- **2× STEMMA QT / Qwiic** (I2C 3.3V): conectores plug-and-play para sensores externos. BME280 (temp/humedad/presión), BH1750 (lux), VEML7700, RTC DS3231 si quisieras hora con backup, OLED auxiliar, etc.
+- **NeoPixel status LED** (GPIO ~4 o 33, verificar): un LED RGB direccionable. Útil como indicador secundario sin tocar la matriz.
+- **Botones físicos**: `UP` y `DOWN` (verificar GPIO en doc Adafruit), más `BOOT` (GPIO0) y `RESET`. Útiles para navegación/menus sin web.
+- **Conector JST 2-pin LiPo** + circuito de carga: opera sin USB con batería; carga al conectar USB.
+- **GPIO breakout**: algunos pines libres expuestos en pads laterales. Útiles para PIR, encoder rotatorio, IR, etc.
+- **Native USB** (CDC + JTAG via USB-OTG del S3): permite serial sin chip USB-UART, y JTAG sin probe externo.
+
+Lo que viene **del SoC ESP32-S3** (no chip externo, está en silicio):
+
+- **WiFi 2.4GHz** (b/g/n).
+- **Bluetooth LE 5.0** (no Bluetooth Classic). BLE GATT server, advertising, beacon, mesh.
+- **RTC interno**:
+  - El S3 tiene RTC con dominios power persistentes durante deep-sleep.
+  - **Sin backup de batería en la placa** — al cortar power la hora se pierde. Resync via NTP al boot, o añade DS3231 por STEMMA QT si necesitas hora offline.
+- **ADC**: 2× SAR ADC, 12-bit, ~20 canales repartidos por GPIOs.
+- **DAC**: el ESP32-S3 NO tiene DAC dedicado (a diferencia del ESP32 original). Si necesitas audio analógico, usar I2S + amp externo.
+- **I2S audio**: 2 canales, soporta PDM (micrófonos digitales tipo SPH0645) y output a amp digital tipo MAX98357.
+- **Touch sensor**: hasta 14 GPIOs configurables como touch capacitive (capacitive Touch v2).
+- **PWM hardware (LEDC)**: 8 canales, hasta 14-bit resolution.
+- **Crypto hardware**: AES, SHA-1/256/384/512, RSA, HMAC, RNG. Acelera HTTPS y firmas.
+- **ULP coprocessor** (RISC-V): puede correr código durante deep-sleep para muestrear sensores con consumo µA.
+- **Sensor de temperatura interno**: ~±5°C de precisión, mide la die. No vale para temperatura ambiente — afectado por self-heating.
+- **NO tiene Hall sensor** (el ESP32 original sí, S3 lo eliminó).
+
+## Snippets útiles
+
+### LIS3DH acelerómetro
+```cpp
+#include <Adafruit_LIS3DH.h>
+#include <Wire.h>
+Adafruit_LIS3DH lis;
+void setup(){
+    Wire.begin(/*SDA=*/3, /*SCL=*/4);   // verificar pines I2C de la placa
+    if (!lis.begin(0x18)) Serial.println("no LIS3DH");
+    lis.setRange(LIS3DH_RANGE_2_G);
+}
+void loop(){
+    lis.read();
+    Serial.printf("x=%d y=%d z=%d\n", lis.x, lis.y, lis.z);
+    delay(100);
+}
+```
+
+### Bluetooth LE simple advertising
+```cpp
+#include <NimBLEDevice.h>
+NimBLEDevice::init("device-ble");
+NimBLEServer* s = NimBLEDevice::createServer();
+NimBLEService* svc = s->createService("180F");   // battery service uuid
+auto* ch = svc->createCharacteristic("2A19", NIMBLE_PROPERTY::READ);
+ch->setValue(85);
+svc->start();
+NimBLEDevice::getAdvertising()->start();
+```
+Lib: `h2zero/NimBLE-Arduino` (mucho menor que el BLE stack stock).
+
+### Sensor temp interno del S3
+```cpp
+#include <driver/temp_sensor.h>
+temp_sensor_config_t t = TSENS_CONFIG_DEFAULT();
+temp_sensor_set_config(t);
+temp_sensor_start();
+float c;
+temp_sensor_read_celsius(&c);
+Serial.printf("die=%.1fC\n", c);
+```
+
+### Deep sleep con wakeup
+```cpp
+esp_sleep_enable_timer_wakeup(60 * 1000000ULL);   // 60s
+// O wakeup por GPIO (boton):
+// esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+esp_deep_sleep_start();
+```
+
+### NeoPixel
+```cpp
+#include <Adafruit_NeoPixel.h>
+Adafruit_NeoPixel led(1, /*pin*/4, NEO_GRB + NEO_KHZ800);
+led.begin();
+led.setPixelColor(0, led.Color(0, 32, 0));   // verde tenue
+led.show();
+```
+
+## Lo que NO tiene
+
+- **No SD card slot** en el Matrix Portal S3 (la M4 sí lo tenía).
+- **No DAC analógico** (el ESP32-S3 lo eliminó).
+- **No Hall sensor** (idem).
+- **No RTC con backup** (necesita NTP o RTC externo en STEMMA QT).
+- **No Ethernet** (sólo WiFi/BLE).
+
 ## Checklist nuevo proyecto sobre Matrix Portal S3
 
 - [ ] `partitions_ota.csv` con app0/app1 de 3MB y littlefs ≥1MB
