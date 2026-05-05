@@ -33,6 +33,7 @@ struct All {
     float brightness;
     uint16_t weatherRefreshSec;
     bool colonBlink;
+    bool hourLeadingZero;     // si false, "07:05" -> "7:05"
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

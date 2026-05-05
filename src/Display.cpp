@@ -230,10 +230,15 @@ static int drawDigit(char d, int x, int y) {
     return x + digitAdvance(d);
 }
 
-// Dibuja "DD" empezando en x; devuelve la x posterior al ultimo digito.
-static int drawTwoDigits(const char* s, int x, int y) {
-    x = drawDigit(s[0], x, y);
-    return drawDigit(s[1], x, y);
+// Dibuja una secuencia de digitos empezando en x; devuelve la x posterior
+// al ultimo digito. Soporta 1 o 2 chars (e.g., "07" o "7") para que funcione
+// con/sin cero a la izquierda de la hora.
+static int drawDigits(const char* s, int x, int y) {
+    while (*s) {
+        x = drawDigit(*s, x, y);
+        s++;
+    }
+    return x;
 }
 
 void renderRows(const Row rows[4]) {
@@ -265,18 +270,25 @@ void renderRows(const Row rows[4]) {
 
         if (r.hasTime) {
             char hh[3], mm[3];
-            snprintf(hh, sizeof(hh), "%02u", r.hour);
+            // Formato hora: con cero a la izquierda siempre (default) o sin
+            // el si Config::cfg.hourLeadingZero es false y la hora < 10.
+            if (Config::cfg.hourLeadingZero || r.hour >= 10) {
+                snprintf(hh, sizeof(hh), "%02u", r.hour);
+            } else {
+                snprintf(hh, sizeof(hh), "%u", r.hour);
+            }
             snprintf(mm, sizeof(mm), "%02u", r.minute);
-            int blockW = digitAdvance(hh[0]) + digitAdvance(hh[1]) + COLON_W
-                       + digitAdvance(mm[0]) + digitAdvance(mm[1]);
+            int blockW = COLON_W;
+            for (const char* p = hh; *p; p++) blockW += digitAdvance(*p);
+            for (const char* p = mm; *p; p++) blockW += digitAdvance(*p);
             int xStart = TIME_RIGHT_X - blockW;
             dma->setTextColor(r.color);
-            int xCur = drawTwoDigits(hh, xStart, y);
+            int xCur = drawDigits(hh, xStart, y);
             if (r.showColon) {
                 dma->setCursor(xCur, y + COLON_Y_OFFSET);
                 dma->print(":");
             }
-            drawTwoDigits(mm, xCur + COLON_W, y);
+            drawDigits(mm, xCur + COLON_W, y);
         }
 
         if (r.hasWeather) {

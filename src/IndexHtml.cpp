@@ -422,6 +422,10 @@ code{
     <span class="toggle"><input id="blink" type="checkbox"/><span class="toggle-slider"></span></span>
     <span style="font-size:.9rem">Dos puntos parpadeando</span>
   </label>
+  <label class="toggle-row">
+    <span class="toggle"><input id="hour-lz" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Cero a la izquierda en la hora <span class="text-muted">(p.ej. 07:05)</span></span>
+  </label>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -597,6 +601,7 @@ async function loadConfig(){
     $('#nm-bright').value = Math.round(cfg.night_mode.brightness*100);
     $('#nm-bright-val').textContent = $('#nm-bright').value+'%';
     $('#blink').checked = cfg.colon_blink;
+    $('#hour-lz').checked = cfg.hour_leading_zero !== false;   // default true
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
     initialRgbOrder = $('#rgb-order').value;
@@ -927,6 +932,7 @@ $('#save').onclick = async () => {
     brightness: $('#bright').value/100,
     weather_refresh_sec: +$('#refresh').value,
     colon_blink: $('#blink').checked,
+    hour_leading_zero: $('#hour-lz').checked,
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,

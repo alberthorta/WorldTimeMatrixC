@@ -90,6 +90,7 @@ static All defaults() {
     a.brightness = 0.5f;
     a.weatherRefreshSec = 60;
     a.colonBlink = true;
+    a.hourLeadingZero = true;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -104,6 +105,7 @@ static void buildJson(JsonDocument& doc) {
     doc["brightness"] = cfg.brightness;
     doc["weather_refresh_sec"] = cfg.weatherRefreshSec;
     doc["colon_blink"] = cfg.colonBlink;
+    doc["hour_leading_zero"] = cfg.hourLeadingZero;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -139,6 +141,9 @@ static bool applyJson(JsonDocument& doc) {
     }
     if (doc["colon_blink"].is<bool>()) {
         cfg.colonBlink = doc["colon_blink"];
+    }
+    if (doc["hour_leading_zero"].is<bool>()) {
+        cfg.hourLeadingZero = doc["hour_leading_zero"];
     }
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
