@@ -541,6 +541,19 @@ let pollAborter = new AbortController();
 function pollSignal() { return pollAborter.signal; }
 function abortPolls() { pollAborter.abort(); pollAborter = new AbortController(); }
 
+// Timers de polling: durante OTA o reset los pausamos para no martillar al
+// device mientras escribe flash. Se reinician al recargar la pagina.
+let statusTimer = null, weatherTimer = null;
+function startPolls() {
+  if (!statusTimer) statusTimer = setInterval(loadStatus, 5000);
+  if (!weatherTimer) weatherTimer = setInterval(loadWeather, 10000);
+}
+function stopPolls() {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+  if (weatherTimer) { clearInterval(weatherTimer); weatherTimer = null; }
+  abortPolls();
+}
+
 function setMsg(t, kind){
   const m = $('#msg');
   m.textContent = t || '';
@@ -1003,6 +1016,9 @@ $('#ota-upload').onclick = () => {
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/firmware');
 
+  // Para los polls antes de la subida: durante el OTA el device está
+  // ocupado escribiendo flash y no necesita servir /api/status ni /api/weather.
+  stopPolls();
   $('#ota-progress').classList.remove('hidden');
   $('#ota-bar').style.width = '0%';
   $('#ota-upload').disabled = true;
@@ -1019,11 +1035,11 @@ $('#ota-upload').onclick = () => {
     $('#ota-upload').disabled = false;
     if (xhr.status !== 200) {
       setMsg('Error '+xhr.status+': '+xhr.responseText, 'err');
+      startPolls();   // upload fallido → reanuda polls (device sigue vivo)
       return;
     }
-    // Cancelamos los setInterval de polls. Si quedaron requests en vuelo
-    // hacia el device justo cuando se reseteó, así no esperan al timeout
-    // TCP del Mac (~30s).
+    // Polls ya parados antes del upload; aquí nos aseguramos de cancelar
+    // cualquier request que pudiera estar en vuelo (paranoia).
     abortPolls();
     setMsg('Firmware aceptado. Esperando reboot…', 'ok');
     const ms = await waitForDevice(30000);
@@ -1037,6 +1053,7 @@ $('#ota-upload').onclick = () => {
   xhr.onerror = () => {
     $('#ota-upload').disabled = false;
     setMsg('Error de red durante la subida', 'err');
+    startPolls();
   };
   xhr.send(fd);
 };
@@ -1044,8 +1061,8 @@ $('#ota-upload').onclick = () => {
 $('#reload').onclick = () => location.reload();
 $('#reset-dev').onclick = async () => {
   if (!confirm('Reiniciar el device?')) return;
+  stopPolls();
   try{ await fetch('/api/reset', {method:'POST'}); }catch(e){}
-  abortPolls();
   setMsg('Reiniciando…', 'warn');
   const ms = await waitForDevice(20000);
   if (ms >= 0) {
@@ -1082,8 +1099,7 @@ $('#tio-save').onclick = async () => {
 };
 
 loadStatus(); loadWifi(); loadConfig(); loadWeather(); loadProvider();
-setInterval(loadStatus, 5000);
-setInterval(loadWeather, 10000);
+startPolls();
 </script>
 </body></html>
 )WTHTML";
