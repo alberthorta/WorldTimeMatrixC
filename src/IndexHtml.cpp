@@ -1,177 +1,466 @@
 #include "IndexHtml.h"
 
 const char INDEX_HTML[] PROGMEM = R"WTHTML(<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8">
+<html lang="es">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>WorldTime FW</title>
 <style>
+:root{
+  --bg:#020617;
+  --bg-2:#0f172a;
+  --card:rgba(15,23,42,.65);
+  --border:#1e293b;
+  --border-2:#334155;
+  --border-3:#475569;
+  --text:#e2e8f0;
+  --text-2:#cbd5e1;
+  --muted:#94a3b8;
+  --muted-2:#64748b;
+  --accent:#10b981;
+  --accent-hi:#34d399;
+  --accent-deep:#047857;
+  --warn:#fbbf24;
+  --err:#f87171;
+  --danger-bd:#7f1d1d;
+}
 *{box-sizing:border-box}
-body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:1.5rem;max-width:48rem}
-h1{margin:0 0 1rem 0}
-h2{margin:0 0 .75rem 0;font-size:1.05rem}
-section{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem;margin-bottom:1rem}
-button{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:.4rem .9rem;border-radius:.4rem;cursor:pointer;font-size:.875rem}
-button:hover{background:#334155}
-button.primary{background:#059669;border-color:#059669}
-button.primary:hover{background:#10b981}
-button.danger{color:#fca5a5;border-color:#7f1d1d}
-input,select{background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:.35rem .55rem;border-radius:.4rem;font-family:monospace;font-size:.875rem}
-input[type=range]{padding:0;width:100%}
-input[type=color]{padding:0;width:2rem;height:1.6rem;cursor:pointer;border:1px solid #334155}
-input[type=checkbox]{accent-color:#10b981}
-.net{display:flex;justify-content:space-between;padding:.4rem .6rem;background:#0f172a;border-radius:.3rem;margin-bottom:.2rem;cursor:pointer;font-size:.875rem}
-.net:hover{background:#334155}
-code{background:#0f172a;padding:.1rem .3rem;border-radius:.2rem;font-size:.875em}
-.ok{color:#34d399}.warn{color:#fbbf24}.err{color:#f87171}
+html,body{margin:0;padding:0}
+body{
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.5;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+.bg-grad{
+  background-image:
+    radial-gradient(ellipse at 15% -10%,rgba(16,185,129,.10),transparent 55%),
+    radial-gradient(ellipse at 85% 110%,rgba(99,102,241,.08),transparent 55%);
+  min-height:100vh;
+}
+.container{
+  max-width:48rem;
+  margin:0 auto;
+  padding:1.25rem 1rem 7.5rem;
+}
+
+/* Header */
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem;
+}
+.title{display:flex;align-items:baseline;gap:.5rem}
+.title h1{margin:0;font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
+.badge{
+  padding:.15rem .55rem;font-size:.7rem;font-family:ui-monospace,monospace;
+  border-radius:.4rem;
+  background:rgba(16,185,129,.12);
+  border:1px solid rgba(16,185,129,.35);
+  color:var(--accent-hi);
+}
+.status-line{font-size:.75rem;font-family:ui-monospace,monospace;color:var(--muted)}
+
+/* Cards */
+.card{
+  background:var(--card);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  border:1px solid var(--border);
+  border-radius:1rem;
+  padding:1.15rem;
+  margin-bottom:.9rem;
+  box-shadow:0 4px 14px -4px rgba(0,0,0,.35);
+}
+.card-head{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.5rem;margin-bottom:.95rem;flex-wrap:wrap;
+}
+.h-section{
+  margin:0;
+  font-size:.72rem;font-weight:600;
+  text-transform:uppercase;letter-spacing:.09em;
+  color:var(--muted);
+}
+.note{font-size:.72rem;color:var(--muted-2);line-height:1.5;margin:.7rem 0 0}
+
+/* Layout */
 .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
-.col{display:flex;flex-direction:column;gap:.25rem}
-label span{font-size:.75rem;color:#94a3b8}
-#msg{position:sticky;bottom:1rem;background:#0f172a;padding:.5rem;border-radius:.4rem;text-align:center;font-size:.875rem;min-height:1.2em;border:1px solid #334155}
-.city-grid{display:grid;grid-template-columns:auto 4rem 1fr 1fr;gap:.5rem;align-items:center;margin-bottom:.4rem}
-.city-grid input[data-k=name]{font-family:monospace}
-table{width:100%;font-size:.85rem;border-collapse:collapse}
-td,th{padding:.25rem .5rem;text-align:left;border-bottom:1px solid #334155}
-.bright-val{color:#34d399;font-weight:600}
+.row-end{display:flex;gap:.65rem;flex-wrap:wrap;align-items:flex-end}
+.col{display:flex;flex-direction:column;gap:.3rem}
+.grid-2{display:grid;gap:.75rem;grid-template-columns:1fr}
+@media (min-width:640px){.grid-2{grid-template-columns:1fr 1fr}}
+.label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:.3rem}
+
+/* Form controls */
+input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=file]),
+select{
+  background:var(--bg);
+  border:1px solid var(--border-2);
+  color:var(--text);
+  padding:.5rem .7rem;
+  border-radius:.55rem;
+  font-family:ui-monospace,SFMono-Regular,monospace;
+  font-size:.85rem;
+  outline:none;
+  transition:border-color .15s,box-shadow .15s;
+  width:100%;
+}
+input:focus:not([type=range]):not([type=checkbox]),
+select:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(16,185,129,.18);
+}
+input[type=range]{accent-color:var(--accent);width:100%;height:.45rem;cursor:pointer}
+input[type=checkbox]{accent-color:var(--accent);width:1rem;height:1rem;cursor:pointer}
+input[type=color]{
+  padding:0;background:transparent;border:1px solid var(--border-2);
+  border-radius:.4rem;cursor:pointer;width:2.5rem;height:2rem;
+}
+input[type=file]{
+  background:var(--bg);border:1px solid var(--border-2);
+  color:var(--text);padding:.4rem;border-radius:.55rem;
+  font-size:.8rem;font-family:inherit;
+}
+input[type=file]::file-selector-button{
+  background:#1e293b;border:1px solid var(--border-2);
+  color:var(--text);padding:.35rem .8rem;border-radius:.4rem;
+  font-size:.78rem;margin-right:.65rem;cursor:pointer;
+  font-family:inherit;
+}
+input[type=file]::file-selector-button:hover{background:#334155}
+code{
+  background:var(--bg);padding:.1rem .35rem;border-radius:.3rem;
+  font-size:.85em;color:var(--text-2);
+  font-family:ui-monospace,SFMono-Regular,monospace;
+}
+
+/* Buttons */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  gap:.4rem;
+  background:#1e293b;border:1px solid var(--border-2);
+  color:var(--text);padding:.55rem 1rem;
+  border-radius:.55rem;cursor:pointer;
+  font-size:.85rem;font-weight:500;
+  transition:all .15s;font-family:inherit;
+}
+.btn:hover{background:#293548;border-color:var(--border-3)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-sm{padding:.35rem .75rem;font-size:.75rem}
+.btn-primary{
+  background:linear-gradient(180deg,#10b981 0%,#059669 100%);
+  border-color:#0b8a64;color:#022c22;
+  box-shadow:0 1px 0 rgba(255,255,255,.18) inset;
+}
+.btn-primary:hover{
+  background:linear-gradient(180deg,#34d399 0%,#10b981 100%);
+  border-color:#10b981;
+}
+.btn-danger{color:#fca5a5;border-color:var(--danger-bd);background:transparent}
+.btn-danger:hover{background:rgba(127,29,29,.4);color:#fecaca}
+
+/* Toggle switch */
+.toggle{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0;position:absolute}
+.toggle-slider{
+  position:absolute;inset:0;background:#334155;
+  border-radius:9999px;cursor:pointer;transition:.2s;
+}
+.toggle-slider:before{
+  content:'';position:absolute;
+  height:18px;width:18px;left:3px;top:3px;
+  background:#fff;border-radius:50%;transition:.2s;
+  box-shadow:0 1px 2px rgba(0,0,0,.4);
+}
+.toggle input:checked+.toggle-slider{background:var(--accent)}
+.toggle input:checked+.toggle-slider:before{transform:translateX(18px)}
+.toggle-row{display:flex;align-items:center;gap:.75rem;cursor:pointer;margin-bottom:1rem}
+
+/* Brightness value */
+.bright-val{
+  font-family:ui-monospace,monospace;font-weight:700;font-size:1.4rem;
+  color:var(--accent-hi);font-variant-numeric:tabular-nums;
+}
+.bright-val-sm{
+  font-family:ui-monospace,monospace;font-weight:700;font-size:.9rem;
+  color:var(--accent-hi);font-variant-numeric:tabular-nums;
+}
+.range-marks{
+  display:flex;justify-content:space-between;
+  font-size:.7rem;color:var(--muted-2);
+  margin-top:.55rem;font-family:ui-monospace,monospace;
+}
+
+/* WiFi */
+.wifi-status{font-size:.9rem;margin-bottom:.85rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+#nets{display:flex;flex-direction:column;gap:.3rem;max-height:14rem;overflow-y:auto;margin-bottom:.85rem;padding-right:.2rem}
+#nets:empty{display:none}
+.net{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:.55rem .8rem;
+  background:rgba(2,6,23,.6);
+  border:1px solid transparent;
+  border-radius:.5rem;cursor:pointer;font-size:.85rem;transition:all .15s;
+}
+.net:hover{background:#1e293b;border-color:var(--border-2)}
+.net-name{font-family:ui-monospace,monospace;color:var(--text)}
+.net-rssi{font-family:ui-monospace,monospace;font-size:.78rem;font-variant-numeric:tabular-nums}
+.rssi-good{color:var(--accent-hi)}
+.rssi-mid{color:var(--warn)}
+.rssi-bad{color:var(--err)}
+
+/* Status pill */
+.pill{
+  display:inline-flex;align-items:center;gap:.45rem;
+  padding:.22rem .6rem;border-radius:9999px;
+  font-size:.75rem;font-weight:500;
+}
+.pill-ok{background:rgba(16,185,129,.12);color:var(--accent-hi);border:1px solid rgba(16,185,129,.35)}
+.pill-warn{background:rgba(251,191,36,.12);color:var(--warn);border:1px solid rgba(251,191,36,.35)}
+.pill-err{background:rgba(248,113,113,.12);color:var(--err);border:1px solid rgba(248,113,113,.35)}
+.pill-dot{width:.45rem;height:.45rem;border-radius:9999px;background:currentColor;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* Cities */
+#cities{display:flex;flex-direction:column;gap:.55rem}
+.city-row{
+  display:grid;
+  grid-template-columns:2.8rem minmax(5rem,5.5rem) 1fr 1fr;
+  gap:.5rem;align-items:center;
+}
+
 /* Icon editor */
-#icon-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:#334155;padding:1px;border-radius:.3rem;width:160px;height:160px}
-#icon-grid button{padding:0;border:0;border-radius:0}
-#palette{display:grid;grid-template-columns:repeat(8,auto);gap:.4rem;width:fit-content}
-.swatch{display:flex;flex-direction:column;align-items:center;gap:.15rem}
-.swatch button{width:1.8rem;height:1.8rem;border-radius:.3rem;padding:0}
-.swatch input[type=color]{width:1.8rem;height:.8rem}
-.frame-tab{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border-radius:.3rem;font-size:.75rem;background:#0f172a;border:1px solid #334155;cursor:pointer}
-.frame-tab.active{background:#047857;border-color:#10b981;color:#fff}
-.frame-tab button{padding:0;border:0;background:transparent;color:#fca5a5;cursor:pointer;font-size:.85rem}
+.icon-edit-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1.5rem}
+.icon-edit-right{flex:1;min-width:200px}
+#icon-grid{
+  display:grid;grid-template-columns:repeat(5,1fr);
+  gap:1px;background:var(--border-2);padding:1px;
+  border-radius:.55rem;width:200px;height:200px;
+  flex-shrink:0;box-shadow:inset 0 1px 3px rgba(0,0,0,.5);
+}
+#icon-grid button{padding:0;border:0;border-radius:0;cursor:pointer;transition:transform .08s}
+#icon-grid button:hover{transform:scale(1.07);z-index:1;outline:1px solid #fff;outline-offset:-1px}
+.frame-tab{
+  display:inline-flex;align-items:center;gap:.35rem;
+  padding:.32rem .7rem;border-radius:.45rem;
+  font-size:.75rem;background:var(--bg);
+  border:1px solid var(--border-2);cursor:pointer;
+  font-family:ui-monospace,monospace;transition:all .15s;
+  color:var(--text-2);
+}
+.frame-tab:hover{border-color:var(--border-3);background:#1e293b}
+.frame-tab.active{background:var(--accent-deep);border-color:var(--accent);color:#fff;box-shadow:0 0 0 1px var(--accent)}
+.frame-tab button{padding:0 .15rem;border:0;background:transparent;color:#fca5a5;cursor:pointer;font-size:.95rem;line-height:1}
+#palette{display:grid;grid-template-columns:repeat(8,auto);gap:.5rem;width:fit-content}
+.swatch{display:flex;flex-direction:column;align-items:center;gap:.2rem}
+.swatch button{width:2rem;height:2rem;padding:0;border-radius:.4rem;cursor:pointer;transition:transform .08s}
+.swatch button:hover{transform:scale(1.08)}
+.swatch input[type=color]{width:2rem;height:.7rem;border-radius:0;border:1px solid var(--border-2)}
+.swatch-tag{font-size:.6rem;color:var(--muted-2)}
+
+/* Weather table */
+.tbl-wrap{overflow-x:auto;margin:0 -.25rem}
+.weather-tbl{width:100%;border-collapse:collapse;font-size:.85rem;font-family:ui-monospace,monospace}
+.weather-tbl th{
+  text-align:left;padding:.3rem .55rem;
+  font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--muted-2);font-weight:600;
+}
+.weather-tbl td{padding:.4rem .55rem;border-top:1px solid rgba(30,41,59,.7)}
+.text-temp{color:var(--accent-hi)}
+.text-day{color:#fcd34d}
+.text-night{color:#a5b4fc}
+.text-muted{color:var(--muted-2)}
+.text-accent{color:var(--accent-hi)}
+.text-warn{color:var(--warn)}
+
+/* OTA */
+#ota-progress{height:.5rem;background:var(--bg);border-radius:9999px;overflow:hidden;border:1px solid var(--border)}
+#ota-bar{height:100%;width:0;background:linear-gradient(90deg,#10b981,#34d399);transition:width .1s linear}
+
+/* Save bar */
+.savebar{
+  position:fixed;bottom:0;left:0;right:0;
+  background:rgba(2,6,23,.92);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);z-index:10;
+}
+.savebar-inner{
+  max-width:48rem;margin:0 auto;
+  padding:.8rem 1rem;
+  display:flex;flex-wrap:wrap;gap:.55rem;
+}
+.btn-save{flex:1;min-width:160px;padding:.7rem 1rem;font-size:.95rem;font-weight:600}
+#msg{
+  max-width:48rem;margin:0 auto;
+  padding:0 1rem .55rem;font-size:.85rem;
+  text-align:center;min-height:1.25em;color:var(--muted);
+}
+.msg-ok{color:var(--accent-hi)}
+.msg-warn{color:var(--warn)}
+.msg-err{color:var(--err)}
+
+/* Helpers */
+.hidden{display:none}
+.flex-1{flex:1}
+.min-w-200{min-width:200px}
+.mb-3{margin-bottom:.85rem}
+.mb-4{margin-bottom:1rem}
+.gap-1{gap:.3rem}
 </style>
 </head>
 <body>
-<h1>WorldTime <span style="font-size:.75em;color:#64748b">(FW)</span></h1>
+<div class="bg-grad">
+<div class="container">
 
-<section>
-  <h2>Estado</h2>
-  <div id="status">cargando...</div>
-</section>
-
-<section>
-  <h2>WiFi</h2>
-  <div id="wifi-status" style="margin-bottom:.5rem">-</div>
-  <div class="row" style="margin-bottom:.5rem"><button id="scan">Buscar redes</button></div>
-  <div id="nets" style="margin-bottom:.5rem"></div>
-  <div class="row" style="margin-bottom:.5rem">
-    <label class="col"><span>SSID</span><input id="ssid"/></label>
-    <label class="col"><span>Password</span><input id="pwd" type="password"/></label>
+<header class="header">
+  <div class="title">
+    <h1>WorldTime</h1>
+    <span class="badge">FW</span>
   </div>
-  <button class="primary" id="connect">Conectar y reiniciar</button>
+  <div id="status" class="status-line">cargando…</div>
+</header>
+
+<section class="card">
+  <div class="card-head">
+    <h2 class="h-section">WiFi</h2>
+    <button id="scan" class="btn btn-sm">Buscar redes</button>
+  </div>
+  <div id="wifi-status" class="wifi-status">-</div>
+  <div id="nets"></div>
+  <div class="grid-2 mb-3">
+    <label><span class="label">SSID</span><input id="ssid"/></label>
+    <label><span class="label">Password</span><input id="pwd" type="password"/></label>
+  </div>
+  <button id="connect" class="btn btn-primary">Conectar y reiniciar</button>
 </section>
 
-<section>
-  <h2>Brillo (dia)</h2>
+<section class="card">
+  <div class="card-head">
+    <h2 class="h-section">Brillo (día)</h2>
+    <span id="bright-val" class="bright-val">50%</span>
+  </div>
   <input id="bright" type="range" min="5" max="100" step="5"/>
-  <div style="display:flex;justify-content:space-between;font-size:.75rem;color:#94a3b8;margin-top:.25rem">
-    <span>5%</span><span id="bright-val" class="bright-val">50%</span><span>100%</span>
-  </div>
+  <div class="range-marks"><span>5%</span><span>100%</span></div>
 </section>
 
-<section>
-  <h2>Modo noche</h2>
-  <div class="row" style="margin-bottom:.5rem">
-    <label><input id="nm-en" type="checkbox"/> Activado</label>
+<section class="card">
+  <div class="card-head">
+    <h2 class="h-section">Modo noche</h2>
+    <label class="toggle"><input id="nm-en" type="checkbox"/><span class="toggle-slider"></span></label>
   </div>
-  <div class="row" style="margin-bottom:.5rem">
-    <label class="col"><span>Inicio</span><input id="nm-start" type="time"/></label>
-    <label class="col"><span>Fin</span><input id="nm-end" type="time"/></label>
+  <div class="grid-2 mb-3">
+    <label><span class="label">Inicio</span><input id="nm-start" type="time"/></label>
+    <label><span class="label">Fin</span><input id="nm-end" type="time"/></label>
   </div>
-  <label class="col">
-    <span>Brillo nocturno: <span id="nm-bright-val" class="bright-val">10%</span></span>
-    <input id="nm-bright" type="range" min="5" max="100" step="5"/>
-  </label>
+  <div class="card-head" style="margin-bottom:.4rem">
+    <span class="label" style="margin-bottom:0">Brillo nocturno</span>
+    <span id="nm-bright-val" class="bright-val-sm">10%</span>
+  </div>
+  <input id="nm-bright" type="range" min="5" max="100" step="5"/>
 </section>
 
-<section>
-  <h2>Ciudades</h2>
+<section class="card">
+  <h2 class="h-section mb-3">Ciudades</h2>
   <div id="cities"></div>
 </section>
 
-<section>
-  <h2>Iconos</h2>
-  <div class="row" style="margin-bottom:.5rem">
-    <label class="col"><span>Editar</span><select id="icon-pick"></select></label>
-    <button id="reset-icon" class="danger" style="align-self:end">Restablecer este icono</button>
+<section class="card">
+  <h2 class="h-section mb-3">Iconos</h2>
+  <div class="row-end mb-3">
+    <label><span class="label">Editar</span><select id="icon-pick" style="min-width:8rem"></select></label>
+    <button id="reset-icon" class="btn btn-danger btn-sm">Restablecer este icono</button>
   </div>
-  <div class="row" style="margin-bottom:.5rem">
-    <div id="icon-frames" class="row" style="gap:.3rem"></div>
-    <button id="frame-add" style="font-size:.75rem">+ Frame</button>
-    <button id="frame-play" style="font-size:.75rem;color:#34d399">▶ Play</button>
+  <div class="row mb-3">
+    <div id="icon-frames" class="row gap-1"></div>
+    <button id="frame-add" class="btn btn-sm">+ Frame</button>
+    <button id="frame-play" class="btn btn-sm"><span class="text-accent">▶</span> Play</button>
   </div>
-  <div class="row" style="margin-bottom:.75rem">
-    <label class="col"><span>Duracion frame (ms)</span>
-      <input id="frame-ms" type="number" min="50" max="5000" step="50" style="width:6rem"/>
-    </label>
-  </div>
-  <div class="row" style="align-items:flex-start;gap:1rem">
+  <label style="display:block;margin-bottom:1rem;max-width:10rem">
+    <span class="label">Duración frame (ms)</span>
+    <input id="frame-ms" type="number" min="50" max="5000" step="50"/>
+  </label>
+  <div class="icon-edit-row">
     <div id="icon-grid"></div>
-    <div class="col" style="flex:1;gap:.5rem">
-      <span>Paleta</span>
+    <div class="icon-edit-right">
+      <span class="label">Paleta</span>
       <div id="palette"></div>
     </div>
   </div>
 </section>
 
-<section>
-  <h2>Otros</h2>
-  <div class="row" style="margin-bottom:.5rem">
-    <label><input id="blink" type="checkbox"/> Dos puntos parpadeando</label>
+<section class="card">
+  <h2 class="h-section mb-3">Otros</h2>
+  <label class="toggle-row">
+    <span class="toggle"><input id="blink" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Dos puntos parpadeando</span>
+  </label>
+  <div class="grid-2">
+    <label>
+      <span class="label">Refresco meteo (segundos)</span>
+      <input id="refresh" type="number" min="30" max="3600" step="30"/>
+    </label>
+    <label>
+      <span class="label">Orden RGB <span class="text-warn">(reinicia al cambiar)</span></span>
+      <select id="rgb-order">
+        <option value="RGB">RGB (estándar)</option>
+        <option value="RBG">RBG (G/B intercambiados)</option>
+      </select>
+    </label>
   </div>
-  <label class="col" style="max-width:14rem">
-    <span>Refresco meteo (segundos)</span>
-    <input id="refresh" type="number" min="30" max="3600" step="30"/>
-  </label>
-  <label class="col" style="max-width:14rem;margin-top:.5rem">
-    <span>Orden RGB del panel (cambio requiere reinicio)</span>
-    <select id="rgb-order">
-      <option value="RGB">RGB (estandar)</option>
-      <option value="RBG">RBG (G/B intercambiados)</option>
-    </select>
-  </label>
 </section>
 
-<section>
-  <h2>Logs meteo</h2>
-  <table id="weather"><tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th></tr></table>
+<section class="card">
+  <h2 class="h-section mb-3">Logs meteo</h2>
+  <div class="tbl-wrap">
+    <table id="weather" class="weather-tbl">
+      <thead>
+        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 </section>
 
-<section>
-  <h2>Actualizar firmware (OTA)</h2>
-  <div class="row" style="margin-bottom:.5rem">
-    <input id="ota-file" type="file" accept=".bin"/>
-    <button id="ota-upload" class="primary">Subir y reiniciar</button>
+<section class="card">
+  <h2 class="h-section mb-3">Actualizar firmware (OTA)</h2>
+  <div class="row mb-3">
+    <input id="ota-file" type="file" accept=".bin" class="flex-1 min-w-200"/>
+    <button id="ota-upload" class="btn btn-primary">Subir y reiniciar</button>
   </div>
-  <div id="ota-progress" style="height:.5rem;background:#0f172a;border-radius:.3rem;overflow:hidden;display:none">
-    <div id="ota-bar" style="height:100%;width:0;background:#10b981;transition:width 100ms"></div>
-  </div>
-  <p style="font-size:.75rem;color:#94a3b8;margin-top:.4rem">
+  <div id="ota-progress" class="hidden"><div id="ota-bar"></div></div>
+  <p class="note">
     Sube el .bin generado con <code>pio run -e matrixportal_s3</code> (en
     <code>.pio/build/matrixportal_s3/firmware.bin</code>). Tarda ~1 min.
   </p>
 </section>
 
-<section>
-  <h2>Backup / Restaurar</h2>
+<section class="card">
+  <h2 class="h-section mb-3">Backup / Restaurar</h2>
   <div class="row">
-    <button id="cfg-export">Descargar config</button>
-    <button id="cfg-import-btn">Cargar config...</button>
-    <input id="cfg-import" type="file" accept="application/json,.json" style="display:none"/>
+    <button id="cfg-export" class="btn">Descargar config</button>
+    <button id="cfg-import-btn" class="btn">Cargar config…</button>
+    <input id="cfg-import" type="file" accept="application/json,.json" class="hidden"/>
   </div>
-  <p style="font-size:.75rem;color:#94a3b8;margin-top:.5rem">El JSON descargado contiene cities, brillo, modo noche, paleta e iconos. NO incluye creds WiFi.</p>
+  <p class="note">El JSON descargado contiene cities, brillo, modo noche, paleta e iconos. NO incluye creds WiFi.</p>
 </section>
 
-<div class="row" style="position:sticky;bottom:0;background:#0f172a;padding:.75rem 0;gap:.5rem">
-  <button class="primary" id="save" style="flex:1">Guardar cambios</button>
-  <button id="reload">Recargar</button>
-  <button id="reset-dev" class="danger">Reiniciar device</button>
+</div>
 </div>
 
-<div id="msg"></div>
+<div class="savebar">
+  <div class="savebar-inner">
+    <button id="save" class="btn btn-primary btn-save">Guardar cambios</button>
+    <button id="reload" class="btn">Recargar</button>
+    <button id="reset-dev" class="btn btn-danger">Reiniciar device</button>
+  </div>
+  <div id="msg"></div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -181,27 +470,31 @@ let playTimer = null;
 function setMsg(t, kind){
   const m = $('#msg');
   m.textContent = t || '';
-  m.className = kind || '';
+  m.className = '';
+  if (kind === 'ok') m.classList.add('msg-ok');
+  else if (kind === 'err') m.classList.add('msg-err');
+  else if (kind === 'warn') m.classList.add('msg-warn');
 }
 function fmtUp(s){ s=Math.floor(s); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s'; return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'; }
 function intToHex(n){ return '#'+(n|0).toString(16).padStart(6,'0'); }
 function hexToInt(h){ return parseInt(h.replace('#',''),16); }
 function minsToHHMM(m){ const h=Math.floor(m/60),mm=m%60; return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
 function hhmmToMins(s){ const [h,m]=s.split(':').map(Number); return h*60+m; }
+function rssiClass(r){ return r >= -60 ? 'rssi-good' : r >= -75 ? 'rssi-mid' : 'rssi-bad'; }
 
 async function loadStatus(){
   try{
     const r = await fetch('/api/status'); const d = await r.json();
-    $('#status').innerHTML = `<code>${d.ip||'-'}</code> · uptime ${fmtUp(d.uptime_sec)} · heap ${(d.heap_free/1024).toFixed(1)}KB · psram ${(d.psram_free/1024).toFixed(1)}KB${d.rssi?' · '+d.rssi+' dBm':''}`;
+    $('#status').innerHTML = `<span class="text-accent">${d.ip||'-'}</span> · ${fmtUp(d.uptime_sec)} · heap ${(d.heap_free/1024).toFixed(1)}KB${d.rssi?' · '+d.rssi+'dBm':''}`;
   }catch(e){}
 }
 async function loadWifi(){
   try{
     const r = await fetch('/api/wifi'); const d = await r.json();
     let html = '';
-    if (d.mode === 'sta') html = `<span class="ok">Conectado</span> a <code>${d.current_ssid}</code> · IP <code>${d.ip}</code>`;
-    else if (d.mode === 'ap') html = `<span class="warn">Modo AP</span> · SSID <code>${d.ap_ssid}</code> · IP <code>${d.ip}</code>`;
-    else html = `<span class="err">Sin conexion</span>`;
+    if (d.mode === 'sta') html = `<span class="pill pill-ok"><span class="pill-dot"></span>Conectado</span><span>a <code>${d.current_ssid}</code> · IP <code>${d.ip}</code></span>`;
+    else if (d.mode === 'ap') html = `<span class="pill pill-warn"><span class="pill-dot"></span>Modo AP</span><span>SSID <code>${d.ap_ssid}</code> · IP <code>${d.ip}</code></span>`;
+    else html = `<span class="pill pill-err">Sin conexión</span>`;
     $('#wifi-status').innerHTML = html;
     if (d.current_ssid && !$('#ssid').value) $('#ssid').value = d.current_ssid;
   }catch(e){}
@@ -230,12 +523,12 @@ function renderCities(){
   const box = $('#cities'); box.innerHTML = '';
   cfg.cities.forEach((c,i) => {
     const row = document.createElement('div');
-    row.className = 'city-grid';
+    row.className = 'city-row';
     row.innerHTML = `
       <input type="color" data-i="${i}" data-k="color" value="${intToHex(c.color)}"/>
       <input data-i="${i}" data-k="name" value="${c.name||''}" maxlength="6"/>
-      <input data-i="${i}" data-k="lat" type="number" step="0.000001" value="${c.lat}"/>
-      <input data-i="${i}" data-k="lon" type="number" step="0.000001" value="${c.lon}"/>`;
+      <input data-i="${i}" data-k="lat" type="number" step="0.000001" value="${c.lat}" placeholder="lat"/>
+      <input data-i="${i}" data-k="lon" type="number" step="0.000001" value="${c.lon}" placeholder="lon"/>`;
     box.appendChild(row);
   });
   box.querySelectorAll('input').forEach(el => el.addEventListener('input', e => {
@@ -247,7 +540,6 @@ function renderCities(){
   }));
 }
 
-// --- Icon editor ---
 function renderIconPicker(){
   const sel = $('#icon-pick'); sel.innerHTML = '';
   Object.keys(cfg.icons).forEach(n => {
@@ -272,7 +564,7 @@ function renderFrames(){
     const tab = document.createElement('span');
     tab.className = 'frame-tab' + (i === curFrame ? ' active' : '');
     const lbl = document.createElement('span');
-    lbl.textContent = `F${i+1} (${f.ms||500}ms)`;
+    lbl.textContent = `F${i+1} · ${f.ms||500}ms`;
     lbl.onclick = () => { stopPlay(); curFrame = i; renderFrames(); renderIconGrid(); };
     tab.appendChild(lbl);
     if (frames.length > 1) {
@@ -309,9 +601,6 @@ $('#frame-ms').addEventListener('input', e => {
 });
 $('#reset-icon').addEventListener('click', () => {
   if (!confirm('Restablecer este icono a su default?')) return;
-  // El default lo proporciona el server; pedimos el config global de nuevo.
-  // Simplificacion: solo borramos frames extras y dejamos uno vacio (el usuario re-edita).
-  // Para defaults reales, recargamos pagina tras hacer un POST sin este icono y recargando.
   alert('Para defaults oficiales: sigue editando manualmente o recarga sin guardar.');
 });
 
@@ -325,6 +614,7 @@ function renderPalette(){
       ? 'repeating-linear-gradient(45deg,#334155 0 4px,#1e293b 4px 8px)'
       : hex;
     b.style.border = i === curColor ? '2px solid #34d399' : '1px solid #334155';
+    b.style.boxShadow = i === curColor ? '0 0 0 2px rgba(52,211,153,.25)' : 'none';
     b.title = i === 0 ? 'Transparente' : 'Color '+i;
     b.onclick = () => { curColor = i; renderPalette(); };
     w.appendChild(b);
@@ -339,8 +629,7 @@ function renderPalette(){
       w.appendChild(ed);
     } else {
       const s = document.createElement('span');
-      s.textContent = 'transp';
-      s.style.fontSize = '.6rem'; s.style.color = '#64748b';
+      s.textContent = 'transp'; s.className = 'swatch-tag';
       w.appendChild(s);
     }
     box.appendChild(w);
@@ -362,16 +651,15 @@ function renderIconGrid(){
   }
 }
 
-// --- Play ---
 function stopPlay(){
   if (playTimer) clearTimeout(playTimer);
   playTimer = null;
-  $('#frame-play').textContent = '▶ Play';
+  $('#frame-play').innerHTML = '<span class="text-accent">▶</span> Play';
 }
 function startPlay(){
   const fr = curFrames();
   if (!fr || fr.length < 2) { stopPlay(); return; }
-  $('#frame-play').textContent = '⏸ Pausa';
+  $('#frame-play').innerHTML = '<span class="text-warn">⏸</span> Pausa';
   const tick = () => {
     const f = curFrames();
     if (!f || f.length < 2) { stopPlay(); return; }
@@ -383,28 +671,32 @@ function startPlay(){
 }
 $('#frame-play').addEventListener('click', () => { playTimer ? stopPlay() : startPlay(); });
 
-// --- Weather logs ---
 async function loadWeather(){
   try{
     const r = await fetch('/api/weather'); const d = await r.json();
-    let html = '<tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th></tr>';
+    const tbody = $('#weather').querySelector('tbody');
+    let html = '';
     d.cities.forEach(c => {
-      html += `<tr><td>${c.name}</td><td>${c.has_data?(c.offset_sec/3600).toFixed(1)+'h':'-'}</td><td>${c.has_data?c.temp_c+'°':'-'}</td><td>${c.has_data?c.code:'-'}</td><td>${c.has_data?(c.is_day?'☀':'🌙'):'-'}</td></tr>`;
+      const day  = c.has_data ? (c.is_day ? '<span class="text-day">☀</span>' : '<span class="text-night">🌙</span>') : '<span class="text-muted">-</span>';
+      const tmp  = c.has_data ? `<span class="text-temp">${c.temp_c}°</span>` : '<span class="text-muted">-</span>';
+      const off  = c.has_data ? `${(c.offset_sec/3600).toFixed(1)}h` : '-';
+      const code = c.has_data ? c.code : '-';
+      html += `<tr><td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td class="text-muted">${code}</td><td>${day}</td></tr>`;
     });
-    $('#weather').innerHTML = html;
+    tbody.innerHTML = html;
   }catch(e){}
 }
 
-// --- WiFi handlers ---
 $('#scan').onclick = async () => {
-  const btn = $('#scan'); btn.disabled = true; btn.textContent = 'Buscando...';
+  const btn = $('#scan'); btn.disabled = true; btn.textContent = 'Buscando…';
   try{
     const r = await fetch('/api/wifi/scan'); const d = await r.json();
     const box = $('#nets'); box.innerHTML = '';
     (d.networks || []).forEach(n => {
       const div = document.createElement('div');
       div.className = 'net';
-      div.innerHTML = `<span>${n.ssid} ${n.secure?'🔒':''}</span><span>${n.rssi} dBm</span>`;
+      const lock = n.secure ? ' <span class="text-muted">🔒</span>' : '';
+      div.innerHTML = `<span class="net-name">${n.ssid}${lock}</span><span class="net-rssi ${rssiClass(n.rssi)}">${n.rssi} dBm</span>`;
       div.onclick = () => { $('#ssid').value = n.ssid; $('#pwd').focus(); };
       box.appendChild(div);
     });
@@ -420,7 +712,6 @@ $('#connect').onclick = async () => {
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
-// --- Brightness live ---
 let brightTimer;
 $('#bright').addEventListener('input', e => {
   $('#bright-val').textContent = e.target.value+'%';
@@ -440,7 +731,6 @@ $('#nm-bright').addEventListener('input', e => {
   }, 80);
 });
 
-// --- Save ---
 $('#save').onclick = async () => {
   const patch = {
     brightness: $('#bright').value/100,
@@ -467,7 +757,6 @@ $('#save').onclick = async () => {
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
-// --- Backup / Restaurar ---
 $('#cfg-export').onclick = async () => {
   try{
     const r = await fetch('/api/config'); const txt = await r.text();
@@ -496,7 +785,6 @@ $('#cfg-import').onchange = async e => {
   finally{ e.target.value = ''; }
 };
 
-// --- OTA upload ---
 $('#ota-upload').onclick = () => {
   const f = $('#ota-file').files[0];
   if (!f) { setMsg('Selecciona un .bin primero', 'err'); return; }
@@ -508,10 +796,10 @@ $('#ota-upload').onclick = () => {
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/firmware');
 
-  $('#ota-progress').style.display = 'block';
+  $('#ota-progress').classList.remove('hidden');
   $('#ota-bar').style.width = '0%';
   $('#ota-upload').disabled = true;
-  setMsg('Subiendo firmware...');
+  setMsg('Subiendo firmware…');
 
   xhr.upload.onprogress = e => {
     if (e.lengthComputable) {
@@ -540,7 +828,7 @@ $('#reload').onclick = () => location.reload();
 $('#reset-dev').onclick = async () => {
   if (!confirm('Reiniciar el device?')) return;
   try{ await fetch('/api/reset', {method:'POST'}); }catch(e){}
-  setMsg('Reiniciando...', 'warn');
+  setMsg('Reiniciando…', 'warn');
   setTimeout(() => location.reload(), 6000);
 };
 
