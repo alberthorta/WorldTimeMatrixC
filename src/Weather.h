@@ -20,11 +20,14 @@ struct Data {
 extern Data data[4];
 
 struct FetchDebug {
-    int httpCode;
-    int attempts;
+    int httpCode = -1;
+    int attempts = 0;
     String lastError;
+    String lastUrl;     // URL llamada en el ultimo fetch
+    String lastBody;    // respuesta raw (truncada a 2KB para acotar RAM)
+    uint32_t lastAtMs = 0;  // millis() al final del ultimo fetch
 };
-extern FetchDebug debugInfo;
+extern FetchDebug debugInfo[4];   // una entrada por ciudad
 
 void loadCache();          // Restaura data[] desde NVS (cache persistente).
 void saveCache();          // Persiste data[] a NVS.

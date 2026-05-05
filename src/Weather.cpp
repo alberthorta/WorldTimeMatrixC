@@ -11,14 +11,19 @@
 namespace Weather {
 
 Data data[4] = {};
-FetchDebug debugInfo = {-1, 0, ""};
+FetchDebug debugInfo[4];
 static TaskHandle_t taskHandle = nullptr;
 
+static constexpr size_t MAX_DEBUG_BODY = 2048;
+
 static bool fetchOne(int idx) {
-    debugInfo.attempts++;
+    if (idx < 0 || idx >= 4) return false;
+    FetchDebug& dbg = debugInfo[idx];
+    dbg.attempts++;
     if (!WiFi.isConnected()) {
-        debugInfo.lastError = "no wifi";
-        debugInfo.httpCode = -1;
+        dbg.lastError = "no wifi";
+        dbg.httpCode = -1;
+        dbg.lastAtMs = millis();
         return false;
     }
     const Config::City& cc = Config::cfg.cities[idx];
@@ -29,21 +34,33 @@ static bool fetchOne(int idx) {
     url += "&longitude=";
     url += String(cc.lon, 6);
     url += "&current=temperature_2m,weather_code,is_day&timezone=auto";
+    dbg.lastUrl = url;
+    dbg.lastBody = "";
 
     HTTPClient http;
     http.setTimeout(8000);
     http.useHTTP10(true);
     if (!http.begin(url)) {
-        debugInfo.lastError = "http.begin failed";
-        debugInfo.httpCode = -2;
+        dbg.lastError = "http.begin failed";
+        dbg.httpCode = -2;
+        dbg.lastAtMs = millis();
         return false;
     }
     int code = http.GET();
-    debugInfo.httpCode = code;
+    dbg.httpCode = code;
     bool ok = false;
     if (code == 200) {
+        // Capturamos primero el body raw (truncado a MAX_DEBUG_BODY) para
+        // poder mostrarlo en el debug. Luego parseamos la copia.
+        String body = http.getString();
+        if (body.length() > MAX_DEBUG_BODY) {
+            dbg.lastBody = body.substring(0, MAX_DEBUG_BODY);
+            dbg.lastBody += "\n...[truncated]";
+        } else {
+            dbg.lastBody = body;
+        }
         JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, http.getStream());
+        DeserializationError err = deserializeJson(doc, body);
         if (!err) {
             JsonVariant cur = doc["current"];
             if (!cur.isNull()) {
@@ -54,18 +71,19 @@ static bool fetchOne(int idx) {
                 d.isDay = ((int)(cur["is_day"] | 1)) == 1;
                 d.hasData = true;
                 ok = true;
-                debugInfo.lastError = "";
+                dbg.lastError = "";
             } else {
-                debugInfo.lastError = "no current field";
+                dbg.lastError = "no current field";
             }
         } else {
-            debugInfo.lastError = String("parse: ") + err.c_str();
-            debugInfo.httpCode = -3;
+            dbg.lastError = String("parse: ") + err.c_str();
+            dbg.httpCode = -3;
         }
     } else {
-        debugInfo.lastError = String("http ") + code + ": " + http.errorToString(code);
+        dbg.lastError = String("http ") + code + ": " + http.errorToString(code);
     }
     http.end();
+    dbg.lastAtMs = millis();
     return ok;
 }
 

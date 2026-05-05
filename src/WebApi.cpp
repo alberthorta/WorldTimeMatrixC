@@ -191,24 +191,23 @@ void begin() {
                 });
         });
 
-    server.on("/api/weather", HTTP_GET, [](AsyncWebServerRequest* req) {
+    // Detalles de la ultima llamada (URL + body raw) para una ciudad. Util
+    // para debugging desde el panel admin. ANTES que /api/weather por matching.
+    server.on("/api/weather/debug", HTTP_GET, [](AsyncWebServerRequest* req) {
+        int idx = 0;
+        if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
+        idx = constrain(idx, 0, 3);
+        const auto& dbg = Weather::debugInfo[idx];
         JsonDocument doc;
-        doc["utc_now"] = (uint32_t)time(nullptr);
-        doc["debug_attempts"] = Weather::debugInfo.attempts;
-        doc["debug_http"] = Weather::debugInfo.httpCode;
-        doc["debug_err"] = Weather::debugInfo.lastError;
-        JsonArray arr = doc["cities"].to<JsonArray>();
-        for (int i = 0; i < 4; i++) {
-            const auto& cc = Config::cfg.cities[i];
-            const auto& d = Weather::data[i];
-            JsonObject o = arr.add<JsonObject>();
-            o["name"] = cc.name;
-            o["has_data"] = d.hasData;
-            o["offset_sec"] = d.offsetSec;
-            o["temp_c"] = d.tempC;
-            o["code"] = d.code;
-            o["is_day"] = d.isDay;
-        }
+        doc["idx"] = idx;
+        doc["name"] = Config::cfg.cities[idx].name;
+        doc["url"] = dbg.lastUrl;
+        doc["http"] = dbg.httpCode;
+        doc["attempts"] = dbg.attempts;
+        doc["last_at_ms"] = dbg.lastAtMs;
+        doc["err"] = dbg.lastError;
+        doc["body"] = dbg.lastBody;
+        doc["body_len"] = dbg.lastBody.length();
         sendJson(req, doc);
     });
     // Trigger sincrono: fuerza un fetch del idx dado y devuelve estado.
@@ -217,11 +216,34 @@ void begin() {
         if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
         idx = constrain(idx, 0, 3);
         bool ok = Weather::fetchOneSync(idx);
+        const auto& dbg = Weather::debugInfo[idx];
         JsonDocument doc;
         doc["ok"] = ok;
         doc["idx"] = idx;
-        doc["http"] = Weather::debugInfo.httpCode;
-        doc["err"] = Weather::debugInfo.lastError;
+        doc["http"] = dbg.httpCode;
+        doc["err"] = dbg.lastError;
+        sendJson(req, doc);
+    });
+    server.on("/api/weather", HTTP_GET, [](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        doc["utc_now"] = (uint32_t)time(nullptr);
+        JsonArray arr = doc["cities"].to<JsonArray>();
+        for (int i = 0; i < 4; i++) {
+            const auto& cc = Config::cfg.cities[i];
+            const auto& d = Weather::data[i];
+            const auto& dbg = Weather::debugInfo[i];
+            JsonObject o = arr.add<JsonObject>();
+            o["name"] = cc.name;
+            o["has_data"] = d.hasData;
+            o["offset_sec"] = d.offsetSec;
+            o["temp_c"] = d.tempC;
+            o["code"] = d.code;
+            o["is_day"] = d.isDay;
+            o["http"] = dbg.httpCode;
+            o["attempts"] = dbg.attempts;
+            o["last_at_ms"] = dbg.lastAtMs;
+            if (dbg.lastError.length()) o["err"] = dbg.lastError;
+        }
         sendJson(req, doc);
     });
     server.on("/api/status", HTTP_GET, handleGetStatus);

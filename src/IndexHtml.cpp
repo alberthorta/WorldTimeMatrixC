@@ -305,6 +305,20 @@ code{
 .msg-warn{color:var(--warn)}
 .msg-err{color:var(--err)}
 
+/* Modal */
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal.hidden{display:none}
+.modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.78);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.modal-card{position:relative;background:#0f172a;border:1px solid var(--border);border-radius:1rem;width:100%;max-width:42rem;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.1rem;border-bottom:1px solid var(--border)}
+.modal-head h3{margin:0;font-size:.95rem;font-weight:600}
+.modal-body{padding:1rem 1.1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.85rem}
+.modal-meta{font-size:.75rem;color:var(--muted);font-family:ui-monospace,monospace;display:flex;flex-wrap:wrap;gap:.65rem}
+.modal-meta b{color:var(--text-2);font-weight:600}
+.modal-section pre{margin:.3rem 0 0;background:var(--bg);border:1px solid var(--border);border-radius:.5rem;padding:.65rem;font-size:.72rem;line-height:1.45;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:18rem;overflow-y:auto}
+.icon-btn{background:transparent;border:1px solid var(--border-2);color:var(--text-2);padding:.15rem .45rem;border-radius:.35rem;cursor:pointer;font-size:.7rem;font-family:inherit;transition:all .15s}
+.icon-btn:hover{background:#1e293b;border-color:var(--border-3);color:var(--accent-hi)}
+
 /* Helpers */
 .hidden{display:none}
 .flex-1{flex:1}
@@ -420,12 +434,34 @@ code{
   <div class="tbl-wrap">
     <table id="weather" class="weather-tbl">
       <thead>
-        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th></tr>
+        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 </section>
+
+<!-- Modal de debug por ciudad: URL llamada y respuesta raw -->
+<div id="wx-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="wx-modal-title">Debug meteo</h3>
+      <button id="wx-modal-close" class="btn btn-sm">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-meta" id="wx-modal-meta"></div>
+      <div class="modal-section">
+        <span class="label">URL</span>
+        <pre id="wx-modal-url"></pre>
+      </div>
+      <div class="modal-section">
+        <span class="label">Response body</span>
+        <pre id="wx-modal-body"></pre>
+      </div>
+    </div>
+  </div>
+</div>
 
 <section class="card">
   <h2 class="h-section mb-3">Actualizar firmware (OTA)</h2>
@@ -677,17 +713,56 @@ async function loadWeather(){
   try{
     const r = await fetch('/api/weather'); const d = await r.json();
     const tbody = $('#weather').querySelector('tbody');
-    let html = '';
-    d.cities.forEach(c => {
+    tbody.innerHTML = '';
+    d.cities.forEach((c, idx) => {
+      const tr = document.createElement('tr');
       const day  = c.has_data ? (c.is_day ? '<span class="text-day">☀</span>' : '<span class="text-night">🌙</span>') : '<span class="text-muted">-</span>';
       const tmp  = c.has_data ? `<span class="text-temp">${c.temp_c}°</span>` : '<span class="text-muted">-</span>';
       const off  = c.has_data ? `${(c.offset_sec/3600).toFixed(1)}h` : '-';
       const code = c.has_data ? c.code : '-';
-      html += `<tr><td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td class="text-muted">${code}</td><td>${day}</td></tr>`;
+      tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td class="text-muted">${code}</td><td>${day}</td><td></td>`;
+      const btn = document.createElement('button');
+      btn.className = 'icon-btn';
+      btn.textContent = '?';
+      btn.title = 'Ver URL llamada y respuesta';
+      btn.onclick = () => openWxDebug(idx);
+      tr.lastElementChild.appendChild(btn);
+      tbody.appendChild(tr);
     });
-    tbody.innerHTML = html;
   }catch(e){}
 }
+
+async function openWxDebug(idx){
+  $('#wx-modal-title').textContent = 'Debug meteo · cargando…';
+  $('#wx-modal-meta').innerHTML = '';
+  $('#wx-modal-url').textContent = '';
+  $('#wx-modal-body').textContent = '';
+  $('#wx-modal').classList.remove('hidden');
+  try{
+    const r = await fetch('/api/weather/debug?idx='+idx);
+    const d = await r.json();
+    $('#wx-modal-title').textContent = `Debug meteo · ${d.name || ('city '+idx)}`;
+    const ageMs = d.last_at_ms ? (Date.now() - d.last_at_ms) : null;
+    const ageStr = ageMs !== null ? `hace ${fmtUp(ageMs/1000)}` : 'nunca';
+    const httpClass = d.http === 200 ? 'text-accent' : 'text-warn';
+    let meta = `<span><b>HTTP:</b> <span class="${httpClass}">${d.http}</span></span>`;
+    meta += `<span><b>Intentos:</b> ${d.attempts}</span>`;
+    meta += `<span><b>Última:</b> ${ageStr}</span>`;
+    if (d.body_len) meta += `<span><b>Body:</b> ${d.body_len} B</span>`;
+    if (d.err) meta += `<span class="text-warn"><b>Err:</b> ${d.err}</span>`;
+    $('#wx-modal-meta').innerHTML = meta;
+    $('#wx-modal-url').textContent = d.url || '(sin url, fetch aún no realizado)';
+    let bodyText = d.body || '(vacío)';
+    try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch{}
+    $('#wx-modal-body').textContent = bodyText;
+  }catch(e){
+    $('#wx-modal-title').textContent = 'Debug meteo · error';
+    $('#wx-modal-body').textContent = e.message;
+  }
+}
+$('#wx-modal-close').onclick = () => $('#wx-modal').classList.add('hidden');
+$('#wx-modal').querySelector('.modal-backdrop').onclick = () => $('#wx-modal').classList.add('hidden');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#wx-modal').classList.add('hidden'); });
 
 $('#scan').onclick = async () => {
   const btn = $('#scan'); btn.disabled = true; btn.textContent = 'Buscando…';
