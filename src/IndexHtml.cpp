@@ -535,6 +535,11 @@ const $ = s => document.querySelector(s);
 let cfg = null, curIcon = 'SUN', curFrame = 0, curColor = 1;
 let playTimer = null;
 let initialRgbOrder = null;   // baseline para detectar cambio en el selector RGB/RBG
+// AbortController para cancelar fetches periódicos antes del OTA (evita que
+// requests en vuelo queden colgadas esperando un device que se acaba de resetear).
+let pollAborter = new AbortController();
+function pollSignal() { return pollAborter.signal; }
+function abortPolls() { pollAborter.abort(); pollAborter = new AbortController(); }
 
 function setMsg(t, kind){
   const m = $('#msg');
@@ -553,7 +558,7 @@ function rssiClass(r){ return r >= -60 ? 'rssi-good' : r >= -75 ? 'rssi-mid' : '
 
 async function loadStatus(){
   try{
-    const r = await fetch('/api/status'); const d = await r.json();
+    const r = await fetch('/api/status', {signal: pollSignal()}); const d = await r.json();
     $('#status').innerHTML = `<span class="text-accent">${d.ip||'-'}</span> · ${fmtUp(d.uptime_sec)} · heap ${(d.heap_free/1024).toFixed(1)}KB${d.rssi?' · '+d.rssi+'dBm':''}`;
   }catch(e){}
 }
@@ -770,7 +775,7 @@ $('#frame-play-device').addEventListener('click', () => {
 
 async function loadWeather(){
   try{
-    const r = await fetch('/api/weather'); const d = await r.json();
+    const r = await fetch('/api/weather', {signal: pollSignal()}); const d = await r.json();
     const tbody = $('#weather').querySelector('tbody');
     tbody.innerHTML = '';
     d.cities.forEach((c, idx) => {
@@ -968,6 +973,25 @@ $('#cfg-import').onchange = async e => {
   finally{ e.target.value = ''; }
 };
 
+// Polling activo a /api/status hasta que el device responda. Se llama tras
+// un OTA en lugar de hacer reload ciego con setTimeout — evita recargar
+// antes de que el HTTP server esté arriba (timeout TCP feo) y también
+// evita esperar de más si ya está listo.
+async function waitForDevice(maxMs){
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2000);
+      const r = await fetch('/api/status', {cache:'no-store', signal: ctrl.signal});
+      clearTimeout(t);
+      if (r.ok) return Date.now() - start;
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 800));
+  }
+  return -1;
+}
+
 $('#ota-upload').onclick = () => {
   const f = $('#ota-file').files[0];
   if (!f) { setMsg('Selecciona un .bin primero', 'err'); return; }
@@ -991,13 +1015,23 @@ $('#ota-upload').onclick = () => {
       setMsg(`Subiendo ${pct}% (${(e.loaded/1024).toFixed(0)}/${(e.total/1024).toFixed(0)} KB)`);
     }
   };
-  xhr.onload = () => {
+  xhr.onload = async () => {
     $('#ota-upload').disabled = false;
-    if (xhr.status === 200) {
-      setMsg('Firmware aceptado. Reiniciando — recarga en ~15s.', 'ok');
-      setTimeout(() => location.reload(), 15000);
-    } else {
+    if (xhr.status !== 200) {
       setMsg('Error '+xhr.status+': '+xhr.responseText, 'err');
+      return;
+    }
+    // Cancelamos los setInterval de polls. Si quedaron requests en vuelo
+    // hacia el device justo cuando se reseteó, así no esperan al timeout
+    // TCP del Mac (~30s).
+    abortPolls();
+    setMsg('Firmware aceptado. Esperando reboot…', 'ok');
+    const ms = await waitForDevice(30000);
+    if (ms >= 0) {
+      setMsg(`Device respondiendo tras ${(ms/1000).toFixed(1)}s. Recargando…`, 'ok');
+      setTimeout(() => location.reload(), 500);
+    } else {
+      setMsg('Timeout esperando al device tras 30s. Recarga manualmente.', 'err');
     }
   };
   xhr.onerror = () => {
@@ -1011,8 +1045,15 @@ $('#reload').onclick = () => location.reload();
 $('#reset-dev').onclick = async () => {
   if (!confirm('Reiniciar el device?')) return;
   try{ await fetch('/api/reset', {method:'POST'}); }catch(e){}
+  abortPolls();
   setMsg('Reiniciando…', 'warn');
-  setTimeout(() => location.reload(), 6000);
+  const ms = await waitForDevice(20000);
+  if (ms >= 0) {
+    setMsg(`Listo en ${(ms/1000).toFixed(1)}s. Recargando…`, 'ok');
+    setTimeout(() => location.reload(), 400);
+  } else {
+    setMsg('Timeout. Recarga manualmente.', 'err');
+  }
 };
 
 async function loadProvider(){

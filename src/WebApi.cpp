@@ -120,6 +120,12 @@ static void handlePostWifi(AsyncWebServerRequest* req, JsonVariant& body) {
 }
 
 void begin() {
+    // Connection: close en TODAS las respuestas — sin keepalive. Tras un OTA
+    // reset, los sockets idle del navegador no quedan apuntando a un puerto
+    // muerto (lo que causaba que la web tarde en responder al recargar).
+    // Coste por request en LAN es despreciable.
+    DefaultHeaders::Instance().addHeader("Connection", "close");
+
     // El 4o arg es el partition label. Por defecto espera "spiffs"; nuestra
     // particion se llama "littlefs" (ver gotcha #2 en CLAUDE.md).
     if (!LittleFS.begin(/*formatOnFail=*/true, "/littlefs", 10, "littlefs")) {
