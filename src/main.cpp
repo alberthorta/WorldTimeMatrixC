@@ -117,7 +117,7 @@ void loop() {
             struct tm tm;
             gmtime_r(&local, &tm);
             snprintf(nameBuffers[i], sizeof(nameBuffers[i]),
-                     "%02d/%02d", tm.tm_mday, tm.tm_year % 100);
+                     "%02d/%02d", tm.tm_mday, tm.tm_mon + 1);
             r.name = nameBuffers[i];
         } else {
             r.name = cc.name.c_str();
