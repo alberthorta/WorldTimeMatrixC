@@ -1,7 +1,10 @@
 #include "Config.h"
 
 #include <ArduinoJson.h>
+#include <LittleFS.h>
 #include <Preferences.h>
+#include <nvs.h>
+#include <nvs_flash.h>
 #include <string.h>
 
 #include "Icons.h"
@@ -11,7 +14,76 @@ namespace Config {
 static Preferences prefs;
 static const char* NS = "worldtime";
 
+// Path del fichero donde persistimos la config en LittleFS. Filesystem es
+// inmune al ciclo de OTA y aguanta blobs grandes con escrituras frecuentes
+// muchisimo mejor que NVS (que se fragmenta y eventualmente corrompe el
+// namespace, perdiendo claves silenciosamente).
+static const char* CFG_PATH = "/cfg.json";
+static const char* CFG_TMP = "/cfg.json.tmp";
+
 All cfg;
+
+DiagInfo diag;
+
+static void captureNvsStats() {
+    nvs_stats_t s = {};
+    esp_err_t e = nvs_get_stats(NULL, &s);
+    if (e == ESP_OK) {
+        diag.nvsUsed = s.used_entries;
+        diag.nvsFree = s.free_entries;
+        diag.nvsTotal = s.total_entries;
+        diag.nvsNamespaces = s.namespace_count;
+    } else {
+        diag.nvsUsed = diag.nvsFree = diag.nvsTotal = diag.nvsNamespaces = 0;
+    }
+}
+
+static void captureFsStats() {
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+        diag.fsMounted = false;
+        diag.fsTotal = diag.fsUsed = diag.fsCfgFileLen = 0;
+        return;
+    }
+    diag.fsMounted = true;
+    diag.fsTotal = LittleFS.totalBytes();
+    diag.fsUsed = LittleFS.usedBytes();
+    File f = LittleFS.open(CFG_PATH, "r");
+    diag.fsCfgFileLen = f ? f.size() : 0;
+    if (f) f.close();
+}
+
+void captureNvsStatsLive() { captureNvsStats(); }
+void captureFsStatsLive() { captureFsStats(); }
+
+// Lee el fichero CFG_PATH y devuelve su contenido. Cadena vacía si no existe
+// o si el FS no está montado.
+static String readCfgFile() {
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) return String();
+    File f = LittleFS.open(CFG_PATH, "r");
+    if (!f) return String();
+    String s;
+    s.reserve(f.size() + 1);
+    while (f.available()) s += (char)f.read();
+    f.close();
+    return s;
+}
+
+// Escribe atómicamente: primero a CFG_TMP, después rename.
+static bool writeCfgFile(const String& json) {
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) return false;
+    File f = LittleFS.open(CFG_TMP, "w");
+    if (!f) return false;
+    size_t wrote = f.print(json);
+    f.flush();
+    f.close();
+    if (wrote != json.length()) {
+        LittleFS.remove(CFG_TMP);
+        return false;
+    }
+    // rename atómico (LittleFS sobrescribe si destino existe).
+    if (LittleFS.exists(CFG_PATH)) LittleFS.remove(CFG_PATH);
+    return LittleFS.rename(CFG_TMP, CFG_PATH);
+}
 
 static All defaults() {
     All a;
@@ -108,38 +180,96 @@ void writeJson(JsonDocument& doc) { buildJson(doc); }
 bool applyPatch(JsonDocument& doc) { return applyJson(doc); }
 
 void begin() {
+    captureNvsStats();
+    Serial.printf("[nvs] used=%u free=%u total=%u namespaces=%u\n",
+                  (unsigned)diag.nvsUsed, (unsigned)diag.nvsFree,
+                  (unsigned)diag.nvsTotal, (unsigned)diag.nvsNamespaces);
+
     prefs.begin(NS, /*readOnly=*/false);
     cfg = defaults();
 
-    // Lectura: primero intenta el blob (formato nuevo). Si no existe o esta vacio,
-    // hace fallback a getString para migrar configs antiguas; despues re-graba como blob.
-    size_t blobLen = prefs.getBytesLength("cfg");
-    String json;
-    if (blobLen > 0) {
-        std::vector<char> buf(blobLen + 1);
-        prefs.getBytes("cfg", buf.data(), blobLen);
-        buf[blobLen] = 0;
+    // Boot counter (instrumentación añadida durante el debug del bug OTA).
+    diag.bootCount = prefs.getUInt("boot_n", 0) + 1;
+    prefs.putUInt("boot_n", diag.bootCount);
+    Serial.printf("[nvs] boot_count=%u\n", (unsigned)diag.bootCount);
+
+    // Snapshot de claves NVS legacy (para migración desde versiones anteriores).
+    diag.cfgBlobLen = prefs.getBytesLength("cfg");
+    diag.cfgStringLen = prefs.getString("cfg", "").length();
+    diag.wifiSsidLen = prefs.getString("wifi_ssid", "").length();
+    diag.wifiPwdLen = prefs.getString("wifi_pwd", "").length();
+    diag.wxCacheLen = prefs.getBytesLength("wxcache");
+    Serial.printf("[nvs] cfg blob=%u str=%u | wifi ssid=%u pwd=%u | wxcache=%u\n",
+                  (unsigned)diag.cfgBlobLen, (unsigned)diag.cfgStringLen,
+                  (unsigned)diag.wifiSsidLen, (unsigned)diag.wifiPwdLen,
+                  (unsigned)diag.wxCacheLen);
+
+    // 1) Intenta cargar desde LittleFS (path nuevo, robusto contra OTA).
+    String json = readCfgFile();
+    bool fromFs = json.length() > 0;
+
+    // 2) Si no hay fichero, intenta migrar desde NVS legacy (blob o string).
+    if (!fromFs && diag.cfgBlobLen > 0) {
+        std::vector<char> buf(diag.cfgBlobLen + 1);
+        prefs.getBytes("cfg", buf.data(), diag.cfgBlobLen);
+        buf[diag.cfgBlobLen] = 0;
         json = String(buf.data());
-    } else {
-        json = prefs.getString("cfg", "");
-        if (json.length() > 0) {
-            Serial.println("[config] migrating cfg from putString -> putBytes");
+        Serial.println("[config] migrating from NVS blob -> LittleFS");
+    } else if (!fromFs) {
+        String legacy = prefs.getString("cfg", "");
+        if (legacy.length() > 0) {
+            json = legacy;
+            Serial.println("[config] migrating from NVS string -> LittleFS");
         }
     }
 
+    if (json.length() > 0) {
+        Serial.printf("[config] cfg head: %.80s\n", json.c_str());
+    }
+
     if (json.length() == 0) {
+        diag.lastLoad = "seeded";
         save();
-        Serial.println("[config] seeded defaults");
+        Serial.println("[config] seeded defaults to LittleFS");
     } else {
         JsonDocument doc;
-        if (deserializeJson(doc, json) == DeserializationError::Ok) {
+        DeserializationError err = deserializeJson(doc, json);
+        if (err == DeserializationError::Ok) {
             applyJson(doc);
-            Serial.printf("[config] loaded (%u bytes)\n", (unsigned)json.length());
-            if (blobLen == 0) save();   // re-graba como blob para futuras lecturas
+            if (fromFs) {
+                diag.lastLoad = "loaded_fs";
+                Serial.printf("[config] loaded from LittleFS (%u bytes)\n",
+                              (unsigned)json.length());
+            } else {
+                diag.lastLoad = "loaded_nvs_migrated";
+                Serial.printf("[config] migrated from NVS (%u bytes), saving to FS\n",
+                              (unsigned)json.length());
+                save();   // graba a LittleFS
+                // Limpia NVS legacy para liberar entries fragmentadas.
+                prefs.remove("cfg");
+                prefs.remove("wxcache");  // tambien movida a FS
+                Serial.println("[config] cleared legacy NVS cfg + wxcache keys");
+            }
         } else {
-            Serial.println("[config] parse failed, defaults active");
+            diag.lastLoad = String("parse_fail:") + err.c_str();
+            Serial.printf("[config] parse failed (%s), defaults active\n", err.c_str());
         }
     }
+
+    // Limpieza one-shot de wxcache legacy en NVS (puede haber sobrevivido si el
+    // primer boot tras el cambio a FS se hizo via /api/firmware sin pasar por
+    // la rama "loaded_nvs_migrated"). Idempotente: no hace nada si no existe.
+    if (prefs.getBytesLength("wxcache") > 0 || prefs.getString("wxcache", "").length() > 0) {
+        prefs.remove("wxcache");
+        Serial.println("[nvs] removed legacy wxcache key");
+    }
+
+    captureNvsStats();
+    captureFsStats();
+    Serial.printf("[nvs] after-load used=%u free=%u | [fs] mounted=%d cfg=%u total=%u used=%u\n",
+                  (unsigned)diag.nvsUsed, (unsigned)diag.nvsFree,
+                  diag.fsMounted, (unsigned)diag.fsCfgFileLen,
+                  (unsigned)diag.fsTotal, (unsigned)diag.fsUsed);
 }
 
 bool save() {
@@ -147,12 +277,18 @@ bool save() {
     buildJson(doc);
     String json;
     serializeJson(doc, json);
-    // putBytes (blob) en lugar de putString: el blob puede ser mucho mas grande
-    // (varios KB) sin el limite de ~4000 bytes de los strings NVS.
-    size_t wrote = prefs.putBytes("cfg", json.c_str(), json.length());
-    bool ok = wrote == json.length();
-    Serial.printf("[config] saved %u/%u bytes ok=%d\n",
-                  (unsigned)wrote, (unsigned)json.length(), ok);
+
+    bool ok = writeCfgFile(json);
+    diag.lastSaveCount++;
+    diag.lastSaveBytes = json.length();
+    diag.lastSaveWrote = ok ? json.length() : 0;
+    diag.lastSaveOk = ok;
+    diag.lastSaveError = ok ? String("") : String("fs_write_fail");
+    captureFsStats();
+    Serial.printf("[config] saved %u bytes ok=%d fs(used=%u/%u cfgFile=%u)\n",
+                  (unsigned)json.length(), ok,
+                  (unsigned)diag.fsUsed, (unsigned)diag.fsTotal,
+                  (unsigned)diag.fsCfgFileLen);
     return ok;
 }
 

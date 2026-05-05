@@ -120,25 +120,21 @@ static void handlePostWifi(AsyncWebServerRequest* req, JsonVariant& body) {
 }
 
 void begin() {
-    // formatOnFail=true: en el primer arranque (o tras corrupcion) el mount
-    // falla y la lib formatea la particion. Tras el format, sembramos
-    // /index.html desde el HTML embebido para que la web siga funcionando.
-    // El usuario puede sobrescribir despues via PUT /api/fs/index.html.
-    if (!LittleFS.begin(/*formatOnFail=*/true)) {
+    // El 4o arg es el partition label. Por defecto espera "spiffs"; nuestra
+    // particion se llama "littlefs" (ver gotcha #2 en CLAUDE.md).
+    if (!LittleFS.begin(/*formatOnFail=*/true, "/littlefs", 10, "littlefs")) {
         Serial.println("[fs] LittleFS mount FAILED even after format");
     } else {
+        // Limpieza one-shot: versiones previas sembraban /index.html en FS para
+        // permitir hot-reload via PUT. Ahora servimos siempre el HTML embebido
+        // (viaja con el firmware), asi el OTA actualiza UI y no hay drift entre
+        // FS y firmware. Borramos el fichero legacy para liberar ~31KB.
+        if (LittleFS.exists("/index.html")) {
+            LittleFS.remove("/index.html");
+            Serial.println("[fs] removed legacy /index.html");
+        }
         Serial.printf("[fs] LittleFS ok, used=%u/%u bytes\n",
                       (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
-        if (!LittleFS.exists("/index.html")) {
-            File f = LittleFS.open("/index.html", "w");
-            if (f) {
-                f.write((const uint8_t*)INDEX_HTML, INDEX_HTML_LEN);
-                f.close();
-                Serial.printf("[fs] seeded /index.html (%u bytes)\n", (unsigned)INDEX_HTML_LEN);
-            } else {
-                Serial.println("[fs] seed failed: cannot open for write");
-            }
-        }
     }
 
     // ---------- /api/config GET ----------
@@ -156,11 +152,12 @@ void begin() {
             accumulateJsonBody(req, data, len, index, total,
                 [](AsyncWebServerRequest* req, JsonDocument& doc) {
                     bool citiesChanged = Config::applyPatch(doc);
-                    Config::save();
+                    bool saved = Config::save();
                     if (citiesChanged) Weather::requestRefresh();
                     JsonDocument res;
-                    res["ok"] = true;
+                    res["ok"] = saved;
                     res["cities_changed"] = citiesChanged;
+                    if (!saved) res["error"] = Config::diag.lastSaveError;
                     sendJson(req, res);
                 });
         });
@@ -219,6 +216,36 @@ void begin() {
     });
     server.on("/api/status", HTTP_GET, handleGetStatus);
 
+    // Diagnostico NVS (para debug del bug OTA-resetea-config). Devuelve snapshot
+    // del estado al boot + delta tras leer config.
+    server.on("/api/diag/nvs", HTTP_GET, [](AsyncWebServerRequest* req) {
+        Config::captureNvsStatsLive();
+        Config::captureFsStatsLive();
+        JsonDocument doc;
+        const Config::DiagInfo& d = Config::diag;
+        doc["boot_count"] = d.bootCount;
+        doc["last_load"] = d.lastLoad;
+        doc["cfg_blob_len"] = d.cfgBlobLen;
+        doc["cfg_string_len"] = d.cfgStringLen;
+        doc["wifi_ssid_len"] = d.wifiSsidLen;
+        doc["wifi_pwd_len"] = d.wifiPwdLen;
+        doc["wxcache_len"] = d.wxCacheLen;
+        doc["nvs_used"] = d.nvsUsed;
+        doc["nvs_free"] = d.nvsFree;
+        doc["nvs_total"] = d.nvsTotal;
+        doc["nvs_namespaces"] = d.nvsNamespaces;
+        doc["last_save_count"] = d.lastSaveCount;
+        doc["last_save_bytes"] = d.lastSaveBytes;
+        doc["last_save_wrote"] = d.lastSaveWrote;
+        doc["last_save_ok"] = d.lastSaveOk;
+        doc["last_save_error"] = d.lastSaveError;
+        doc["fs_mounted"] = d.fsMounted;
+        doc["fs_cfg_file_len"] = d.fsCfgFileLen;
+        doc["fs_total"] = d.fsTotal;
+        doc["fs_used"] = d.fsUsed;
+        sendJson(req, doc);
+    });
+
     server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* req) {
         req->send(200, "application/json", "{\"ok\":true}");
         delay(200);
@@ -243,65 +270,15 @@ void begin() {
                 });
         });
 
-    // Servir UI desde LittleFS. La raiz la fijamos explicita para garantizar
-    // Content-Type text/html (algunas versiones de AsyncWebServer no infieren
-    // el tipo bien con setDefaultFile).
-    // Sirve / desde LittleFS (que se sembra al boot con el HTML embebido y se
-    // puede actualizar via PUT /api/fs/index.html sin recompilar firmware).
+    // Servir UI siempre desde el binario embebido en flash (IndexHtml.cpp).
+    // Asi el HTML viaja con el firmware: cada OTA actualiza UI atomicamente y
+    // no hay drift entre filesystem y firmware shipped.
     server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
-        if (LittleFS.exists("/index.html")) {
-            AsyncWebServerResponse* res = req->beginResponse(
-                LittleFS, "/index.html", "text/html; charset=utf-8");
-            req->send(res);
-        } else {
-            AsyncWebServerResponse* res = req->beginResponse(
-                200, "text/html; charset=utf-8",
-                (const uint8_t*)INDEX_HTML, INDEX_HTML_LEN);
-            req->send(res);
-        }
+        AsyncWebServerResponse* res = req->beginResponse(
+            200, "text/html; charset=utf-8",
+            (const uint8_t*)INDEX_HTML, INDEX_HTML_LEN);
+        req->send(res);
     });
-
-    // ---------- PUT /api/fs/index.html: hot-reload de UI sin recompilar ----------
-    // Acumulamos body en String*; al final hacemos write atomico y pasamos un
-    // bool* via _tempObject a onRequest para que envie respuesta correcta.
-    server.on("/api/fs/index.html", HTTP_PUT,
-        [](AsyncWebServerRequest* req) {
-            bool* okFlag = (bool*)req->_tempObject;
-            bool ok = okFlag && *okFlag;
-            req->send(ok ? 204 : 500, "application/json",
-                      ok ? "" : "{\"error\":\"write failed\"}");
-            if (okFlag) { delete okFlag; req->_tempObject = nullptr; }
-        },
-        nullptr,
-        [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-            // Mientras subimos, _tempObject guarda String* (acumulador).
-            // Al final lo reemplazamos por bool* (resultado).
-            String* body;
-            if (req->_tempObject == nullptr) {
-                body = new String();
-                body->reserve(total);
-                req->_tempObject = body;
-            } else {
-                body = (String*)req->_tempObject;
-            }
-            body->concat((const char*)data, len);
-            if (index + len == total) {
-                bool ok = false;
-                File f = LittleFS.open("/index.html", "w");
-                if (f) {
-                    size_t wrote = f.write((const uint8_t*)body->c_str(), body->length());
-                    f.close();
-                    ok = (wrote == body->length());
-                    Serial.printf("[fs] wrote /index.html %u/%u (ok=%d)\n",
-                                  (unsigned)wrote, (unsigned)body->length(), ok);
-                } else {
-                    Serial.println("[fs] open for write FAILED");
-                }
-                delete body;
-                bool* okFlag = new bool(ok);
-                req->_tempObject = okFlag;
-            }
-        });
 
     // ---------- POST /api/firmware: OTA via subida multipart (form-data) ----------
     // El navegador envia un POST multipart con el .bin como campo de fichero;
@@ -320,17 +297,30 @@ void begin() {
         // onUpload: callback de campo multipart (firmware)
         [](AsyncWebServerRequest* req, const String& filename, size_t index,
            uint8_t* data, size_t len, bool final) {
+            static size_t lastLogged = 0;
             if (index == 0) {
                 Serial.printf("[ota-http] multipart start: %s\n", filename.c_str());
+                if (Update.isRunning()) {
+                    Serial.println("[ota-http] aborting stale Update state");
+                    Update.abort();
+                }
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                     Update.printError(Serial);
                     return;
                 }
+                lastLogged = 0;
             }
             if (len > 0 && Update.write(data, len) != len) {
                 Update.printError(Serial);
             }
+            // Log de progreso cada ~100KB para distinguir transfer lento vs cuelgue.
+            if (index + len - lastLogged >= 100 * 1024) {
+                Serial.printf("[ota-http] rx %u KB\n", (unsigned)((index + len) / 1024));
+                lastLogged = index + len;
+            }
             if (final) {
+                Serial.printf("[ota-http] final chunk, total=%u bytes\n",
+                              (unsigned)(index + len));
                 if (!Update.end(true)) {
                     Update.printError(Serial);
                 } else {

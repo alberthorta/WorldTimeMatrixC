@@ -2,7 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
-#include <Preferences.h>
+#include <LittleFS.h>
 #include <WiFi.h>
 #include <math.h>
 
@@ -75,11 +75,20 @@ void requestRefresh() {
     if (taskHandle) xTaskNotifyGive(taskHandle);
 }
 
+// Cache de meteo persistido en LittleFS (cada ~60s) — antes vivía en NVS pero
+// las escrituras frecuentes fragmentaban la partición y arrastraban el bug de
+// reset post-OTA del cfg blob (ver memoria proyecto). FS aguanta saves
+// frecuentes sin degradación.
+static const char* WXCACHE_PATH = "/wxcache.json";
+
 void loadCache() {
-    Preferences p;
-    p.begin("worldtime", /*readOnly=*/true);
-    String json = p.getString("wxcache", "");
-    p.end();
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) return;
+    File f = LittleFS.open(WXCACHE_PATH, "r");
+    if (!f) return;
+    String json;
+    json.reserve(f.size() + 1);
+    while (f.available()) json += (char)f.read();
+    f.close();
     if (json.length() == 0) return;
     JsonDocument doc;
     if (deserializeJson(doc, json) != DeserializationError::Ok) return;
@@ -112,10 +121,11 @@ void saveCache() {
     }
     String json;
     serializeJson(doc, json);
-    Preferences p;
-    p.begin("worldtime", /*readOnly=*/false);
-    p.putString("wxcache", json);
-    p.end();
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) return;
+    File f = LittleFS.open(WXCACHE_PATH, "w");
+    if (!f) return;
+    f.print(json);
+    f.close();
 }
 
 Display::IconType::Value iconForCode(int code, bool isDay) {

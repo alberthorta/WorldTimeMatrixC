@@ -41,6 +41,40 @@ struct All {
 
 extern All cfg;             // Instancia global (poblada por begin()).
 
+// Snapshot de estado al boot, para diagnostico del flujo de persistencia.
+// Histórico: en versiones previas el `cfg` se guardaba como blob en NVS, y eso
+// fragmentaba la partición al cabo de muchos saves, llegando a corromper el
+// namespace y perder claves (incl. wifi). Ahora el cfg vive en LittleFS y NVS
+// retiene sólo wifi creds.
+struct DiagInfo {
+    uint32_t bootCount;
+    // NVS legacy state (para migracion + visibilidad histórica)
+    size_t cfgBlobLen;
+    size_t cfgStringLen;
+    size_t wifiSsidLen;
+    size_t wifiPwdLen;
+    size_t wxCacheLen;
+    size_t nvsUsed;
+    size_t nvsFree;
+    size_t nvsTotal;
+    size_t nvsNamespaces;
+    String lastLoad;        // "seeded" | "loaded_fs" | "loaded_nvs_migrated" | "parse_fail:<reason>"
+    // Captura del ultimo save(): util para detectar fallos silenciosos.
+    uint32_t lastSaveCount;
+    size_t lastSaveBytes;
+    size_t lastSaveWrote;
+    bool lastSaveOk;
+    String lastSaveError;
+    // FS state
+    bool fsMounted;
+    size_t fsCfgFileLen;
+    size_t fsTotal;
+    size_t fsUsed;
+};
+extern DiagInfo diag;
+void captureNvsStatsLive();   // Re-captura nvsUsed/Free/Total desde fuera de begin().
+void captureFsStatsLive();    // Re-captura tamaño de /cfg.json y stats LittleFS.
+
 void begin();               // Carga desde NVS o siembra defaults.
 bool save();                // Serializa cfg actual y persiste.
 
