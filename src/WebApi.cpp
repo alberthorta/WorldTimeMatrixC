@@ -193,13 +193,18 @@ void begin() {
 
     // Detalles de la ultima llamada (URL + body raw) para una ciudad. Util
     // para debugging desde el panel admin. ANTES que /api/weather por matching.
+    // Param opcional `provider`: "openmeteo" (default) | "tomorrow"
     server.on("/api/weather/debug", HTTP_GET, [](AsyncWebServerRequest* req) {
         int idx = 0;
         if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
         idx = constrain(idx, 0, 3);
-        const auto& dbg = Weather::debugInfo[idx];
+        String provider = "openmeteo";
+        if (req->hasParam("provider")) provider = req->getParam("provider")->value();
+        const auto& dbg = (provider == "tomorrow") ? Weather::debugInfoTio[idx]
+                                                   : Weather::debugInfo[idx];
         JsonDocument doc;
         doc["idx"] = idx;
+        doc["provider"] = provider;
         doc["name"] = Config::cfg.cities[idx].name;
         doc["url"] = dbg.lastUrl;
         doc["http"] = dbg.httpCode;
@@ -239,6 +244,8 @@ void begin() {
             o["temp_c"] = d.tempC;
             o["code"] = d.code;
             o["is_day"] = d.isDay;
+            o["temp_source"] = (d.tempSource == 2) ? "tomorrow"
+                              : (d.tempSource == 1) ? "openmeteo" : "none";
             o["http"] = dbg.httpCode;
             o["attempts"] = dbg.attempts;
             o["last_at_ms"] = dbg.lastAtMs;
@@ -247,6 +254,37 @@ void begin() {
         sendJson(req, doc);
     });
     server.on("/api/status", HTTP_GET, handleGetStatus);
+
+    // --- Provider meteo Tomorrow.io (NVS, no en backups) ---
+    // La api_key se devuelve en plano: el panel admin solo es accesible en LAN
+    // y vale más la transparencia para verificar/editar. Si en algún momento
+    // ponemos auth en el panel, pensar en mascarar.
+    server.on("/api/weather_provider", HTTP_GET, [](AsyncWebServerRequest* req) {
+        Config::TomorrowSettings t = Config::getTomorrowSettings();
+        JsonDocument doc;
+        doc["enabled"] = t.enabled;
+        doc["refresh_sec"] = t.refreshSec;
+        doc["api_key"] = t.apiKey;
+        sendJson(req, doc);
+    });
+    server.on("/api/weather_provider", HTTP_POST,
+        [](AsyncWebServerRequest* req) {},
+        nullptr,
+        [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+            accumulateJsonBody(req, data, len, index, total,
+                [](AsyncWebServerRequest* req, JsonDocument& doc) {
+                    Config::TomorrowSettings cur = Config::getTomorrowSettings();
+                    bool enabled = doc["enabled"] | cur.enabled;
+                    String key = doc["api_key"] | cur.apiKey;
+                    uint16_t refresh = cur.refreshSec;
+                    if (doc["refresh_sec"].is<int>()) refresh = (uint16_t)(int)doc["refresh_sec"];
+                    Config::setTomorrowSettings(enabled, key, refresh);
+                    JsonDocument res;
+                    res["ok"] = true;
+                    res["active"] = enabled && key.length() > 0;
+                    sendJson(req, res);
+                });
+        });
 
     // Setter dedicado de rgb_order (vive en NVS, separado del cfg).
     server.on("/api/rgb_order", HTTP_POST,

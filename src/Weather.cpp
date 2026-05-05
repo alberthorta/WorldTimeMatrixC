@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <LittleFS.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <math.h>
 
 #include "Config.h"
@@ -12,7 +13,34 @@ namespace Weather {
 
 Data data[4] = {};
 FetchDebug debugInfo[4];
+FetchDebug debugInfoTio[4];
 static TaskHandle_t taskHandle = nullptr;
+
+// Mapeo de weatherCode Tomorrow.io (1000-8000) a equivalentes Open-Meteo
+// (0-99) para reusar Display::iconForCode sin tocar el render.
+static int tomorrowToOpenMeteoCode(int t) {
+    switch (t) {
+        case 1000: return 0;    // Clear
+        case 1100: return 1;    // Mostly Clear
+        case 1101: return 2;    // Partly Cloudy
+        case 1102: return 3;    // Mostly Cloudy
+        case 1001: return 3;    // Cloudy
+        case 2000: case 2100: return 45;   // Fog / Light Fog
+        case 4000: return 51;   // Drizzle
+        case 4200: return 61;   // Light Rain
+        case 4001: return 63;   // Rain
+        case 4201: return 65;   // Heavy Rain
+        case 5001: return 71;   // Flurries
+        case 5100: return 73;   // Light Snow
+        case 5000: return 75;   // Snow
+        case 5101: return 75;   // Heavy Snow
+        case 6000: case 6200: return 51;   // Freezing Drizzle / Light Freezing Rain
+        case 6001: case 6201: return 65;   // Freezing Rain
+        case 7000: case 7101: case 7102: return 75;  // Ice Pellets
+        case 8000: return 95;   // Thunderstorm
+        default: return 0;
+    }
+}
 
 static constexpr size_t MAX_DEBUG_BODY = 2048;
 
@@ -49,9 +77,10 @@ static bool fetchOne(int idx) {
     int code = http.GET();
     dbg.httpCode = code;
     bool ok = false;
+    // Si Tomorrow.io esta activo, Open-Meteo solo provee offset + isDay
+    // (temp + code los gestiona Tomorrow.io en su propia rotacion).
+    bool tioActive = Config::hasTomorrowSettings();
     if (code == 200) {
-        // Capturamos primero el body raw (truncado a MAX_DEBUG_BODY) para
-        // poder mostrarlo en el debug. Luego parseamos la copia.
         String body = http.getString();
         if (body.length() > MAX_DEBUG_BODY) {
             dbg.lastBody = body.substring(0, MAX_DEBUG_BODY);
@@ -65,10 +94,13 @@ static bool fetchOne(int idx) {
             JsonVariant cur = doc["current"];
             if (!cur.isNull()) {
                 d.offsetSec = (int)(doc["utc_offset_seconds"] | 0);
-                double t = cur["temperature_2m"] | 0.0;
-                d.tempC = (int)lround(t);
-                d.code = (int)(cur["weather_code"] | 0);
                 d.isDay = ((int)(cur["is_day"] | 1)) == 1;
+                if (!tioActive) {
+                    double t = cur["temperature_2m"] | 0.0;
+                    d.tempC = (int)lround(t);
+                    d.code = (int)(cur["weather_code"] | 0);
+                    d.tempSource = 1;   // openmeteo
+                }
                 d.hasData = true;
                 ok = true;
                 dbg.lastError = "";
@@ -88,6 +120,94 @@ static bool fetchOne(int idx) {
 }
 
 bool fetchOneSync(int idx) { return fetchOne(idx); }
+
+// Fetch Tomorrow.io realtime para una ciudad. Solo actualiza temp + code en
+// data[idx] (NO offset NI isDay — esos los provee Open-Meteo). Requiere
+// HTTPS (Tomorrow.io rechaza HTTP). Usa WiFiClientSecure::setInsecure() para
+// evitar tener que embedir el cert root; aceptable en este contexto.
+static bool fetchTomorrow(int idx) {
+    if (idx < 0 || idx >= 4) return false;
+    Config::TomorrowSettings tio = Config::getTomorrowSettings();
+    if (!tio.enabled || tio.apiKey.length() == 0) return false;
+
+    FetchDebug& dbg = debugInfoTio[idx];
+    dbg.attempts++;
+    if (!WiFi.isConnected()) {
+        dbg.lastError = "no wifi";
+        dbg.httpCode = -1;
+        dbg.lastAtMs = millis();
+        return false;
+    }
+    const Config::City& cc = Config::cfg.cities[idx];
+    Data& d = data[idx];
+
+    String url = "https://api.tomorrow.io/v4/weather/realtime?location=";
+    url += String(cc.lat, 6);
+    url += ",";
+    url += String(cc.lon, 6);
+    url += "&units=metric&apikey=";
+    url += tio.apiKey;
+    dbg.lastUrl = url;
+    dbg.lastBody = "";
+
+    WiFiClientSecure client;
+    client.setInsecure();   // sin pinning; aceptamos riesgo MITM en LAN
+    HTTPClient http;
+    http.setTimeout(8000);
+    http.useHTTP10(true);
+    if (!http.begin(client, url)) {
+        dbg.lastError = "http.begin failed";
+        dbg.httpCode = -2;
+        dbg.lastAtMs = millis();
+        return false;
+    }
+    int code = http.GET();
+    dbg.httpCode = code;
+    bool ok = false;
+    if (code == 200) {
+        String body = http.getString();
+        if (body.length() > MAX_DEBUG_BODY) {
+            dbg.lastBody = body.substring(0, MAX_DEBUG_BODY) + "\n...[truncated]";
+        } else {
+            dbg.lastBody = body;
+        }
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, body);
+        if (!err) {
+            JsonVariant vals = doc["data"]["values"];
+            if (!vals.isNull()) {
+                double t = vals["temperature"] | 0.0;
+                int tcode = (int)(vals["weatherCode"] | 0);
+                d.tempC = (int)lround(t);
+                d.code = tomorrowToOpenMeteoCode(tcode);
+                d.tempSource = 2;   // tomorrow
+                d.hasData = true;
+                ok = true;
+                dbg.lastError = "";
+            } else {
+                dbg.lastError = "no data.values field";
+            }
+        } else {
+            dbg.lastError = String("parse: ") + err.c_str();
+            dbg.httpCode = -3;
+        }
+    } else {
+        // Tomorrow.io devuelve detalles utiles en el body (e.g., 401 invalid
+        // key, 429 rate limit) — los capturamos para el modal de debug.
+        String body = http.getString();
+        if (body.length() > MAX_DEBUG_BODY) {
+            dbg.lastBody = body.substring(0, MAX_DEBUG_BODY) + "\n...[truncated]";
+        } else {
+            dbg.lastBody = body;
+        }
+        dbg.lastError = String("http ") + code + ": " + http.errorToString(code);
+    }
+    http.end();
+    dbg.lastAtMs = millis();
+    return ok;
+}
+
+bool fetchOneTomorrowSync(int idx) { return fetchTomorrow(idx); }
 
 void requestRefresh() {
     if (taskHandle) xTaskNotifyGive(taskHandle);
@@ -121,6 +241,7 @@ void loadCache() {
         d.code = arr[i]["c"] | 0;
         d.isDay = arr[i]["d"] | true;
         d.hasData = arr[i]["h"] | false;
+        d.tempSource = arr[i]["s"] | 0;
     }
     Serial.printf("[weather] cache restored (%d entries)\n", n);
 }
@@ -136,6 +257,7 @@ void saveCache() {
         o["c"] = d.code;
         o["d"] = d.isDay;
         o["h"] = d.hasData;
+        o["s"] = d.tempSource;
     }
     String json;
     serializeJson(doc, json);
@@ -160,14 +282,39 @@ Display::IconType::Value iconForCode(int code, bool isDay) {
 
 static void weatherTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(3000));
+    // Tomorrow.io rota una ciudad por tick (cada refresh_sec). lastTioMs=0
+    // significa "aun no ha hecho fetch nunca" → primer tick lo hace inmediato.
+    uint32_t lastTioMs = 0;
+    int tioRotIdx = 0;
+    bool tioWasActive = false;
     while (true) {
+        // Open-Meteo: ronda completa siempre (provee offset + isDay; temp+code
+        // solo si Tomorrow.io NO esta activo — esa logica vive en fetchOne).
         bool anyOk = false;
         for (int i = 0; i < 4; i++) {
             if (fetchOne(i)) anyOk = true;
             vTaskDelay(pdMS_TO_TICKS(500));
         }
+        // Tomorrow.io: 1 ciudad por tick rotando 0->1->2->3->0... A los X
+        // segundos definidos. Si se acaba de activar (era false antes), reset
+        // del temporizador para forzar primer fetch inmediato.
+        Config::TomorrowSettings tio = Config::getTomorrowSettings();
+        bool tioActive = tio.enabled && tio.apiKey.length() > 0;
+        if (tioActive && !tioWasActive) {
+            lastTioMs = 0;        // forzar fetch inmediato al activarse
+            tioRotIdx = 0;
+        }
+        tioWasActive = tioActive;
+        if (tioActive) {
+            uint32_t now = millis();
+            uint32_t intervalMs = max((uint16_t)60, tio.refreshSec) * 1000UL;
+            if (lastTioMs == 0 || (now - lastTioMs) >= intervalMs) {
+                if (fetchTomorrow(tioRotIdx)) anyOk = true;
+                tioRotIdx = (tioRotIdx + 1) % 4;
+                lastTioMs = millis();
+            }
+        }
         if (anyOk) saveCache();
-        // Espera el intervalo, pero se despierta antes si requestRefresh notifica.
         uint32_t intervalMs = max((uint16_t)30, Config::cfg.weatherRefreshSec) * 1000UL;
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(intervalMs));
     }

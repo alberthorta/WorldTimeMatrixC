@@ -200,6 +200,28 @@ bool setRgbOrder(const String& v) {
     }
     return true;
 }
+
+// --- Tomorrow.io provider (NVS-only, per-device) ---
+// Claves NVS: wx_tio_en (bool), wx_tio_key (string), wx_tio_ref (uint16).
+TomorrowSettings getTomorrowSettings() {
+    TomorrowSettings s;
+    s.enabled = prefs.getBool("wx_tio_en", false);
+    s.apiKey = prefs.getString("wx_tio_key", "");
+    s.refreshSec = prefs.getUShort("wx_tio_ref", 14400);   // 4h por defecto (free tier 25 calls/dia)
+    return s;
+}
+
+void setTomorrowSettings(bool enabled, const String& apiKey, uint16_t refreshSec) {
+    prefs.putBool("wx_tio_en", enabled);
+    prefs.putString("wx_tio_key", apiKey);
+    if (refreshSec < 60) refreshSec = 60;
+    prefs.putUShort("wx_tio_ref", refreshSec);
+}
+
+bool hasTomorrowSettings() {
+    TomorrowSettings s = getTomorrowSettings();
+    return s.enabled && s.apiKey.length() > 0;
+}
 bool applyPatch(JsonDocument& doc) { return applyJson(doc); }
 
 void begin() {

@@ -15,6 +15,7 @@ struct Data {
     int code;
     bool isDay;
     bool hasData;
+    int tempSource;     // 0=none, 1=openmeteo, 2=tomorrow (de quien viene temp+code)
 };
 
 extern Data data[4];
@@ -27,12 +28,14 @@ struct FetchDebug {
     String lastBody;    // respuesta raw (truncada a 2KB para acotar RAM)
     uint32_t lastAtMs = 0;  // millis() al final del ultimo fetch
 };
-extern FetchDebug debugInfo[4];   // una entrada por ciudad
+extern FetchDebug debugInfo[4];     // por ciudad — Open-Meteo
+extern FetchDebug debugInfoTio[4];  // por ciudad — Tomorrow.io (vacios si provider no activo)
 
 void loadCache();          // Restaura data[] desde NVS (cache persistente).
 void saveCache();          // Persiste data[] a NVS.
 void taskStart();
-bool fetchOneSync(int idx);
+bool fetchOneSync(int idx);            // fuerza fetch Open-Meteo sincrono
+bool fetchOneTomorrowSync(int idx);    // fuerza fetch Tomorrow.io sincrono (si configurado)
 void requestRefresh();     // Despierta la task para refetch inmediato (no borra data anterior).
 Display::IconType::Value iconForCode(int code, bool isDay);
 

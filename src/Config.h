@@ -84,6 +84,18 @@ void writeBackupJson(JsonDocument& doc);  // backup exportable: SOLO lo que esta
 bool applyPatch(JsonDocument& doc);       // aplicar JSON parcial; true si cities cambian
 bool setRgbOrder(const String& v);        // setter dedicado (NVS); endpoint /api/rgb_order
 
+// Provider meteo Tomorrow.io (opcional, NVS-only, no en backups).
+// Cuando enabled=true && key non-empty, Weather usa Tomorrow.io para temp+code
+// y Open-Meteo solo para offset+isDay. Si esta deshabilitado, solo Open-Meteo.
+struct TomorrowSettings {
+    bool enabled;
+    String apiKey;
+    uint16_t refreshSec;   // intervalo independiente del de Open-Meteo
+};
+TomorrowSettings getTomorrowSettings();
+void setTomorrowSettings(bool enabled, const String& apiKey, uint16_t refreshSec);
+bool hasTomorrowSettings();   // shortcut: enabled && apiKey no vacio
+
 // WiFi (separado de cfg para no aparecer en backups JSON).
 WifiCreds getWifi();
 void setWifi(const String& ssid, const String& password);
