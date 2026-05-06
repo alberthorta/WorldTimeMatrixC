@@ -33,6 +33,10 @@ struct Row {
     bool hasTime;       // si false, no se pinta HH:MM (NTP aun sin sincronizar)
     bool hasWeather;    // si false, no se pinta icono ni temp
     bool showColon;     // si false el ":" se omite (parpadeo)
+    bool omIndicator;   // si true, dibuja un puntito gris debajo del º (señal
+                        // visible de que esa fila esta usando datos OM —
+                        // util cuando Tio esta activo y quieres saber si hay
+                        // fallback o no).
 };
 
 void begin();

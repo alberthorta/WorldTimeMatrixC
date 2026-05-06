@@ -139,6 +139,7 @@ void loop() {
                      ? Weather::iconForCode(d.code, d.isDay)
                      : Display::IconType::NONE;
         r.showColon = showColon;
+        r.omIndicator = Config::cfg.omIndicator && d.hasData && d.tempSource == 1;
     }
     Display::renderRows(rows);
 }

@@ -34,6 +34,8 @@ struct All {
     uint16_t weatherRefreshSec;
     bool colonBlink;
     bool hourLeadingZero;     // si false, "07:05" -> "7:05"
+    bool omIndicator;         // si true, dibuja un puntito debajo del º en filas
+                              // que estan usando Open-Meteo (fallback Tio)
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

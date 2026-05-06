@@ -426,6 +426,10 @@ code{
     <span class="toggle"><input id="hour-lz" type="checkbox"/><span class="toggle-slider"></span></span>
     <span style="font-size:.9rem">Cero a la izquierda en la hora <span class="text-muted">(p.ej. 07:05)</span></span>
   </label>
+  <label class="toggle-row">
+    <span class="toggle"><input id="om-ind" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Indicador OM en panel <span class="text-muted">(punto gris bajo el º cuando una fila usa Open-Meteo)</span></span>
+  </label>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -602,6 +606,7 @@ async function loadConfig(){
     $('#nm-bright-val').textContent = $('#nm-bright').value+'%';
     $('#blink').checked = cfg.colon_blink;
     $('#hour-lz').checked = cfg.hour_leading_zero !== false;   // default true
+    $('#om-ind').checked = !!cfg.om_indicator;
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
     initialRgbOrder = $('#rgb-order').value;
@@ -933,6 +938,7 @@ $('#save').onclick = async () => {
     weather_refresh_sec: +$('#refresh').value,
     colon_blink: $('#blink').checked,
     hour_leading_zero: $('#hour-lz').checked,
+    om_indicator: $('#om-ind').checked,
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,

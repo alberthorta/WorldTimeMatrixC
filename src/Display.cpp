@@ -324,6 +324,12 @@ void renderRows(const Row rows[4]) {
             dma->drawPixel(degX + 1, degTopY,     tcol);
             dma->drawPixel(degX,     degTopY + 1, tcol);
             dma->drawPixel(degX + 1, degTopY + 1, tcol);
+            // Indicador OM: 1 pixel #444 en la baseline del texto, alineado
+            // con el simbolo de grado. Se enciende solo si la fila esta
+            // usando Open-Meteo y la opcion esta activa en Config.
+            if (r.omIndicator) {
+                dma->drawPixel(degX, y, rgb888to565(0x444444));
+            }
         }
     }
     dma->flipDMABuffer();   // intercambia front/back, anti-flicker
