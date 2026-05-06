@@ -10,12 +10,22 @@
 namespace Weather {
 
 struct Data {
-    int offsetSec;
-    int tempC;
-    int code;
-    bool isDay;
-    bool hasData;
-    int tempSource;     // 0=none, 1=openmeteo, 2=tomorrow (de quien viene temp+code)
+    // Datos efectivos para render (recalculados de los crudos según provider activo).
+    int offsetSec;          // siempre Open-Meteo
+    int tempC;              // efectivo (om o tio según tempSource)
+    int code;               // efectivo
+    bool isDay;             // siempre Open-Meteo
+    bool hasData;           // hay algún dato disponible
+    int tempSource;         // 0=none, 1=openmeteo, 2=tomorrow
+
+    // Datos crudos por proveedor (para fallback si tio falla).
+    int tempC_om, code_om;
+    bool hasOm;
+    int tempC_tio, code_tio;
+    bool hasTio;            // alguna vez tuvimos datos de tio
+    bool tioOk;             // ultimo fetch de tio fue exitoso. Si false, esta
+                            // ciudad usa OM aunque tio esté activo, hasta que
+                            // la rotacion vuelva a city y consiga exito.
 };
 
 extern Data data[4];

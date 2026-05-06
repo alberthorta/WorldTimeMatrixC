@@ -16,6 +16,31 @@ FetchDebug debugInfo[4];
 FetchDebug debugInfoTio[4];
 static TaskHandle_t taskHandle = nullptr;
 
+// Recalcula tempC/code/tempSource/hasData "efectivos" para una ciudad a partir
+// de los crudos por proveedor. Reglas:
+//   - Si Tomorrow.io esta activo Y la ciudad tiene tio fresh (hasTio && tioOk)
+//     → usar valores Tio.
+//   - Si no, fallback a Open-Meteo si lo hay.
+//   - Si tampoco, marca como sin datos.
+static void recomputeEffective(int idx) {
+    Data& d = data[idx];
+    bool tioActive = Config::hasTomorrowSettings();
+    if (tioActive && d.hasTio && d.tioOk) {
+        d.tempC = d.tempC_tio;
+        d.code = d.code_tio;
+        d.tempSource = 2;
+        d.hasData = true;
+    } else if (d.hasOm) {
+        d.tempC = d.tempC_om;
+        d.code = d.code_om;
+        d.tempSource = 1;
+        d.hasData = true;
+    } else {
+        d.tempSource = 0;
+        d.hasData = false;
+    }
+}
+
 // Mapeo de weatherCode Tomorrow.io (1000-8000) a equivalentes Open-Meteo
 // (0-99) para reusar Display::iconForCode sin tocar el render.
 static int tomorrowToOpenMeteoCode(int t) {
@@ -77,9 +102,8 @@ static bool fetchOne(int idx) {
     int code = http.GET();
     dbg.httpCode = code;
     bool ok = false;
-    // Si Tomorrow.io esta activo, Open-Meteo solo provee offset + isDay
-    // (temp + code los gestiona Tomorrow.io en su propia rotacion).
-    bool tioActive = Config::hasTomorrowSettings();
+    // Open-Meteo SIEMPRE actualiza sus campos crudos (om_*); el render decide
+    // si los usa (recomputeEffective) según si Tio esté activo y fresh.
     if (code == 200) {
         String body = http.getString();
         if (body.length() > MAX_DEBUG_BODY) {
@@ -95,13 +119,10 @@ static bool fetchOne(int idx) {
             if (!cur.isNull()) {
                 d.offsetSec = (int)(doc["utc_offset_seconds"] | 0);
                 d.isDay = ((int)(cur["is_day"] | 1)) == 1;
-                if (!tioActive) {
-                    double t = cur["temperature_2m"] | 0.0;
-                    d.tempC = (int)lround(t);
-                    d.code = (int)(cur["weather_code"] | 0);
-                    d.tempSource = 1;   // openmeteo
-                }
-                d.hasData = true;
+                double t = cur["temperature_2m"] | 0.0;
+                d.tempC_om = (int)lround(t);
+                d.code_om = (int)(cur["weather_code"] | 0);
+                d.hasOm = true;
                 ok = true;
                 dbg.lastError = "";
             } else {
@@ -116,6 +137,7 @@ static bool fetchOne(int idx) {
     }
     http.end();
     dbg.lastAtMs = millis();
+    recomputeEffective(idx);
     return ok;
 }
 
@@ -178,10 +200,10 @@ static bool fetchTomorrow(int idx) {
             if (!vals.isNull()) {
                 double t = vals["temperature"] | 0.0;
                 int tcode = (int)(vals["weatherCode"] | 0);
-                d.tempC = (int)lround(t);
-                d.code = tomorrowToOpenMeteoCode(tcode);
-                d.tempSource = 2;   // tomorrow
-                d.hasData = true;
+                d.tempC_tio = (int)lround(t);
+                d.code_tio = tomorrowToOpenMeteoCode(tcode);
+                d.hasTio = true;
+                d.tioOk = true;     // exito → esta ciudad usa Tio hasta proximo fallo
                 ok = true;
                 dbg.lastError = "";
             } else {
@@ -203,7 +225,14 @@ static bool fetchTomorrow(int idx) {
         dbg.lastError = String("http ") + code + ": " + http.errorToString(code);
     }
     http.end();
+    if (!ok) {
+        // Fallo (red, parse, 401, rate limit, ...): marca tio como stale para
+        // esta ciudad. recomputeEffective hara que use OM como fallback hasta
+        // que la rotacion vuelva y consiga un fetch ok.
+        d.tioOk = false;
+    }
     dbg.lastAtMs = millis();
+    recomputeEffective(idx);
     return ok;
 }
 
@@ -237,11 +266,30 @@ void loadCache() {
     for (int i = 0; i < n; i++) {
         Data& d = data[i];
         d.offsetSec = arr[i]["off"] | 0;
-        d.tempC = arr[i]["t"] | 0;
-        d.code = arr[i]["c"] | 0;
         d.isDay = arr[i]["d"] | true;
-        d.hasData = arr[i]["h"] | false;
-        d.tempSource = arr[i]["s"] | 0;
+        // Crudos por proveedor (compatibilidad con cache antiguo: si no hay
+        // om_t pero sí t/c y s==1, usa esos como om).
+        if (arr[i]["om_t"].is<int>()) {
+            d.tempC_om = arr[i]["om_t"];
+            d.code_om = arr[i]["om_c"] | 0;
+            d.hasOm = arr[i]["om_h"] | false;
+        } else if ((int)(arr[i]["s"] | 0) == 1) {
+            d.tempC_om = arr[i]["t"] | 0;
+            d.code_om = arr[i]["c"] | 0;
+            d.hasOm = arr[i]["h"] | false;
+        }
+        if (arr[i]["tio_t"].is<int>()) {
+            d.tempC_tio = arr[i]["tio_t"];
+            d.code_tio = arr[i]["tio_c"] | 0;
+            d.hasTio = arr[i]["tio_h"] | false;
+            d.tioOk = arr[i]["tio_ok"] | false;
+        } else if ((int)(arr[i]["s"] | 0) == 2) {
+            d.tempC_tio = arr[i]["t"] | 0;
+            d.code_tio = arr[i]["c"] | 0;
+            d.hasTio = arr[i]["h"] | false;
+            d.tioOk = false;   // no sabemos si era fresh, conservador
+        }
+        recomputeEffective(i);
     }
     Serial.printf("[weather] cache restored (%d entries)\n", n);
 }
@@ -253,11 +301,19 @@ void saveCache() {
         const Data& d = data[i];
         JsonObject o = arr.add<JsonObject>();
         o["off"] = d.offsetSec;
-        o["t"] = d.tempC;
-        o["c"] = d.code;
         o["d"] = d.isDay;
-        o["h"] = d.hasData;
-        o["s"] = d.tempSource;
+        // Crudos por proveedor.
+        if (d.hasOm) {
+            o["om_t"] = d.tempC_om;
+            o["om_c"] = d.code_om;
+            o["om_h"] = true;
+        }
+        if (d.hasTio) {
+            o["tio_t"] = d.tempC_tio;
+            o["tio_c"] = d.code_tio;
+            o["tio_h"] = true;
+            o["tio_ok"] = d.tioOk;
+        }
     }
     String json;
     serializeJson(doc, json);
