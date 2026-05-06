@@ -100,6 +100,41 @@ La placa entra en ROM bootloader y `pio run -t upload` funciona fiable. Tras sub
 
 Este truco también recupera placas que han quedado en estado raro tras un OTA fallido a media subida.
 
+## Gotcha #5: WiFi marginal — auto-rate adaptation tarda minutos en converger
+
+Síntoma observado: tras boot/OTA, el HTTP server técnicamente está activo en pocos segundos (el reloj y los iconos pintan, lo que demuestra que `setup()` terminó), pero las requests entrantes a `/api/status` o cualquier endpoint timeoutean durante ~5 minutos. Después se estabilizan y van perfectas hasta el próximo reset.
+
+**Causa raíz**: el WiFi del ESP32-S3 arranca asociándose al AP a la rate más alta que negocie (54 Mbps en 11g, más en 11n). Con RSSI marginal (-75 dBm o peor) esa rate falla por loss masivo. El driver tiene un algoritmo de auto-rate adaptation que detecta el loss y baja gradualmente la rate (54→24→12→6→1 Mbps), pero requiere tráfico sostenido para muestrear y converger. Sin ese tráfico al boot, el algoritmo tarda **minutos** en estabilizarse, durante los cuales casi todo el TCP entrante se pierde (lwip retransmits con RTOs inflados, el AP buffereando paquetes mal interpretando power-save, etc).
+
+**Fix que resuelve el problema**: forzar 802.11b (DSSS modulation, mucho más robusta a baja RSSI) tras la asociación al AP.
+
+```cpp
+#include <esp_wifi.h>
+
+WiFi.mode(WIFI_STA);
+WiFi.setHostname("device-name");   // ANTES de begin (importante, ver abajo)
+WiFi.setSleep(false);              // siempre awake (asume USB/mains)
+WiFi.setAutoReconnect(true);
+WiFi.begin(ssid, password);
+// ... esperar WL_CONNECTED ...
+esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
+```
+
+Después de esto el link queda en máx. 11 Mbps (≈6 Mbps reales) pero **estable desde el primer segundo**. Para JSON pequeño, OTAs de ~1MB y carga típica de un device IoT es de sobra.
+
+**Detalles importantes**:
+
+- **`setHostname` ANTES de `WiFi.begin()`**: si lo cambias después, DHCP ya negoció con el nombre auto-generado del chip. Algunos routers tardan minutos en propagar el cambio, dejando el device alcanzable solo via IP entretanto.
+- **`WiFi.setSleep(false)`**: por defecto el ESP32 entra en sleep entre beacons (cliente IoT con batería). En APs marginales eso causa que el AP piense que el cliente duerme y bufferee paquetes entrantes, retrasando el TCP ack. Apagar power-save lo arregla. Coste: ~70 mA extra (irrelevante con USB/mains).
+- **`setAutoReconnect(true)`**: si el link cae después, el driver intenta reasociarse solo.
+- **Trade-offs de 11b**: max ~11 Mbps. Algunos APs "11n-only" o de empresa pueden rechazar clientes 11b (en LAN doméstica todos lo aceptan). Cliente 11b consume más air time por bit que 11n, ralentizando ligeramente el canal para los demás.
+
+**Datos del proyecto** (RSSI -77 dBm):
+- Antes: 0-1/19 requests OK durante los primeros 60s, ~5 min hasta estabilizarse.
+- Después: 57/57 OK desde +5s. Boot a "fully usable" en menos de 6s.
+
+**Cómo verificar si te afecta**: tras un boot, lanzar polling de un endpoint `/api/status` cada 0.5s desde otra máquina y medir el % de éxito en los primeros 30s. Si <50% durante un periodo extendido, casi seguro es esto y la solución 11b lo arregla.
+
 ## OTA — métodos y fiabilidad
 
 ### ArduinoOTA (espota.py, puerto 3232)
@@ -367,3 +402,4 @@ led.show();
 - [ ] mDNS `<name>.local`
 - [ ] Botón físico `BOOT+RESET` documentado para recovery
 - [ ] Power: panel con 5V externa, NO desde USB-C del Matrix Portal
+- [ ] WiFi: `setHostname` ANTES de `begin`, `setSleep(false)`, y `esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B)` post-asociación si el RSSI es marginal (ver Gotcha #5)
