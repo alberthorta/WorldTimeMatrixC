@@ -41,7 +41,9 @@ struct Row {
 
 void begin();
 void setBrightness(uint8_t v);     // 0..255 hardware brightness
-void renderRows(const Row rows[4]);
+// `secondOfMinute` (0..59 o -1 si no hay tiempo válido) se usa para dibujar
+// la barra de segundos del último renglón si Config::cfg.secondsBar.
+void renderRows(const Row rows[4], int secondOfMinute = -1);
 void clear();
 
 uint16_t rgb888to565(uint32_t rgb);

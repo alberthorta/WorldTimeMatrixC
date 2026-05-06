@@ -141,5 +141,6 @@ void loop() {
         r.showColon = showColon;
         r.omIndicator = Config::cfg.omIndicator && d.hasData && d.tempSource == 1;
     }
-    Display::renderRows(rows);
+    int secondOfMinute = timeOk ? (int)(utc % 60) : -1;
+    Display::renderRows(rows, secondOfMinute);
 }

@@ -241,7 +241,7 @@ static int drawDigits(const char* s, int x, int y) {
     return x;
 }
 
-void renderRows(const Row rows[4]) {
+void renderRows(const Row rows[4], int secondOfMinute) {
     if (!dma) return;
     dma->clearScreen();
 
@@ -331,6 +331,18 @@ void renderRows(const Row rows[4]) {
                 dma->drawPixel(degX + 1, y - 1, rgb888to565(0x444444));
             }
         }
+    }
+    // Barra de segundos: 3 pixeles en la fila inferior con gradiente lateral
+    // (#333 — #666 — #333). El centro recorre 0..WIDTH-1 según el segundo
+    // actual; en los extremos los pixeles laterales se recortan al panel.
+    if (Config::cfg.secondsBar && secondOfMinute >= 0 && secondOfMinute < 60) {
+        int center = (secondOfMinute * (WIDTH - 1)) / 59;
+        int y = HEIGHT - 1;
+        uint16_t side = rgb888to565(0x333333);
+        uint16_t mid  = rgb888to565(0x666666);
+        if (center - 1 >= 0)    dma->drawPixel(center - 1, y, side);
+        dma->drawPixel(center, y, mid);
+        if (center + 1 < WIDTH) dma->drawPixel(center + 1, y, side);
     }
     dma->flipDMABuffer();   // intercambia front/back, anti-flicker
 }
