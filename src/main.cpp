@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <math.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "Config.h"
@@ -74,17 +76,26 @@ void loop() {
 
     static uint32_t lastRender = 0;
     static uint8_t lastBrightness = 255;
-    // Renderizamos a 10fps (100ms) para que las animaciones de iconos puedan
-    // tickar con granularidad fina. Coste: bajo, dado que el panel se refresca
-    // por DMA en hardware.
-    if (millis() - lastRender < 100) {
-        delay(5);
+    // Renderizamos a ~30fps (33ms) para que la barra de segundos sub-pixel
+    // se vea fluida. Coste: bajo — panel via DMA, render es solo composicion
+    // de framebuffer logico.
+    if (millis() - lastRender < 33) {
+        delay(2);
         return;
     }
     lastRender = millis();
 
     time_t utc = time(nullptr);
     bool timeOk = utc > TIME_VALID_THRESHOLD;
+    // Tiempo con resolucion sub-segundo para la barra continua (gettimeofday
+    // sale del reloj NTP-sincronizado, mismo que time(nullptr)).
+    float secondOfMinuteF = -1.0f;
+    if (timeOk) {
+        struct timeval tv;
+        gettimeofday(&tv, nullptr);
+        double secsF = (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
+        secondOfMinuteF = (float)fmod(secsF, 60.0);
+    }
 
     // Brillo: usa la primera ciudad como timezone de referencia para la ventana
     // de modo noche (igual que la version Python).
@@ -97,9 +108,21 @@ void loop() {
     }
 
     Display::Row rows[4];
-    bool showColon = true;
+    // Fade-in/out del ":" durante los primeros ~4 frames de cada segundo,
+    // suavizando la transicion on/off del parpadeo. Sin colonBlink esta a 1.
+    float colonAlpha = 1.0f;
     if (Config::cfg.colonBlink && timeOk) {
-        showColon = (utc % 2) == 0;
+        int intSec = (int)floorf(secondOfMinuteF);
+        float frac = secondOfMinuteF - (float)intSec;
+        float target = ((intSec % 2) == 0) ? 1.0f : 0.0f;
+        float prev   = 1.0f - target;
+        const float FADE_SEC = 4.0f / 30.0f;   // 4 frames a 30fps ≈ 133ms
+        if (frac < FADE_SEC) {
+            float p = frac / FADE_SEC;
+            colonAlpha = prev * (1.0f - p) + target * p;
+        } else {
+            colonAlpha = target;
+        }
     }
 
     // Buffers persistentes para nombres dinamicos ($DATE -> "DD/MM").
@@ -138,9 +161,8 @@ void loop() {
         r.icon = d.hasData
                      ? Weather::iconForCode(d.code, d.isDay)
                      : Display::IconType::NONE;
-        r.showColon = showColon;
+        r.colonAlpha = colonAlpha;
         r.omIndicator = Config::cfg.omIndicator && d.hasData && d.tempSource == 1;
     }
-    int secondOfMinute = timeOk ? (int)(utc % 60) : -1;
-    Display::renderRows(rows, secondOfMinute);
+    Display::renderRows(rows, secondOfMinuteF);
 }

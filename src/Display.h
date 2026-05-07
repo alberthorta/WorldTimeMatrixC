@@ -32,7 +32,9 @@ struct Row {
     uint16_t color;     // 565 RGB para nombre/hora
     bool hasTime;       // si false, no se pinta HH:MM (NTP aun sin sincronizar)
     bool hasWeather;    // si false, no se pinta icono ni temp
-    bool showColon;     // si false el ":" se omite (parpadeo)
+    float colonAlpha;   // 0..1; controla la intensidad del ":" (parpadeo con
+                        // fade-in/out cuando colonBlink esta activo). 1 = full,
+                        // 0 = no se ve.
     bool omIndicator;   // si true, dibuja un puntito gris debajo del º (señal
                         // visible de que esa fila esta usando datos OM —
                         // util cuando Tio esta activo y quieres saber si hay
@@ -41,9 +43,10 @@ struct Row {
 
 void begin();
 void setBrightness(uint8_t v);     // 0..255 hardware brightness
-// `secondOfMinute` (0..59 o -1 si no hay tiempo válido) se usa para dibujar
-// la barra de segundos del último renglón si Config::cfg.secondsBar.
-void renderRows(const Row rows[4], int secondOfMinute = -1);
+// `secondOfMinuteF` en float (0..60, con fraccion sub-segundo) para que la
+// barra de segundos se mueva continua a la velocidad de render del loop.
+// < 0 → sin tiempo valido, no se dibuja.
+void renderRows(const Row rows[4], float secondOfMinuteF = -1.0f);
 void clear();
 
 uint16_t rgb888to565(uint32_t rgb);

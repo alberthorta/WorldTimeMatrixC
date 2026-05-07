@@ -2,6 +2,7 @@
 
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Fonts/TomThumb.h>
+#include <math.h>
 
 #include "Config.h"
 #include "Icons.h"
@@ -241,7 +242,7 @@ static int drawDigits(const char* s, int x, int y) {
     return x;
 }
 
-void renderRows(const Row rows[4], int secondOfMinute) {
+void renderRows(const Row rows[4], float secondOfMinuteF) {
     if (!dma) return;
     dma->clearScreen();
 
@@ -284,9 +285,28 @@ void renderRows(const Row rows[4], int secondOfMinute) {
             int xStart = TIME_RIGHT_X - blockW;
             dma->setTextColor(r.color);
             int xCur = drawDigits(hh, xStart, y);
-            if (r.showColon) {
+            if (r.colonAlpha > 0.01f) {
+                // Fade del ":" via escalado RGB. Decode 565→888, escala por
+                // alpha, encode→565. Para alpha≈1 saltamos la conversion para
+                // ahorrar la perdida de precision por redondeo.
+                uint16_t colonColor = r.color;
+                if (r.colonAlpha < 0.999f) {
+                    uint8_t R5 = (r.color >> 11) & 0x1F;
+                    uint8_t G6 = (r.color >> 5)  & 0x3F;
+                    uint8_t B5 =  r.color        & 0x1F;
+                    uint8_t R = (R5 << 3) | (R5 >> 2);
+                    uint8_t G = (G6 << 2) | (G6 >> 4);
+                    uint8_t B = (B5 << 3) | (B5 >> 2);
+                    R = (uint8_t)((float)R * r.colonAlpha + 0.5f);
+                    G = (uint8_t)((float)G * r.colonAlpha + 0.5f);
+                    B = (uint8_t)((float)B * r.colonAlpha + 0.5f);
+                    colonColor = rgb888to565(((uint32_t)R << 16) | ((uint32_t)G << 8) | (uint32_t)B);
+                }
+                dma->setTextColor(colonColor);
                 dma->setCursor(xCur, y + COLON_Y_OFFSET);
                 dma->print(":");
+                // Restaura el color original para los digitos del minuto.
+                dma->setTextColor(r.color);
             }
             drawDigits(mm, xCur + COLON_W, y);
         }
@@ -332,17 +352,50 @@ void renderRows(const Row rows[4], int secondOfMinute) {
             }
         }
     }
-    // Barra de segundos: 3 pixeles en la fila inferior con gradiente lateral
-    // (#333 — #666 — #333). El centro recorre 0..WIDTH-1 según el segundo
-    // actual; en los extremos los pixeles laterales se recortan al panel.
-    if (Config::cfg.secondsBar && secondOfMinute >= 0 && secondOfMinute < 60) {
-        int center = (secondOfMinute * (WIDTH - 1)) / 59;
+    // Barra de segundos: equivalente continuo del antiguo patron 3-px
+    // (lateral=#333 / centro=#666 / lateral=#333) pero con renderizado
+    // sub-pixel para movimiento suave a la velocidad de render.
+    //
+    // Modelo: tres "fuentes" con kernel triangular de ancho 1 (intensidad
+    // ramp 0→1→0 en ±1 px) — una en pos_f-1 (lateral), una en pos_f
+    // (centro), una en pos_f+1 (lateral). Para cada pixel entero del rango,
+    // se suman las contribuciones de las tres fuentes ponderadas por la
+    // distancia. Cuando pos_f cae en entero el resultado son 3 pixeles
+    // exactos con los valores originales; cuando esta entre dos pixeles
+    // el patron se difumina a 4 pixeles con pesos simetricos. Es una
+    // convolucion del kernel discreto con la posicion sub-pixel.
+    if (Config::cfg.secondsBar && secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
+        // Sweep cíclico (toroidal): pos_f recorre [0, WIDTH) en 60s. Al pasar
+        // del segundo 59→0, la barra se enrolla por el otro lado (los pixeles
+        // del flanco que se salen por la derecha aparecen por la izquierda y
+        // viceversa). Por eso usamos WIDTH como divisor (no WIDTH-1) — asi 0
+        // y WIDTH-1 son toroidalmente adyacentes.
+        float pos_f = fmodf(secondOfMinuteF * (float)WIDTH / 60.0f, (float)WIDTH);
         int y = HEIGHT - 1;
-        uint16_t side = rgb888to565(0x333333);
-        uint16_t mid  = rgb888to565(0x666666);
-        if (center - 1 >= 0)    dma->drawPixel(center - 1, y, side);
-        dma->drawPixel(center, y, mid);
-        if (center + 1 < WIDTH) dma->drawPixel(center + 1, y, side);
+        const float MID  = 0x77;     // grayscale center  (antes 0x66)
+        const float SIDE = 0x44;     // grayscale flanco  (antes 0x33)
+        int x0 = (int)floorf(pos_f) - 1;
+        int x1 = (int)ceilf(pos_f) + 1;
+        for (int x = x0; x <= x1; x++) {
+            // Contribucion = max(0, 1 - |dist|) por cada una de las 3 fuentes
+            // del kernel. La distancia se calcula con x sin envolver para que
+            // los flancos se midan respecto a sus fuentes reales; la x final
+            // de pintado se envuelve a [0, WIDTH) para el wrap toroidal.
+            float dC = (float)x - pos_f;
+            float dL = (float)x - (pos_f - 1.0f);
+            float dR = (float)x - (pos_f + 1.0f);
+            float wC = 1.0f - fabsf(dC); if (wC < 0.0f) wC = 0.0f;
+            float wL = 1.0f - fabsf(dL); if (wL < 0.0f) wL = 0.0f;
+            float wR = 1.0f - fabsf(dR); if (wR < 0.0f) wR = 0.0f;
+            float v = wC * MID + (wL + wR) * SIDE;
+            int iv = (int)(v + 0.5f);
+            if (iv <= 0) continue;
+            if (iv > 0xFF) iv = 0xFF;
+            int xw = x % WIDTH;
+            if (xw < 0) xw += WIDTH;
+            uint32_t rgb = ((uint32_t)iv << 16) | ((uint32_t)iv << 8) | (uint32_t)iv;
+            dma->drawPixel(xw, y, rgb888to565(rgb));
+        }
     }
     dma->flipDMABuffer();   // intercambia front/back, anti-flicker
 }
