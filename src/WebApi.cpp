@@ -199,15 +199,16 @@ void begin() {
 
     // Detalles de la ultima llamada (URL + body raw) para una ciudad. Util
     // para debugging desde el panel admin. ANTES que /api/weather por matching.
-    // Param opcional `provider`: "openmeteo" (default) | "tomorrow"
+    // Param opcional `provider`: "openmeteo" (default) | "tomorrow" | "weatherapi"
     server.on("/api/weather/debug", HTTP_GET, [](AsyncWebServerRequest* req) {
         int idx = 0;
         if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
         idx = constrain(idx, 0, 3);
         String provider = "openmeteo";
         if (req->hasParam("provider")) provider = req->getParam("provider")->value();
-        const auto& dbg = (provider == "tomorrow") ? Weather::debugInfoTio[idx]
-                                                   : Weather::debugInfo[idx];
+        const auto& dbg = (provider == "tomorrow")   ? Weather::debugInfoTio[idx]
+                        : (provider == "weatherapi") ? Weather::debugInfoWap[idx]
+                                                     : Weather::debugInfo[idx];
         JsonDocument doc;
         doc["idx"] = idx;
         doc["provider"] = provider;
@@ -226,16 +227,26 @@ void begin() {
         sendJson(req, doc);
     });
     // Trigger sincrono: fuerza un fetch del idx dado y devuelve estado.
-    // Param opcional `provider`: "openmeteo" (default) | "tomorrow"
+    // Param opcional `provider`: "openmeteo" (default) | "tomorrow" | "weatherapi"
     server.on("/api/weather/fetch", HTTP_GET, [](AsyncWebServerRequest* req) {
         int idx = 0;
         if (req->hasParam("idx")) idx = req->getParam("idx")->value().toInt();
         idx = constrain(idx, 0, 3);
         String provider = "openmeteo";
         if (req->hasParam("provider")) provider = req->getParam("provider")->value();
-        bool isTio = (provider == "tomorrow");
-        bool ok = isTio ? Weather::fetchOneTomorrowSync(idx) : Weather::fetchOneSync(idx);
-        const auto& dbg = isTio ? Weather::debugInfoTio[idx] : Weather::debugInfo[idx];
+        bool ok;
+        const Weather::FetchDebug* dbgPtr;
+        if (provider == "tomorrow") {
+            ok = Weather::fetchOneTomorrowSync(idx);
+            dbgPtr = &Weather::debugInfoTio[idx];
+        } else if (provider == "weatherapi") {
+            ok = Weather::fetchOneWeatherApiSync(idx);
+            dbgPtr = &Weather::debugInfoWap[idx];
+        } else {
+            ok = Weather::fetchOneSync(idx);
+            dbgPtr = &Weather::debugInfo[idx];
+        }
+        const auto& dbg = *dbgPtr;
         JsonDocument doc;
         doc["ok"] = ok;
         doc["idx"] = idx;
@@ -247,8 +258,16 @@ void begin() {
     server.on("/api/weather", HTTP_GET, [](AsyncWebServerRequest* req) {
         JsonDocument doc;
         doc["utc_now"] = (uint32_t)time(nullptr);
-        doc["tomorrow_active"] = Config::hasTomorrowSettings();
-        doc["tio_next_idx"] = Weather::nextTioIdx();
+        Config::PremiumProvider active = Config::activePremium();
+        const char* activeName = (active == Config::PremiumProvider::TOMORROW)   ? "tomorrow"
+                               : (active == Config::PremiumProvider::WEATHERAPI) ? "weatherapi"
+                                                                                 : "none";
+        doc["premium_active"] = (active != Config::PremiumProvider::NONE);
+        doc["premium_provider"] = activeName;
+        doc["premium_next_idx"] = Weather::nextPremiumIdx();
+        // Aliases historicos para retro-compat de la UI mientras se actualiza.
+        doc["tomorrow_active"] = (active == Config::PremiumProvider::TOMORROW);
+        doc["tio_next_idx"] = Weather::nextPremiumIdx();
         JsonArray arr = doc["cities"].to<JsonArray>();
         uint32_t now = millis();
         for (int i = 0; i < 4; i++) {
@@ -256,6 +275,7 @@ void begin() {
             const auto& d = Weather::data[i];
             const auto& dbg = Weather::debugInfo[i];
             const auto& dbgTio = Weather::debugInfoTio[i];
+            const auto& dbgWap = Weather::debugInfoWap[i];
             JsonObject o = arr.add<JsonObject>();
             o["name"] = cc.name;
             o["has_data"] = d.hasData;
@@ -263,7 +283,8 @@ void begin() {
             o["temp_c"] = d.tempC;
             o["code"] = d.code;
             o["is_day"] = d.isDay;
-            o["temp_source"] = (d.tempSource == 2) ? "tomorrow"
+            o["temp_source"] = (d.tempSource == 3) ? "weatherapi"
+                              : (d.tempSource == 2) ? "tomorrow"
                               : (d.tempSource == 1) ? "openmeteo" : "none";
             o["http"] = dbg.httpCode;
             o["attempts"] = dbg.attempts;
@@ -271,6 +292,7 @@ void begin() {
             // Edad en segundos desde el ultimo fetch de cada proveedor; -1 si nunca.
             o["om_age_s"]  = (dbg.lastAtMs    == 0) ? -1 : (int32_t)((now - dbg.lastAtMs)    / 1000U);
             o["tio_age_s"] = (dbgTio.lastAtMs == 0) ? -1 : (int32_t)((now - dbgTio.lastAtMs) / 1000U);
+            o["wap_age_s"] = (dbgWap.lastAtMs == 0) ? -1 : (int32_t)((now - dbgWap.lastAtMs) / 1000U);
             if (dbg.lastError.length()) o["err"] = dbg.lastError;
         }
         sendJson(req, doc);
@@ -321,33 +343,69 @@ void begin() {
                 });
         });
 
-    // --- Provider meteo Tomorrow.io (NVS, no en backups) ---
-    // La api_key se devuelve en plano: el panel admin solo es accesible en LAN
-    // y vale más la transparencia para verificar/editar. Si en algún momento
-    // ponemos auth en el panel, pensar en mascarar.
+    // --- Provider meteo premium (Tomorrow.io / WeatherAPI, NVS, no en backups) ---
+    // Solo uno puede estar activo a la vez (exclusion mutua en los setters).
+    // Las api_keys se devuelven en plano: panel admin solo en LAN y vale mas
+    // la transparencia para verificar/editar. Si añadimos auth, mascarar.
     server.on("/api/weather_provider", HTTP_GET, [](AsyncWebServerRequest* req) {
         Config::TomorrowSettings t = Config::getTomorrowSettings();
+        Config::WeatherApiSettings w = Config::getWeatherApiSettings();
+        Config::PremiumProvider act = Config::activePremium();
         JsonDocument doc;
-        doc["enabled"] = t.enabled;
-        doc["refresh_sec"] = t.refreshSec;
-        doc["api_key"] = t.apiKey;
+        doc["active"] = (act == Config::PremiumProvider::TOMORROW)   ? "tomorrow"
+                       : (act == Config::PremiumProvider::WEATHERAPI) ? "weatherapi"
+                                                                      : "none";
+        JsonObject jt = doc["tomorrow"].to<JsonObject>();
+        jt["enabled"] = t.enabled;
+        jt["refresh_sec"] = t.refreshSec;
+        jt["api_key"] = t.apiKey;
+        JsonObject jw = doc["weatherapi"].to<JsonObject>();
+        jw["enabled"] = w.enabled;
+        jw["refresh_sec"] = w.refreshSec;
+        jw["api_key"] = w.apiKey;
         sendJson(req, doc);
     });
+    // POST acepta:
+    //   { "active": "none"|"tomorrow"|"weatherapi",
+    //     "tomorrow":   { "api_key":"...", "refresh_sec": N },
+    //     "weatherapi": { "api_key":"...", "refresh_sec": N } }
+    // Cualquiera de los sub-objetos es opcional; si faltan campos se mantienen
+    // los valores actuales. `active` decide cual queda enabled (los otros van
+    // a enabled=false). Las claves persisten aunque el provider este off.
     server.on("/api/weather_provider", HTTP_POST,
         [](AsyncWebServerRequest* req) {},
         nullptr,
         [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
             accumulateJsonBody(req, data, len, index, total,
                 [](AsyncWebServerRequest* req, JsonDocument& doc) {
-                    Config::TomorrowSettings cur = Config::getTomorrowSettings();
-                    bool enabled = doc["enabled"] | cur.enabled;
-                    String key = doc["api_key"] | cur.apiKey;
-                    uint16_t refresh = cur.refreshSec;
-                    if (doc["refresh_sec"].is<int>()) refresh = (uint16_t)(int)doc["refresh_sec"];
-                    Config::setTomorrowSettings(enabled, key, refresh);
+                    String active = doc["active"] | String("none");
+                    Config::TomorrowSettings   curT = Config::getTomorrowSettings();
+                    Config::WeatherApiSettings curW = Config::getWeatherApiSettings();
+                    String tioKey = doc["tomorrow"]["api_key"]   | curT.apiKey;
+                    String wapKey = doc["weatherapi"]["api_key"] | curW.apiKey;
+                    uint16_t tioRef = curT.refreshSec, wapRef = curW.refreshSec;
+                    if (doc["tomorrow"]["refresh_sec"].is<int>())
+                        tioRef = (uint16_t)(int)doc["tomorrow"]["refresh_sec"];
+                    if (doc["weatherapi"]["refresh_sec"].is<int>())
+                        wapRef = (uint16_t)(int)doc["weatherapi"]["refresh_sec"];
+                    bool tioOn = (active == "tomorrow");
+                    bool wapOn = (active == "weatherapi");
+                    // Importante: aplicar primero el que se va a apagar para
+                    // que la exclusion mutua del setter contrario no lo
+                    // sobreescriba. setX(false,...) no toca el otro flag.
+                    if (tioOn) {
+                        Config::setWeatherApiSettings(false, wapKey, wapRef);
+                        Config::setTomorrowSettings(true, tioKey, tioRef);
+                    } else if (wapOn) {
+                        Config::setTomorrowSettings(false, tioKey, tioRef);
+                        Config::setWeatherApiSettings(true, wapKey, wapRef);
+                    } else {
+                        Config::setTomorrowSettings(false, tioKey, tioRef);
+                        Config::setWeatherApiSettings(false, wapKey, wapRef);
+                    }
                     JsonDocument res;
                     res["ok"] = true;
-                    res["active"] = enabled && key.length() > 0;
+                    res["active"] = active;
                     sendJson(req, res);
                 });
         });

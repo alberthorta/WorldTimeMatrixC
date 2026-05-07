@@ -216,8 +216,12 @@ bool setRgbOrder(const String& v) {
     return true;
 }
 
-// --- Tomorrow.io provider (NVS-only, per-device) ---
-// Claves NVS: wx_tio_en (bool), wx_tio_key (string), wx_tio_ref (uint16).
+// --- Premium providers (NVS-only, per-device, no en backups) ---
+// Tomorrow.io: claves NVS wx_tio_en (bool), wx_tio_key (string), wx_tio_ref (uint16).
+// WeatherAPI:  claves NVS wx_wap_en (bool), wx_wap_key (string), wx_wap_ref (uint16).
+// Exclusion mutua: si setX(enabled=true) se llama, el OTRO se pone a enabled=false.
+// Las api_keys y refresh se mantienen guardadas en cualquier caso para que el
+// usuario pueda alternar sin reescribirlas.
 TomorrowSettings getTomorrowSettings() {
     TomorrowSettings s;
     s.enabled = prefs.getBool("wx_tio_en", false);
@@ -231,11 +235,40 @@ void setTomorrowSettings(bool enabled, const String& apiKey, uint16_t refreshSec
     prefs.putString("wx_tio_key", apiKey);
     if (refreshSec < 60) refreshSec = 60;
     prefs.putUShort("wx_tio_ref", refreshSec);
+    if (enabled) prefs.putBool("wx_wap_en", false);   // exclusion mutua
 }
 
 bool hasTomorrowSettings() {
     TomorrowSettings s = getTomorrowSettings();
     return s.enabled && s.apiKey.length() > 0;
+}
+
+WeatherApiSettings getWeatherApiSettings() {
+    WeatherApiSettings s;
+    s.enabled = prefs.getBool("wx_wap_en", false);
+    s.apiKey = prefs.getString("wx_wap_key", "");
+    s.refreshSec = prefs.getUShort("wx_wap_ref", 1800);    // 30min por defecto (free tier 1M/mes, holgadisimo)
+    return s;
+}
+
+void setWeatherApiSettings(bool enabled, const String& apiKey, uint16_t refreshSec) {
+    prefs.putBool("wx_wap_en", enabled);
+    prefs.putString("wx_wap_key", apiKey);
+    if (refreshSec < 60) refreshSec = 60;
+    prefs.putUShort("wx_wap_ref", refreshSec);
+    if (enabled) prefs.putBool("wx_tio_en", false);   // exclusion mutua
+}
+
+bool hasWeatherApiSettings() {
+    WeatherApiSettings s = getWeatherApiSettings();
+    return s.enabled && s.apiKey.length() > 0;
+}
+
+PremiumProvider activePremium() {
+    // Si por algun bug ambos quedaran enabled=true (pre-mutex), gana TIO.
+    if (hasTomorrowSettings()) return PremiumProvider::TOMORROW;
+    if (hasWeatherApiSettings()) return PremiumProvider::WEATHERAPI;
+    return PremiumProvider::NONE;
 }
 bool applyPatch(JsonDocument& doc) { return applyJson(doc); }
 

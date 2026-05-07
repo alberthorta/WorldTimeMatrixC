@@ -89,9 +89,11 @@ void writeBackupJson(JsonDocument& doc);  // backup exportable: SOLO lo que esta
 bool applyPatch(JsonDocument& doc);       // aplicar JSON parcial; true si cities cambian
 bool setRgbOrder(const String& v);        // setter dedicado (NVS); endpoint /api/rgb_order
 
-// Provider meteo Tomorrow.io (opcional, NVS-only, no en backups).
-// Cuando enabled=true && key non-empty, Weather usa Tomorrow.io para temp+code
-// y Open-Meteo solo para offset+isDay. Si esta deshabilitado, solo Open-Meteo.
+// Provider meteo "premium" (Tomorrow.io o WeatherAPI). Solo uno puede estar
+// activo a la vez (exclusion mutua: activar uno desactiva el otro). Las claves
+// y refresh de ambos persisten independientemente, asi se pueden alternar sin
+// reescribir credenciales. Cuando hay activo Y key non-empty, Weather lo usa
+// para temp+code; Open-Meteo siempre da offset+isDay y sirve de fallback.
 struct TomorrowSettings {
     bool enabled;
     String apiKey;
@@ -100,6 +102,20 @@ struct TomorrowSettings {
 TomorrowSettings getTomorrowSettings();
 void setTomorrowSettings(bool enabled, const String& apiKey, uint16_t refreshSec);
 bool hasTomorrowSettings();   // shortcut: enabled && apiKey no vacio
+
+struct WeatherApiSettings {
+    bool enabled;
+    String apiKey;
+    uint16_t refreshSec;
+};
+WeatherApiSettings getWeatherApiSettings();
+void setWeatherApiSettings(bool enabled, const String& apiKey, uint16_t refreshSec);
+bool hasWeatherApiSettings();
+
+// Cual de los dos proveedores premium esta activo (o NONE). Si por algun
+// bug ambos quedaran enabled=true a la vez, gana Tomorrow.io.
+enum class PremiumProvider { NONE, TOMORROW, WEATHERAPI };
+PremiumProvider activePremium();
 
 // WiFi (separado de cfg para no aparecer en backups JSON).
 WifiCreds getWifi();

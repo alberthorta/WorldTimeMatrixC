@@ -450,15 +450,20 @@ code{
 </section>
 
 <section class="card">
-  <div class="card-head">
-    <h2 class="h-section">Proveedor meteo</h2>
-    <label class="toggle"><input id="tio-en" type="checkbox"/><span class="toggle-slider"></span></label>
-  </div>
+  <h2 class="h-section mb-3">Proveedor meteo</h2>
   <p class="note" style="margin-top:0">
-    Por defecto se usa Open-Meteo (sin clave, ilimitado). Activando Tomorrow.io
-    se usa para temperatura y código del tiempo; Open-Meteo sigue dando hora
-    local (offset UTC) y día/noche.
+    Open-Meteo (default, sin clave) siempre da hora local y día/noche. Si seleccionas
+    Tomorrow.io o WeatherAPI, ese provider se usa para temperatura y código del tiempo;
+    si su último fetch tiene > 1h sin éxito, esa fila cae a Open-Meteo.
   </p>
+  <label style="margin-top:.85rem">
+    <span class="label">Provider activo</span>
+    <select id="prov-active">
+      <option value="none">Ninguno (solo Open-Meteo)</option>
+      <option value="tomorrow">Tomorrow.io</option>
+      <option value="weatherapi">WeatherAPI</option>
+    </select>
+  </label>
   <div class="grid-2 mb-3" style="margin-top:.85rem">
     <label>
       <span class="label">API key Tomorrow.io</span>
@@ -470,7 +475,18 @@ code{
       <input id="tio-refresh" type="number" min="60" max="86400" step="60"/>
     </label>
   </div>
-  <button id="tio-save" class="btn btn-primary">Guardar provider</button>
+  <div class="grid-2 mb-3">
+    <label>
+      <span class="label">API key WeatherAPI</span>
+      <input id="wap-key" type="text" placeholder="pega aquí la api key" autocomplete="off" spellcheck="false"/>
+      <span class="note" id="wap-key-info" style="margin-top:.25rem">-</span>
+    </label>
+    <label>
+      <span class="label">Refresco WeatherAPI (s) <span class="text-warn">free=1M/mes</span></span>
+      <input id="wap-refresh" type="number" min="60" max="86400" step="60"/>
+    </label>
+  </div>
+  <button id="prov-save" class="btn btn-primary">Guardar provider</button>
 </section>
 
 <section class="card">
@@ -478,7 +494,7 @@ code{
   <div class="tbl-wrap">
     <table id="weather" class="weather-tbl">
       <thead>
-        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th>OM</th><th>TIO</th><th title="Orden de refresco automatico TIO (1 = proxima)">Ord</th><th></th></tr>
+        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th>OM</th><th id="th-prem">Prem</th><th title="Orden de refresco automatico del provider premium (1 = proxima)">Ord</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -806,27 +822,40 @@ async function loadWeather(){
     const r = await fetch('/api/weather', {signal: pollSignal()}); const d = await r.json();
     const tbody = $('#weather').querySelector('tbody');
     tbody.innerHTML = '';
-    const nextIdx = (typeof d.tio_next_idx === 'number') ? d.tio_next_idx : 0;
+    const provider = d.premium_provider || (d.tomorrow_active ? 'tomorrow' : 'none');
+    const nextIdx = (typeof d.premium_next_idx === 'number') ? d.premium_next_idx
+                  : (typeof d.tio_next_idx === 'number') ? d.tio_next_idx : 0;
+    const provLabel = provider === 'tomorrow' ? 'TIO'
+                    : provider === 'weatherapi' ? 'WAPI'
+                    : 'Prem';
+    const provCss = provider === 'weatherapi' ? 'src-tio' : 'src-tio';   // mismo azul para premium
+    const thPrem = $('#th-prem');
+    if (thPrem) thPrem.textContent = provLabel;
     const fmtAge = s => (s == null || s < 0) ? '<span class="text-muted">-</span>' : `${s}s`;
     d.cities.forEach((c, idx) => {
       const tr = document.createElement('tr');
-      const srcClass = c.temp_source === 'tomorrow' ? 'src-tio'
-                     : c.temp_source === 'openmeteo' ? 'src-om' : 'src-none';
+      const srcClass = c.temp_source === 'tomorrow'   ? 'src-tio'
+                     : c.temp_source === 'weatherapi' ? 'src-tio'
+                     : c.temp_source === 'openmeteo'  ? 'src-om' : 'src-none';
       const day  = c.has_data ? (c.is_day ? '<span class="text-day">☀</span>' : '<span class="text-night">🌙</span>') : '<span class="text-muted">-</span>';
       const tmp  = c.has_data ? `<span class="${srcClass}">${c.temp_c}°</span>` : '<span class="text-muted">-</span>';
       const off  = c.has_data ? `${(c.offset_sec/3600).toFixed(1)}h` : '-';
       const codeStr = c.has_data ? `<span class="${srcClass}">${c.code}</span>` : '<span class="text-muted">-</span>';
       const omAge  = `<span class="src-om text-muted">${fmtAge(c.om_age_s)}</span>`;
-      const tioAge = d.tomorrow_active
-        ? `<span class="src-tio">${fmtAge(c.tio_age_s)}</span>`
-        : '<span class="text-muted">-</span>';
-      // Orden de actualizacion en la rotacion automatica TIO: 1=siguiente,
-      // 2=tras ese, etc. Permite ver de un vistazo cuanto falta para que el
-      // device refresque cada ciudad sin tener que pulsar "forzar".
-      const ordCell = d.tomorrow_active
-        ? `<span class="src-tio">${((idx - nextIdx + 4) % 4) + 1}</span>`
-        : '<span class="text-muted">-</span>';
-      tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td>${codeStr}</td><td>${day}</td><td>${omAge}</td><td>${tioAge}</td><td>${ordCell}</td><td></td>`;
+      // Edad del provider premium activo (TIO o WAP). Si no hay activo, "-".
+      const premAgeS = provider === 'tomorrow'   ? c.tio_age_s
+                     : provider === 'weatherapi' ? c.wap_age_s
+                     : null;
+      const premAge = (provider === 'none')
+        ? '<span class="text-muted">-</span>'
+        : `<span class="${provCss}">${fmtAge(premAgeS)}</span>`;
+      // Orden de actualizacion en la rotacion automatica del premium activo:
+      // 1=siguiente, 2=tras ese, etc. Permite ver de un vistazo cuanto falta
+      // para que el device refresque cada ciudad sin pulsar "forzar".
+      const ordCell = (provider === 'none')
+        ? '<span class="text-muted">-</span>'
+        : `<span class="${provCss}">${((idx - nextIdx + 4) % 4) + 1}</span>`;
+      tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td>${codeStr}</td><td>${day}</td><td>${omAge}</td><td>${premAge}</td><td>${ordCell}</td><td></td>`;
       const cell = tr.lastElementChild;
       cell.style.whiteSpace = 'nowrap';
       const btnDbg = document.createElement('button');
@@ -835,24 +864,24 @@ async function loadWeather(){
       btnDbg.title = 'Ver URL llamada y respuesta';
       btnDbg.onclick = () => openWxDebug(idx);
       cell.appendChild(btnDbg);
-      // Botón de refetch Tomorrow.io: solo si el provider está configurado.
-      if (d.tomorrow_active) {
-        const btnTio = document.createElement('button');
-        btnTio.className = 'icon-btn';
-        btnTio.style.marginLeft = '.25rem';
-        btnTio.textContent = '↻';
-        btnTio.title = 'Forzar fetch Tomorrow.io';
-        btnTio.onclick = async () => {
-          btnTio.disabled = true; btnTio.textContent = '…';
+      // Botón de refetch del premium activo: solo si hay alguno configurado.
+      if (provider !== 'none') {
+        const btn = document.createElement('button');
+        btn.className = 'icon-btn';
+        btn.style.marginLeft = '.25rem';
+        btn.textContent = '↻';
+        btn.title = `Forzar fetch ${provLabel}`;
+        btn.onclick = async () => {
+          btn.disabled = true; btn.textContent = '…';
           try {
-            const r = await fetch(`/api/weather/fetch?idx=${idx}&provider=tomorrow`);
+            const r = await fetch(`/api/weather/fetch?idx=${idx}&provider=${provider}`);
             const rd = await r.json();
-            if (!rd.ok) setMsg(`Tio idx=${idx}: HTTP ${rd.http} ${rd.err||''}`, 'err');
-            else setMsg(`Tio idx=${idx} actualizado`, 'ok');
+            if (!rd.ok) setMsg(`${provLabel} idx=${idx}: HTTP ${rd.http} ${rd.err||''}`, 'err');
+            else setMsg(`${provLabel} idx=${idx} actualizado`, 'ok');
           } catch(e) { setMsg('Error: '+e.message, 'err'); }
           finally { loadWeather(); }
         };
-        cell.appendChild(btnTio);
+        cell.appendChild(btn);
       }
       tbody.appendChild(tr);
     });
@@ -882,6 +911,7 @@ async function renderWxDebug(){
       <div class="modal-tabs">
         <button class="${curWxProvider==='openmeteo'?'active':''}" data-prov="openmeteo">Open-Meteo</button>
         <button class="${curWxProvider==='tomorrow'?'active':''}" data-prov="tomorrow">Tomorrow.io</button>
+        <button class="${curWxProvider==='weatherapi'?'active':''}" data-prov="weatherapi">WeatherAPI</button>
       </div>`;
     let meta = tabs + `<span><b>HTTP:</b> <span class="${httpClass}">${d.http}</span></span>`;
     meta += `<span><b>Intentos:</b> ${d.attempts}</span>`;
@@ -1106,25 +1136,34 @@ $('#reset-dev').onclick = async () => {
 async function loadProvider(){
   try{
     const r = await fetch('/api/weather_provider'); const d = await r.json();
-    $('#tio-en').checked = !!d.enabled;
-    $('#tio-refresh').value = d.refresh_sec || 14400;
-    $('#tio-key').value = d.api_key || '';
-    $('#tio-key-info').textContent = d.api_key ? `${d.api_key.length} chars guardados` : 'sin clave';
+    $('#prov-active').value = d.active || 'none';
+    const t = d.tomorrow || {}, w = d.weatherapi || {};
+    $('#tio-refresh').value = t.refresh_sec || 14400;
+    $('#tio-key').value = t.api_key || '';
+    $('#tio-key-info').textContent = t.api_key ? `${t.api_key.length} chars guardados` : 'sin clave';
+    $('#wap-refresh').value = w.refresh_sec || 1800;
+    $('#wap-key').value = w.api_key || '';
+    $('#wap-key-info').textContent = w.api_key ? `${w.api_key.length} chars guardados` : 'sin clave';
   }catch(e){}
 }
-$('#tio-save').onclick = async () => {
+$('#prov-save').onclick = async () => {
+  const active = $('#prov-active').value;
   const body = {
-    enabled: $('#tio-en').checked,
-    refresh_sec: +$('#tio-refresh').value,
-    api_key: $('#tio-key').value.trim(),
+    active,
+    tomorrow:   { api_key: $('#tio-key').value.trim(), refresh_sec: +$('#tio-refresh').value },
+    weatherapi: { api_key: $('#wap-key').value.trim(), refresh_sec: +$('#wap-refresh').value },
   };
   try{
     const r = await fetch('/api/weather_provider', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)});
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || 'fallo');
-    setMsg(d.active ? 'Provider activo: Tomorrow.io' : 'Provider: Open-Meteo', 'ok');
+    const label = d.active === 'tomorrow' ? 'Tomorrow.io'
+                : d.active === 'weatherapi' ? 'WeatherAPI'
+                : 'Open-Meteo';
+    setMsg(`Provider activo: ${label}`, 'ok');
     loadProvider();
+    loadWeather();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
