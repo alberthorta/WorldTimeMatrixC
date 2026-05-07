@@ -475,6 +475,18 @@ code{
       </div>
       <span class="note" style="margin-top:.25rem">|Δ| ≥ th1 → 1px, ≥ th2 → 2px, ≥ th3 → 3px</span>
     </label>
+    <label>
+      <span class="label">Color sube</span>
+      <input id="trend-color-up" type="color" value="#00C000"/>
+    </label>
+    <label>
+      <span class="label">Color baja</span>
+      <input id="trend-color-down" type="color" value="#C00000"/>
+    </label>
+    <label>
+      <span class="label">Color estable (=)</span>
+      <input id="trend-color-stable" type="color" value="#666666"/>
+    </label>
   </div>
   <div class="grid-2">
     <label>
@@ -681,6 +693,9 @@ async function loadConfig(){
     $('#trend-th1').value = cfg.forecast_thresh_1 != null ? cfg.forecast_thresh_1 : 0.5;
     $('#trend-th2').value = cfg.forecast_thresh_2 != null ? cfg.forecast_thresh_2 : 1.5;
     $('#trend-th3').value = cfg.forecast_thresh_3 != null ? cfg.forecast_thresh_3 : 3;
+    $('#trend-color-up').value     = intToHex(cfg.forecast_color_rising  != null ? cfg.forecast_color_rising  : 0x00C000);
+    $('#trend-color-down').value   = intToHex(cfg.forecast_color_falling != null ? cfg.forecast_color_falling : 0xC00000);
+    $('#trend-color-stable').value = intToHex(cfg.forecast_color_stable  != null ? cfg.forecast_color_stable  : 0x666666);
     $('#trend-extras').style.display = $('#trend-en').checked ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
@@ -1057,6 +1072,9 @@ $('#save').onclick = async () => {
     forecast_thresh_1: +$('#trend-th1').value,
     forecast_thresh_2: +$('#trend-th2').value,
     forecast_thresh_3: +$('#trend-th3').value,
+    forecast_color_rising:  hexToInt($('#trend-color-up').value),
+    forecast_color_falling: hexToInt($('#trend-color-down').value),
+    forecast_color_stable:  hexToInt($('#trend-color-stable').value),
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,

@@ -164,23 +164,28 @@ void loop() {
                      : Display::IconType::NONE;
         r.colonAlpha = colonAlpha;
         r.omIndicator = Config::cfg.omIndicator && d.hasData && d.tempSource == 1;
-        // Indicador de tendencia: comparamos forecast OM (siempre OM, regardless
-        // del provider activo, para tener una baseline consistente) contra la
-        // temp efectiva mostrada. magnitud por umbrales configurables.
+        // Indicador de tendencia: comparamos forecast OM (siempre OM regardless
+        // del provider activo, para baseline consistente) contra la temp OM
+        // actual. STABLE si |Δ| < thresh1, sino RISING/FALLING con magnitud
+        // por umbrales. Sin datos válidos → NONE.
+        r.trendState = Display::Row::TrendState::TS_OFF;
         r.trendMagnitude = 0;
-        r.trendRising = false;
         if (Config::cfg.forecastIndicatorEnabled && d.hasForecast && d.hasOm) {
             int forecast = (Config::cfg.forecastIndicatorHorizonH == 2)
                                ? d.forecastT2h
                                : d.forecastT1h;
             float delta = (float)forecast - (float)d.tempC_om;
             float a = fabsf(delta);
-            int mag = 0;
-            if (a >= Config::cfg.forecastThresh3)      mag = 3;
-            else if (a >= Config::cfg.forecastThresh2) mag = 2;
-            else if (a >= Config::cfg.forecastThresh1) mag = 1;
-            r.trendMagnitude = (int8_t)mag;
-            r.trendRising = delta > 0.0f;
+            if (a < Config::cfg.forecastThresh1) {
+                r.trendState = Display::Row::TrendState::TS_STABLE;
+            } else {
+                r.trendState = (delta > 0.0f) ? Display::Row::TrendState::TS_RISING
+                                              : Display::Row::TrendState::TS_FALLING;
+                int mag = 1;
+                if (a >= Config::cfg.forecastThresh3)      mag = 3;
+                else if (a >= Config::cfg.forecastThresh2) mag = 2;
+                r.trendMagnitude = (int8_t)mag;
+            }
         }
     }
     Display::renderRows(rows, secondOfMinuteF);

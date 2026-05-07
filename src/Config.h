@@ -63,6 +63,9 @@ struct All {
     float    forecastThresh1;              // |Δ| ≥ thresh1 → 1 px
     float    forecastThresh2;              // |Δ| ≥ thresh2 → 2 px
     float    forecastThresh3;              // |Δ| ≥ thresh3 → 3 px
+    uint32_t forecastColorRising;          // 0xRRGGBB (default 0x00C000)
+    uint32_t forecastColorFalling;         // 0xRRGGBB (default 0xC00000)
+    uint32_t forecastColorStable;          // 0xRRGGBB (default 0x666666)
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

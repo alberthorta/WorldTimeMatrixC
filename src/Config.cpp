@@ -101,6 +101,9 @@ static All defaults() {
     a.forecastThresh1 = 0.5f;
     a.forecastThresh2 = 1.5f;
     a.forecastThresh3 = 3.0f;
+    a.forecastColorRising  = 0x00C000;
+    a.forecastColorFalling = 0xC00000;
+    a.forecastColorStable  = 0x666666;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -128,6 +131,9 @@ static void buildJson(JsonDocument& doc) {
     doc["forecast_thresh_1"] = cfg.forecastThresh1;
     doc["forecast_thresh_2"] = cfg.forecastThresh2;
     doc["forecast_thresh_3"] = cfg.forecastThresh3;
+    doc["forecast_color_rising"]  = cfg.forecastColorRising;
+    doc["forecast_color_falling"] = cfg.forecastColorFalling;
+    doc["forecast_color_stable"]  = cfg.forecastColorStable;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -214,6 +220,14 @@ static bool applyJson(JsonDocument& doc) {
     applyThresh("forecast_thresh_1", cfg.forecastThresh1);
     applyThresh("forecast_thresh_2", cfg.forecastThresh2);
     applyThresh("forecast_thresh_3", cfg.forecastThresh3);
+    auto applyColor = [&](const char* key, uint32_t& dst) {
+        if (doc[key].is<unsigned int>() || doc[key].is<int>()) {
+            dst = (uint32_t)(doc[key].as<unsigned int>()) & 0xFFFFFFu;
+        }
+    };
+    applyColor("forecast_color_rising",  cfg.forecastColorRising);
+    applyColor("forecast_color_falling", cfg.forecastColorFalling);
+    applyColor("forecast_color_stable",  cfg.forecastColorStable);
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
         for (int i = 0; i < 4 && i < (int)arr.size(); i++) {

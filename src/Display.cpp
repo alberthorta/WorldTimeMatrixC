@@ -411,25 +411,38 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             if (r.omIndicator) {
                 dma->drawPixel(degX + 1, y - 1, rgb888to565(0x444444));
             }
-            // Indicador de tendencia: 2 px ancho × magnitud px alto, centrado
-            // verticalmente en la fila. 1 px de margen entre º y la barra.
-            // Verde = sube, rojo = baja. magnitud=0 → no se dibuja.
-            if (Config::cfg.forecastIndicatorEnabled && r.trendMagnitude > 0) {
+            // Indicador de tendencia: 2 px ancho a la derecha del º. Estados:
+            //   STABLE  → "=" (cols × {centro-1, centro+1}) en color stable
+            //   RISING  → bar 1..3 px hacia arriba, color rising
+            //   FALLING → bar 1..3 px hacia abajo, color falling
+            //   NONE    → no se dibuja
+            // Colores configurables desde la UI.
+            if (Config::cfg.forecastIndicatorEnabled &&
+                r.trendState != Row::TrendState::TS_OFF) {
                 int indL = degX + DEG_W + 1;     // 1 px margen tras el º (DEG_W=2)
                 int indR = indL + 1;
                 if (indR < WIDTH) {
-                    int rowCenterY = ROW_YS[i] - 3;   // centro vertical aproximado (1px arriba)
-                    uint16_t col = r.trendRising
-                        ? rgb888to565(0x00C000)        // verde un poco mas tenue que pure
-                        : rgb888to565(0xC00000);       // rojo idem
-                    int mag = r.trendMagnitude;
-                    if (mag > 3) mag = 3;
-                    for (int n = 0; n < mag; n++) {
-                        int dy = r.trendRising ? -n : n;
-                        int py = rowCenterY + dy;
-                        if (py >= 0 && py < HEIGHT) {
-                            dma->drawPixel(indL, py, col);
-                            dma->drawPixel(indR, py, col);
+                    int rowCenterY = ROW_YS[i] - 3;   // centro vertical aprox
+                    if (r.trendState == Row::TrendState::TS_STABLE) {
+                        uint16_t col = rgb888to565(Config::cfg.forecastColorStable);
+                        int yA = rowCenterY - 1;
+                        int yB = rowCenterY + 1;
+                        if (yA >= 0)         { dma->drawPixel(indL, yA, col); dma->drawPixel(indR, yA, col); }
+                        if (yB < HEIGHT)     { dma->drawPixel(indL, yB, col); dma->drawPixel(indR, yB, col); }
+                    } else {
+                        bool rising = (r.trendState == Row::TrendState::TS_RISING);
+                        uint16_t col = rgb888to565(rising
+                            ? Config::cfg.forecastColorRising
+                            : Config::cfg.forecastColorFalling);
+                        int mag = r.trendMagnitude;
+                        if (mag > 3) mag = 3;
+                        for (int n = 0; n < mag; n++) {
+                            int dy = rising ? -n : n;
+                            int py = rowCenterY + dy;
+                            if (py >= 0 && py < HEIGHT) {
+                                dma->drawPixel(indL, py, col);
+                                dma->drawPixel(indR, py, col);
+                            }
                         }
                     }
                 }

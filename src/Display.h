@@ -39,12 +39,18 @@ struct Row {
                         // visible de que esa fila esta usando datos OM —
                         // util cuando Tio esta activo y quieres saber si hay
                         // fallback o no).
-    // Indicador de tendencia (mini barra a la derecha del º): 0 → no dibuja;
-    // 1..3 → magnitud (px hacia arriba/abajo). trendRising da el sentido y
-    // por tanto el color (verde sube / rojo baja). Computado en main.cpp con
-    // Config::cfg umbrales y los forecast de Weather::Data.
-    int8_t trendMagnitude;
-    bool   trendRising;
+    // Indicador de tendencia (mini bar a la derecha del º). 4 estados:
+    //   NONE     → no se dibuja
+    //   STABLE   → "=" (2 px arriba y 2 abajo del centro), color stable
+    //   RISING   → bar 1..3 px hacia arriba, color rising
+    //   FALLING  → bar 1..3 px hacia abajo, color falling
+    // Computado en main.cpp con Config::cfg umbrales y los forecast de Weather.
+    // Nota: usamos prefijo TS_ porque RISING/FALLING son macros de Arduino.h
+    // (interrupt modes), incluso dentro de enum class causarian conflicto al
+    // pre-procesado.
+    enum class TrendState : int8_t { TS_OFF = 0, TS_STABLE = 1, TS_RISING = 2, TS_FALLING = 3 };
+    TrendState trendState;
+    int8_t trendMagnitude;     // solo para RISING/FALLING (1..3)
 };
 
 void begin();
