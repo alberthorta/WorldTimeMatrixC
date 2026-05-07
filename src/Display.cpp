@@ -60,6 +60,58 @@ static RowAnimState animState[4] = {
     {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}
 };
 
+// --- Crossfade real al cambiar HH:MM o temp ---
+// Durante la transicion (FADE_MS), rasterizamos OLD y NEW en dos canvases
+// 1-bit y blittmos al panel con alpha por pixel:
+//     a_old = inOld ? (1-p) : 0
+//     a_new = inNew ? p     : 0
+//     final_alpha = a_old + a_new   (clamp 1.0)
+// Asi pixeles compartidos por old y new se quedan a alpha=1.0 (no parpadean
+// durante el fade), unicos hacen ramp suave 0→1 o 1→0.
+static const uint32_t FADE_MS = 300;
+
+struct FieldTrans {
+    int8_t   oldA = 0;       // hour para time, tempC para temp
+    int8_t   oldB = 0;       // minute para time, sin uso para temp
+    bool     oldHas = false; // hasTime/hasWeather al inicio del fade
+    uint32_t startMs = 0;
+};
+struct RowTrans {
+    int8_t   prevHour = 0, prevMinute = 0, prevTempC = 0;
+    bool     prevHasTime = false, prevHasWeather = false;
+    bool     inited = false;     // primer render no dispara transicion
+    FieldTrans timeTrans;
+    FieldTrans tempTrans;
+};
+static RowTrans rowTrans[4];
+
+// Canvases reutilizables para crossfade. Tamano max: HH:MM = "00:00" worst
+// case ~18 px → canvas 22 ancho cubre time y temp con margen. Alocado una
+// sola vez en begin(); reutilizado entre filas y entre time/temp dentro
+// de cada render.
+static const int FADE_CANVAS_W = 22;
+static const int FADE_CANVAS_H = 8;
+static GFXcanvas1* g_canvasOld = nullptr;
+static GFXcanvas1* g_canvasNew = nullptr;
+
+// Escala un color 565 por alpha [0..1] decodificando a 888, multiplicando por
+// canal y reencodificando. Usado por el fade del colon, las transiciones de
+// HH:MM/temp y el º cuando hay alpha.
+static uint16_t scale565(uint16_t c, float alpha) {
+    if (alpha >= 0.999f) return c;
+    if (alpha <= 0.001f) return 0;
+    uint8_t R5 = (c >> 11) & 0x1F;
+    uint8_t G6 = (c >> 5)  & 0x3F;
+    uint8_t B5 =  c        & 0x1F;
+    uint8_t R = (R5 << 3) | (R5 >> 2);
+    uint8_t G = (G6 << 2) | (G6 >> 4);
+    uint8_t B = (B5 << 3) | (B5 >> 2);
+    R = (uint8_t)((float)R * alpha + 0.5f);
+    G = (uint8_t)((float)G * alpha + 0.5f);
+    B = (uint8_t)((float)B * alpha + 0.5f);
+    return rgb888to565(((uint32_t)R << 16) | ((uint32_t)G << 8) | (uint32_t)B);
+}
+
 // Preview state: cuando activo, la fila 0 muestra g_previewFrames en vez del
 // icono derivado de la meteo. Se setea desde la UI (POST /api/icons/preview)
 // con los frames del icono que el usuario esta editando — asi puede ver en
@@ -181,6 +233,8 @@ void begin() {
     dma->flipDMABuffer();
     dma->clearScreen();
     Serial.println("[display] HUB75 DMA up (double-buffered)");
+    g_canvasOld = new GFXcanvas1(FADE_CANVAS_W, FADE_CANVAS_H);
+    g_canvasNew = new GFXcanvas1(FADE_CANVAS_W, FADE_CANVAS_H);
 }
 
 void setBrightness(uint8_t v) {
@@ -189,6 +243,37 @@ void setBrightness(uint8_t v) {
 
 void clear() {
     if (dma) dma->clearScreen();
+}
+
+static int textWidth(const char* s);   // forward, def mas abajo
+void drawSplash(const char* const lines[], int nLines) {
+    if (!dma) return;
+    dma->clearScreen();
+    dma->setFont(&TomThumb);
+    uint16_t white = rgb888to565(0xFFFFFF);
+    dma->setTextColor(white);
+    // Cuenta lineas no vacias para centrado vertical real (ignora "" trailing).
+    int realLines = 0;
+    for (int i = 0; i < nLines && i < 4; i++) {
+        if (lines[i] && *lines[i]) realLines++;
+    }
+    if (realLines == 0) { dma->flipDMABuffer(); return; }
+    // Cada linea ocupa 8 px de alto (mismo paso que ROW_YS). Baseline de la
+    // primera linea = padding superior + 6 (altura de la fuente desde top).
+    const int LINE_H = 8;
+    int startBaseline = (HEIGHT - LINE_H * realLines) / 2 + 6;
+    int row = 0;
+    for (int i = 0; i < nLines && i < 4; i++) {
+        const char* s = lines[i];
+        if (!s || !*s) continue;
+        int w = textWidth(s);
+        int x = (WIDTH - w) / 2;
+        if (x < 0) x = 0;
+        dma->setCursor(x, startBaseline + LINE_H * row);
+        dma->print(s);
+        row++;
+    }
+    dma->flipDMABuffer();
 }
 
 uint16_t rgb888to565(uint32_t rgb) {
@@ -218,6 +303,32 @@ static int textWidth(const char* s) {
     dma->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
     return (int)w;
 }
+static int textWidth_GFX(Adafruit_GFX& g, const char* s) {
+    int16_t x1, y1; uint16_t w, h;
+    g.getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+    return (int)w;
+}
+
+// Compone color final cuando dos fuentes contribuyen (crossfade): suma per-canal
+// con clamp. Si ambos son el mismo color, equivale a scale565(c, aOld+aNew).
+static uint16_t blendColor(uint16_t cOld, float aOld, uint16_t cNew, float aNew) {
+    if (aOld <= 0.001f && aNew <= 0.001f) return 0;
+    auto decode = [](uint16_t c, uint8_t& R, uint8_t& G, uint8_t& B) {
+        uint8_t R5 = (c >> 11) & 0x1F;
+        uint8_t G6 = (c >> 5)  & 0x3F;
+        uint8_t B5 =  c        & 0x1F;
+        R = (R5 << 3) | (R5 >> 2);
+        G = (G6 << 2) | (G6 >> 4);
+        B = (B5 << 3) | (B5 >> 2);
+    };
+    uint8_t Ro=0, Go=0, Bo=0, Rn=0, Gn=0, Bn=0;
+    decode(cOld, Ro, Go, Bo);
+    decode(cNew, Rn, Gn, Bn);
+    int R = (int)((float)Ro * aOld + (float)Rn * aNew + 0.5f); if (R > 255) R = 255;
+    int G = (int)((float)Go * aOld + (float)Gn * aNew + 0.5f); if (G > 255) G = 255;
+    int B = (int)((float)Bo * aOld + (float)Bn * aNew + 0.5f); if (B > 255) B = 255;
+    return rgb888to565(((uint32_t)R << 16) | ((uint32_t)G << 8) | (uint32_t)B);
+}
 
 // Avance horizontal de un digito incluyendo 1px de gap. tom-thumb tiene "1" de
 // 2px y resto 3px; con avance variable evitamos el "hueco" que dejaba el slot
@@ -229,6 +340,60 @@ static int drawDigit(char d, int x, int y) {
     dma->setCursor(x, y);
     dma->print(c);
     return x + digitAdvance(d);
+}
+static int drawDigit_GFX(Adafruit_GFX& g, char d, int x, int y) {
+    char c[2] = {d, 0};
+    g.setCursor(x, y);
+    g.print(c);
+    return x + digitAdvance(d);
+}
+static int drawDigits_GFX(Adafruit_GFX& g, const char* s, int x, int y) {
+    while (*s) { x = drawDigit_GFX(g, *s++, x, y); }
+    return x;
+}
+
+// Rasteriza HH:MM (con colon) en canvas 1-bit, right-aligned al borde derecho.
+// Si !hasTime, deja el canvas vacio.
+static void rasterizeTime(GFXcanvas1& cnv, int hour, int minute, bool hasTime) {
+    cnv.fillScreen(0);
+    if (!hasTime) return;
+    cnv.setFont(&TomThumb);
+    cnv.setTextColor(1);
+    char hh[3], mm[3];
+    if (Config::cfg.hourLeadingZero || hour >= 10) snprintf(hh, sizeof(hh), "%02u", hour);
+    else snprintf(hh, sizeof(hh), "%u", hour);
+    snprintf(mm, sizeof(mm), "%02u", minute);
+    int blockW = COLON_W;
+    for (const char* p = hh; *p; p++) blockW += digitAdvance(*p);
+    for (const char* p = mm; *p; p++) blockW += digitAdvance(*p);
+    int xStart = cnv.width() - blockW;
+    int yBase = 6;       // baseline dentro del canvas (height 8)
+    int xCur = drawDigits_GFX(cnv, hh, xStart, yBase);
+    drawDigit_GFX(cnv, ':', xCur, yBase + COLON_Y_OFFSET);
+    drawDigits_GFX(cnv, mm, xCur + COLON_W, yBase);
+}
+
+// Rasteriza temp (incluyendo el º manual 2x2) en canvas 1-bit, right-aligned.
+static void rasterizeTemp(GFXcanvas1& cnv, int tempC, bool hasWeather) {
+    cnv.fillScreen(0);
+    if (!hasWeather) return;
+    cnv.setFont(&TomThumb);
+    cnv.setTextColor(1);
+    char tnum[6];
+    snprintf(tnum, sizeof(tnum), "%d", tempC);
+    int numW = textWidth_GFX(cnv, tnum);
+    const int DEG_W = 2, DEG_GAP = 1;
+    int totalW = numW + DEG_GAP + DEG_W;
+    int xStart = cnv.width() - totalW;
+    int yBase = 6;
+    cnv.setCursor(xStart, yBase);
+    cnv.print(tnum);
+    int degX = xStart + numW + DEG_GAP;
+    int degTopY = yBase - 5;
+    cnv.drawPixel(degX,     degTopY,     1);
+    cnv.drawPixel(degX + 1, degTopY,     1);
+    cnv.drawPixel(degX,     degTopY + 1, 1);
+    cnv.drawPixel(degX + 1, degTopY + 1, 1);
 }
 
 // Dibuja una secuencia de digitos empezando en x; devuelve la x posterior
@@ -321,19 +486,92 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
     int rightEdge = WIDTH - RIGHT_MARGIN - rightEdgeShift;
     int iconX = rightEdge - refTempTotal - iconGap - ICON_W;
 
+    uint32_t nowMs = millis();
     for (int i = 0; i < 4; i++) {
         const Row& r = rows[i];
         int y = ROW_YS[i];
+        RowTrans& tr = rowTrans[i];
 
-        // Nombre a la izquierda.
+        // Detecta cambios respecto al render anterior y dispara transiciones.
+        // Skip en el primer render para no fade-in desde 0 al boot.
+        if (tr.inited) {
+            if (tr.timeTrans.startMs == 0) {
+                bool changed = (r.hasTime != tr.prevHasTime) ||
+                               (r.hasTime && (r.hour != tr.prevHour || r.minute != tr.prevMinute));
+                if (changed) {
+                    tr.timeTrans.oldA = tr.prevHour;
+                    tr.timeTrans.oldB = tr.prevMinute;
+                    tr.timeTrans.oldHas = tr.prevHasTime;
+                    tr.timeTrans.startMs = nowMs;
+                }
+            }
+            if (tr.tempTrans.startMs == 0) {
+                bool changed = (r.hasWeather != tr.prevHasWeather) ||
+                               (r.hasWeather && r.tempC != tr.prevTempC);
+                if (changed) {
+                    tr.tempTrans.oldA = r.hasWeather ? tr.prevTempC : 0;
+                    tr.tempTrans.oldHas = tr.prevHasWeather;
+                    tr.tempTrans.startMs = nowMs;
+                }
+            }
+        }
+        tr.prevHour = r.hour;
+        tr.prevMinute = r.minute;
+        tr.prevTempC = r.tempC;
+        tr.prevHasTime = r.hasTime;
+        tr.prevHasWeather = r.hasWeather;
+        tr.inited = true;
+
+        bool timeFadeActive = (tr.timeTrans.startMs != 0) &&
+                              (nowMs - tr.timeTrans.startMs < FADE_MS);
+        bool tempFadeActive = (tr.tempTrans.startMs != 0) &&
+                              (nowMs - tr.tempTrans.startMs < FADE_MS);
+        float timeP = timeFadeActive
+            ? (float)(nowMs - tr.timeTrans.startMs) / (float)FADE_MS : 1.0f;
+        float tempP = tempFadeActive
+            ? (float)(nowMs - tr.tempTrans.startMs) / (float)FADE_MS : 1.0f;
+        if (tr.timeTrans.startMs && (nowMs - tr.timeTrans.startMs >= FADE_MS))
+            tr.timeTrans.startMs = 0;
+        if (tr.tempTrans.startMs && (nowMs - tr.tempTrans.startMs >= FADE_MS))
+            tr.tempTrans.startMs = 0;
+
+        // Nombre a la izquierda (sin fade — el nombre rara vez cambia).
         dma->setTextColor(r.color);
         dma->setCursor(NAME_X, y);
         dma->print(r.name);
 
-        if (r.hasTime) {
+        // HH:MM con crossfade activo → rasterizar OLD y NEW en canvases 1-bit
+        // y blittear con alpha por pixel. Sin fade → render directo (mas
+        // barato y compatible con el blink del colon).
+        if (timeFadeActive && g_canvasOld && g_canvasNew) {
+            rasterizeTime(*g_canvasOld, tr.timeTrans.oldA, tr.timeTrans.oldB, tr.timeTrans.oldHas);
+            rasterizeTime(*g_canvasNew, r.hour, r.minute, r.hasTime);
+            int CW = g_canvasOld->width(), CH = g_canvasOld->height();
+            // hourRightX es la columna post-ultimo-pixel (donde caeria el
+            // cursor al terminar de imprimir), no el ultimo pixel visible.
+            // El canvas ocupa cols [0..CW-1] con el ultimo pixel dibujado en
+            // CW-1, asi que mapeamos CW-1 → hourRightX-1 (panelX0=hourRightX-CW).
+            int panelX0 = hourRightX - CW;
+            int panelY0 = y - 6;                    // canvas baseline (y=6) → panel baseline (y)
+            for (int yy = 0; yy < CH; yy++) {
+                int py = panelY0 + yy;
+                if (py < 0 || py >= HEIGHT) continue;
+                for (int xx = 0; xx < CW; xx++) {
+                    bool inA = g_canvasOld->getPixel(xx, yy);
+                    bool inB = g_canvasNew->getPixel(xx, yy);
+                    if (!inA && !inB) continue;
+                    float aOld = inA ? (1.0f - timeP) : 0.0f;
+                    float aNew = inB ? timeP : 0.0f;
+                    float a = aOld + aNew;
+                    if (a > 1.0f) a = 1.0f;
+                    if (a < 0.005f) continue;
+                    int px = panelX0 + xx;
+                    if (px < 0 || px >= WIDTH) continue;
+                    dma->drawPixel(px, py, scale565(r.color, a));
+                }
+            }
+        } else if (r.hasTime) {
             char hh[3], mm[3];
-            // Formato hora: con cero a la izquierda siempre (default) o sin
-            // el si Config::cfg.hourLeadingZero es false y la hora < 10.
             if (Config::cfg.hourLeadingZero || r.hour >= 10) {
                 snprintf(hh, sizeof(hh), "%02u", r.hour);
             } else {
@@ -347,26 +585,10 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             dma->setTextColor(r.color);
             int xCur = drawDigits(hh, xStart, y);
             if (r.colonAlpha > 0.01f) {
-                // Fade del ":" via escalado RGB. Decode 565→888, escala por
-                // alpha, encode→565. Para alpha≈1 saltamos la conversion para
-                // ahorrar la perdida de precision por redondeo.
-                uint16_t colonColor = r.color;
-                if (r.colonAlpha < 0.999f) {
-                    uint8_t R5 = (r.color >> 11) & 0x1F;
-                    uint8_t G6 = (r.color >> 5)  & 0x3F;
-                    uint8_t B5 =  r.color        & 0x1F;
-                    uint8_t R = (R5 << 3) | (R5 >> 2);
-                    uint8_t G = (G6 << 2) | (G6 >> 4);
-                    uint8_t B = (B5 << 3) | (B5 >> 2);
-                    R = (uint8_t)((float)R * r.colonAlpha + 0.5f);
-                    G = (uint8_t)((float)G * r.colonAlpha + 0.5f);
-                    B = (uint8_t)((float)B * r.colonAlpha + 0.5f);
-                    colonColor = rgb888to565(((uint32_t)R << 16) | ((uint32_t)G << 8) | (uint32_t)B);
-                }
+                uint16_t colonColor = scale565(r.color, r.colonAlpha);
                 dma->setTextColor(colonColor);
                 dma->setCursor(xCur, y + COLON_Y_OFFSET);
                 dma->print(":");
-                // Restaura el color original para los digitos del minuto.
                 dma->setTextColor(r.color);
             }
             drawDigits(mm, xCur + COLON_W, y);
@@ -388,23 +610,50 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             }
             if (f) drawFrame(iconX, y + ICON_Y_OFFSET, *f);
 
-            // Temperatura right-aligned. El "°" lo dibujamos a mano (2x2 al top
-            // de la linea) porque TomThumb GFX no incluye glifo para 0xB0.
+            // Temperatura: con fade activo → canvas crossfade (cada lado puede
+            // tener color distinto si tempColor() cambia de bucket). Sin fade
+            // → render directo. El "°" se dibuja como pixeles en ambos paths.
+            // Calculo de degX se preserva para el indicador de tendencia mas
+            // abajo, que se ancla al simbolo de grado del estado nuevo.
             char tnum[6];
             snprintf(tnum, sizeof(tnum), "%d", r.tempC);
             int numW = textWidth(tnum);
             int totalW = numW + DEG_GAP + DEG_W;
             int xStart = rightEdge - totalW;
-            uint16_t tcol = tempColor(r.tempC);
-            dma->setTextColor(tcol);
-            dma->setCursor(xStart, y);
-            dma->print(tnum);
             int degX = xStart + numW + DEG_GAP;
             int degTopY = y - 5;
-            dma->drawPixel(degX,     degTopY,     tcol);
-            dma->drawPixel(degX + 1, degTopY,     tcol);
-            dma->drawPixel(degX,     degTopY + 1, tcol);
-            dma->drawPixel(degX + 1, degTopY + 1, tcol);
+            uint16_t tcol = tempColor(r.tempC);
+            if (tempFadeActive && g_canvasOld && g_canvasNew) {
+                rasterizeTemp(*g_canvasOld, tr.tempTrans.oldA, tr.tempTrans.oldHas);
+                rasterizeTemp(*g_canvasNew, r.tempC, r.hasWeather);
+                uint16_t cOld = tempColor(tr.tempTrans.oldA);
+                uint16_t cNew = tcol;
+                int CW = g_canvasOld->width(), CH = g_canvasOld->height();
+                int panelX0 = rightEdge - CW;       // off-by-one: ver comentario en time
+                int panelY0 = y - 6;
+                for (int yy = 0; yy < CH; yy++) {
+                    int py = panelY0 + yy;
+                    if (py < 0 || py >= HEIGHT) continue;
+                    for (int xx = 0; xx < CW; xx++) {
+                        bool inA = g_canvasOld->getPixel(xx, yy);
+                        bool inB = g_canvasNew->getPixel(xx, yy);
+                        if (!inA && !inB) continue;
+                        float aOld = inA ? (1.0f - tempP) : 0.0f;
+                        float aNew = inB ? tempP : 0.0f;
+                        int px = panelX0 + xx;
+                        if (px < 0 || px >= WIDTH) continue;
+                        dma->drawPixel(px, py, blendColor(cOld, aOld, cNew, aNew));
+                    }
+                }
+            } else {
+                dma->setTextColor(tcol);
+                dma->setCursor(xStart, y);
+                dma->print(tnum);
+                dma->drawPixel(degX,     degTopY,     tcol);
+                dma->drawPixel(degX + 1, degTopY,     tcol);
+                dma->drawPixel(degX,     degTopY + 1, tcol);
+                dma->drawPixel(degX + 1, degTopY + 1, tcol);
+            }
             // Indicador OM: 1 pixel #444 en la baseline del texto, alineado
             // con el simbolo de grado. Se enciende solo si la fila esta
             // usando Open-Meteo y la opcion esta activa en Config.

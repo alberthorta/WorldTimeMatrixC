@@ -60,6 +60,9 @@ void setBrightness(uint8_t v);     // 0..255 hardware brightness
 // < 0 → sin tiempo valido, no se dibuja.
 void renderRows(const Row rows[4], float secondOfMinuteF = -1.0f);
 void clear();
+// Splash de boot: hasta 4 lineas centradas horizontalmente en sus rows.
+// Lineas vacias se omiten. Util para "WorldTime" + estado de WiFi en boot.
+void drawSplash(const char* const lines[], int nLines);
 
 uint16_t rgb888to565(uint32_t rgb);
 

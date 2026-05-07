@@ -30,5 +30,12 @@ String currentSsid();                  // SSID activo (vacio en AP/None).
 String currentIp();                    // IP de la interfaz activa.
 String currentHostname();              // "WorldTimeXXX" en STA, vacio en AP/None.
 ScanReply scan();                      // Escanea redes cercanas (con diagnostico).
+void tickHealth();                     // Llamar desde el loop principal; envia
+                                       // beacons UDP broadcast cada 60s para
+                                       // refrescar el bridging del AP y evitar
+                                       // que dropee al cliente por inactividad.
+void switchToAp();                     // Transicion runtime STA → AP (sin reboot).
+                                       // Conserva las credenciales en NVS; el
+                                       // proximo boot vuelve a intentar STA.
 
 }  // namespace WifiSetup

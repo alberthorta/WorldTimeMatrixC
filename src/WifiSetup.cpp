@@ -2,6 +2,7 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <esp_wifi.h>
 
 #include "Config.h"
@@ -122,6 +123,45 @@ ScanReply scan() {
         WiFi.mode(WIFI_AP);
     }
     return rep;
+}
+
+void switchToAp() {
+    if (g_mode == Mode::Ap) return;
+    Serial.println("[wifi] switching to AP mode (runtime)");
+    WiFi.disconnect(/*wifioff=*/false, /*eraseap=*/false);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+    bool ok = WiFi.softAP(AP_SSID, AP_PASSWORD);
+    if (ok) {
+        Serial.printf("[wifi] AP up: ssid=%s ip=%s\n",
+                      AP_SSID, WiFi.softAPIP().toString().c_str());
+        g_mode = Mode::Ap;
+        g_ssid = "";
+        g_hostname = "";
+    } else {
+        Serial.println("[wifi] AP softAP failed");
+    }
+}
+
+// Beacon UDP broadcast periodico para mantener el bridging del AP "vivo".
+// Algunos APs/extenders aging-out la entrada MAC del cliente tras unos
+// minutos sin trafico inbound dirigido al device, dejando el server HTTP
+// inalcanzable desde la LAN aunque outbound siga funcionando. Un broadcast
+// fuerza al AP a re-aprender la asociacion MAC↔puerto. Coste: 1 paquete UDP
+// pequeño cada 60s.
+void tickHealth() {
+    if (g_mode != Mode::Sta) return;
+    static uint32_t lastBeaconMs = 0;
+    uint32_t now = millis();
+    if (lastBeaconMs != 0 && (now - lastBeaconMs) < 60000) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    lastBeaconMs = now;
+    WiFiUDP udp;
+    if (udp.beginPacket(IPAddress(255, 255, 255, 255), 5353)) {
+        const uint8_t kPing[2] = {'W', 'T'};
+        udp.write(kPing, sizeof(kPing));
+        udp.endPacket();
+    }
 }
 
 }  // namespace WifiSetup

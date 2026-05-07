@@ -43,12 +43,30 @@ void setup() {
     Serial.println();
     Serial.println("[boot] WorldTime fw starting (build OTA test)");
 
+    pinMode(PIN_BUTTON_UP, INPUT_PULLUP);
     Icons::begin();          // Defaults (nombres + frame inicial); Config los sobrescribe.
     Config::begin();
     Weather::loadCache();   // muestra ultima meteo conocida mientras NTP/fetch arrancan
     Display::begin();
     Display::setBrightness((uint8_t)(Config::cfg.brightness * 255));
+    {
+        const char* lines[] = {"WorldTime", "Assigning IP", "", ""};
+        Display::drawSplash(lines, 2);
+    }
     WifiSetup::begin();
+    if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
+        // Mensaje "IP : x.x.x.x" durante 5s antes de empezar el reloj.
+        char ipBuf[20];
+        snprintf(ipBuf, sizeof(ipBuf), "%s", WifiSetup::currentIp().c_str());
+        const char* lines[] = {"WorldTime", "IP :", ipBuf, ""};
+        Display::drawSplash(lines, 3);
+        delay(5000);
+    } else {
+        // Modo AP: deja el splash con instrucciones para el usuario. El loop
+        // detectara el modo y no pintara el reloj.
+        const char* lines[] = {"WorldTime", "Connect to", "WorldTime-Setup", "to configure"};
+        Display::drawSplash(lines, 4);
+    }
     if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
         configTime(0, 0, "pool.ntp.org", "time.google.com");
         Serial.println("[time] NTP requested");
@@ -69,6 +87,33 @@ void setup() {
 
 void loop() {
     ArduinoOTA.handle();
+    WifiSetup::tickHealth();
+    // Botón UP mantenido 3s → forzar modo AP. Util para reconfigurar WiFi
+    // sin tener que esperar a que falle STA. Edge-detect: pressedSinceMs
+    // arranca al detectar la primera lectura LOW; si suelta antes de 3s
+    // resetea. INPUT_PULLUP, asi que LOW = pulsado.
+    static uint32_t btnUpPressedSinceMs = 0;
+    if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
+        bool pressed = (digitalRead(PIN_BUTTON_UP) == LOW);
+        if (pressed) {
+            if (btnUpPressedSinceMs == 0) btnUpPressedSinceMs = millis();
+            else if (millis() - btnUpPressedSinceMs >= 3000) {
+                Serial.println("[btn] UP held 3s → switching to AP");
+                WifiSetup::switchToAp();
+                const char* lines[] = {"WorldTime", "Connect to", "WorldTime-Setup", "to configure"};
+                Display::drawSplash(lines, 4);
+                btnUpPressedSinceMs = 0;
+            }
+        } else {
+            btnUpPressedSinceMs = 0;
+        }
+    }
+    // En modo AP el splash de "Connect to WorldTime-Setup..." se queda fijo
+    // hasta que el user reconfigure y reinicie. Saltamos el render del reloj.
+    if (WifiSetup::currentMode() == WifiSetup::Mode::Ap) {
+        delay(50);
+        return;
+    }
     if (g_pendingReset) {
         delay(500);
         ESP.restart();
