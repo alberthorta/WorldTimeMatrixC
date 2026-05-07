@@ -478,7 +478,7 @@ code{
   <div class="tbl-wrap">
     <table id="weather" class="weather-tbl">
       <thead>
-        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th></th></tr>
+        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th>OM</th><th>TIO</th><th title="Orden de refresco automatico TIO (1 = proxima)">Ord</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -806,6 +806,8 @@ async function loadWeather(){
     const r = await fetch('/api/weather', {signal: pollSignal()}); const d = await r.json();
     const tbody = $('#weather').querySelector('tbody');
     tbody.innerHTML = '';
+    const nextIdx = (typeof d.tio_next_idx === 'number') ? d.tio_next_idx : 0;
+    const fmtAge = s => (s == null || s < 0) ? '<span class="text-muted">-</span>' : `${s}s`;
     d.cities.forEach((c, idx) => {
       const tr = document.createElement('tr');
       const srcClass = c.temp_source === 'tomorrow' ? 'src-tio'
@@ -814,7 +816,17 @@ async function loadWeather(){
       const tmp  = c.has_data ? `<span class="${srcClass}">${c.temp_c}°</span>` : '<span class="text-muted">-</span>';
       const off  = c.has_data ? `${(c.offset_sec/3600).toFixed(1)}h` : '-';
       const codeStr = c.has_data ? `<span class="${srcClass}">${c.code}</span>` : '<span class="text-muted">-</span>';
-      tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td>${codeStr}</td><td>${day}</td><td></td>`;
+      const omAge  = `<span class="src-om text-muted">${fmtAge(c.om_age_s)}</span>`;
+      const tioAge = d.tomorrow_active
+        ? `<span class="src-tio">${fmtAge(c.tio_age_s)}</span>`
+        : '<span class="text-muted">-</span>';
+      // Orden de actualizacion en la rotacion automatica TIO: 1=siguiente,
+      // 2=tras ese, etc. Permite ver de un vistazo cuanto falta para que el
+      // device refresque cada ciudad sin tener que pulsar "forzar".
+      const ordCell = d.tomorrow_active
+        ? `<span class="src-tio">${((idx - nextIdx + 4) % 4) + 1}</span>`
+        : '<span class="text-muted">-</span>';
+      tr.innerHTML = `<td>${c.name}</td><td class="text-muted">${off}</td><td>${tmp}</td><td>${codeStr}</td><td>${day}</td><td>${omAge}</td><td>${tioAge}</td><td>${ordCell}</td><td></td>`;
       const cell = tr.lastElementChild;
       cell.style.whiteSpace = 'nowrap';
       const btnDbg = document.createElement('button');

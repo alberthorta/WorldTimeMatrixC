@@ -16,16 +16,30 @@ FetchDebug debugInfo[4];
 FetchDebug debugInfoTio[4];
 static TaskHandle_t taskHandle = nullptr;
 
+// Indice de la proxima ciudad que la rotacion Tomorrow.io fetchara. Se expone
+// via nextTioIdx() para que la UI pueda mostrar el orden de actualizacion.
+static int g_tioRotIdx = 0;
+
+int nextTioIdx() { return g_tioRotIdx; }
+
+// Edad maxima admitida de un fetch TIO con exito para considerarlo "fresh".
+// Mas viejo que esto y la ciudad cae a OM aunque el ultimo intento fuera ok.
+// Cubre el caso de que la rotacion sea muy lenta (e.g. 4h) y los datos queden
+// obsoletos entre vueltas.
+static const uint32_t TIO_MAX_AGE_MS = 60UL * 60UL * 1000UL;   // 1 hora
+
 // Recalcula tempC/code/tempSource/hasData "efectivos" para una ciudad a partir
 // de los crudos por proveedor. Reglas:
-//   - Si Tomorrow.io esta activo Y la ciudad tiene tio fresh (hasTio && tioOk)
-//     → usar valores Tio.
+//   - Si Tomorrow.io esta activo Y la ciudad tiene tio fresh (hasTio && tioOk
+//     && fetch ok hace menos de 1h) → usar valores Tio.
 //   - Si no, fallback a Open-Meteo si lo hay.
 //   - Si tampoco, marca como sin datos.
 static void recomputeEffective(int idx) {
     Data& d = data[idx];
     bool tioActive = Config::hasTomorrowSettings();
-    if (tioActive && d.hasTio && d.tioOk) {
+    bool tioFresh = (d.tioOkAtMs != 0) &&
+                    (millis() - d.tioOkAtMs) < TIO_MAX_AGE_MS;
+    if (tioActive && d.hasTio && d.tioOk && tioFresh) {
         d.tempC = d.tempC_tio;
         d.code = d.code_tio;
         d.tempSource = 2;
@@ -204,6 +218,7 @@ static bool fetchTomorrow(int idx) {
                 d.code_tio = tomorrowToOpenMeteoCode(tcode);
                 d.hasTio = true;
                 d.tioOk = true;     // exito → esta ciudad usa Tio hasta proximo fallo
+                d.tioOkAtMs = millis();   // ancla de frescura (ver TIO_MAX_AGE_MS)
                 ok = true;
                 dbg.lastError = "";
             } else {
@@ -341,7 +356,6 @@ static void weatherTask(void*) {
     // Tomorrow.io rota una ciudad por tick (cada refresh_sec). lastTioMs=0
     // significa "aun no ha hecho fetch nunca" → primer tick lo hace inmediato.
     uint32_t lastTioMs = 0;
-    int tioRotIdx = 0;
     bool tioWasActive = false;
     while (true) {
         // Open-Meteo: ronda completa siempre (provee offset + isDay; temp+code
@@ -358,15 +372,15 @@ static void weatherTask(void*) {
         bool tioActive = tio.enabled && tio.apiKey.length() > 0;
         if (tioActive && !tioWasActive) {
             lastTioMs = 0;        // forzar fetch inmediato al activarse
-            tioRotIdx = 0;
+            g_tioRotIdx = 0;
         }
         tioWasActive = tioActive;
         if (tioActive) {
             uint32_t now = millis();
             uint32_t intervalMs = max((uint16_t)60, tio.refreshSec) * 1000UL;
             if (lastTioMs == 0 || (now - lastTioMs) >= intervalMs) {
-                if (fetchTomorrow(tioRotIdx)) anyOk = true;
-                tioRotIdx = (tioRotIdx + 1) % 4;
+                if (fetchTomorrow(g_tioRotIdx)) anyOk = true;
+                g_tioRotIdx = (g_tioRotIdx + 1) % 4;
                 lastTioMs = millis();
             }
         }

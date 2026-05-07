@@ -26,6 +26,9 @@ struct Data {
     bool tioOk;             // ultimo fetch de tio fue exitoso. Si false, esta
                             // ciudad usa OM aunque tio esté activo, hasta que
                             // la rotacion vuelva a city y consiga exito.
+    uint32_t tioOkAtMs;     // millis() del ultimo fetch TIO con exito. 0 = nunca
+                            // (o tras reboot, hasta el primer exito). Se usa
+                            // para considerar el dato stale si tiene > 1h.
 };
 
 extern Data data[4];
@@ -47,6 +50,7 @@ void taskStart();
 bool fetchOneSync(int idx);            // fuerza fetch Open-Meteo sincrono
 bool fetchOneTomorrowSync(int idx);    // fuerza fetch Tomorrow.io sincrono (si configurado)
 void requestRefresh();     // Despierta la task para refetch inmediato (no borra data anterior).
+int  nextTioIdx();         // indice de la proxima ciudad que la rotacion Tomorrow.io fetchara
 Display::IconType::Value iconForCode(int code, bool isDay);
 
 }  // namespace Weather

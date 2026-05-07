@@ -248,11 +248,14 @@ void begin() {
         JsonDocument doc;
         doc["utc_now"] = (uint32_t)time(nullptr);
         doc["tomorrow_active"] = Config::hasTomorrowSettings();
+        doc["tio_next_idx"] = Weather::nextTioIdx();
         JsonArray arr = doc["cities"].to<JsonArray>();
+        uint32_t now = millis();
         for (int i = 0; i < 4; i++) {
             const auto& cc = Config::cfg.cities[i];
             const auto& d = Weather::data[i];
             const auto& dbg = Weather::debugInfo[i];
+            const auto& dbgTio = Weather::debugInfoTio[i];
             JsonObject o = arr.add<JsonObject>();
             o["name"] = cc.name;
             o["has_data"] = d.hasData;
@@ -265,6 +268,9 @@ void begin() {
             o["http"] = dbg.httpCode;
             o["attempts"] = dbg.attempts;
             o["last_at_ms"] = dbg.lastAtMs;
+            // Edad en segundos desde el ultimo fetch de cada proveedor; -1 si nunca.
+            o["om_age_s"]  = (dbg.lastAtMs    == 0) ? -1 : (int32_t)((now - dbg.lastAtMs)    / 1000U);
+            o["tio_age_s"] = (dbgTio.lastAtMs == 0) ? -1 : (int32_t)((now - dbgTio.lastAtMs) / 1000U);
             if (dbg.lastError.length()) o["err"] = dbg.lastError;
         }
         sendJson(req, doc);
