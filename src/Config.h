@@ -29,6 +29,14 @@ struct NightMode {
     float brightness;       // 0.05..1.0
 };
 
+// Indicador de segundos: alternativa entre el marcador (3px en la fila
+// inferior) y la barra (columna vertical de altura completa por detras).
+enum class SecondsIndicator : uint8_t {
+    NONE = 0,
+    MARKER = 1,    // 3 px sub-pixel en la fila inferior (look "playhead")
+    BAR = 2,       // columna vertical de altura completa, por detras del contenido
+};
+
 struct All {
     float brightness;
     uint16_t weatherRefreshSec;
@@ -36,8 +44,17 @@ struct All {
     bool hourLeadingZero;     // si false, "07:05" -> "7:05"
     bool omIndicator;         // si true, dibuja un puntito debajo del º en filas
                               // que estan usando Open-Meteo (fallback Tio)
-    bool secondsBar;          // si true, pixel en la fila inferior recorriendo
-                              // de izquierda a derecha segun segundo actual
+    SecondsIndicator secondsIndicator;
+    uint32_t secondsBarColor; // 0xRRGGBB, color base de la barra vertical
+                              // (default 0x333333; el marcador usa #444/#777
+                              // hardcoded para mantener su look discreto).
+    uint8_t  secondsBarWidth; // ancho de la barra vertical en px (1..16). 1 =
+                              // columna fina con sub-pixel; >1 = bar mas
+                              // ancha con flancos antialiased.
+    bool     secondsBarProgress; // true → la zona ya recorrida queda pintada
+                              // (estilo progressbar). false → solo la barra
+                              // se mueve, sin estela. En progress mode el
+                              // wrap toroidal queda desactivado.
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

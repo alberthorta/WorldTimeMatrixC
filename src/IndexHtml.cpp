@@ -430,10 +430,30 @@ code{
     <span class="toggle"><input id="om-ind" type="checkbox"/><span class="toggle-slider"></span></span>
     <span style="font-size:.9rem">Indicador OM en panel <span class="text-muted">(punto gris bajo el º cuando una fila usa Open-Meteo)</span></span>
   </label>
-  <label class="toggle-row">
-    <span class="toggle"><input id="sec-bar" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Barra de segundos <span class="text-muted">(pixel en la fila inferior recorriendo de izquierda a derecha)</span></span>
-  </label>
+  <div class="grid-2 mb-3">
+    <label>
+      <span class="label">Indicador de segundos</span>
+      <select id="sec-indicator">
+        <option value="none">Ninguno</option>
+        <option value="marker">Marcador (3 px en fila inferior)</option>
+        <option value="bar">Barra vertical (full-height por detras)</option>
+      </select>
+    </label>
+    <label id="sec-bar-color-wrap">
+      <span class="label">Color barra vertical</span>
+      <input id="sec-bar-color" type="color" value="#333333"/>
+    </label>
+  </div>
+  <div class="grid-2 mb-3" id="sec-bar-extras">
+    <label>
+      <span class="label">Ancho barra (px)</span>
+      <input id="sec-bar-width" type="number" min="1" max="16" step="1" value="1"/>
+    </label>
+    <label class="toggle-row">
+      <span class="toggle"><input id="sec-bar-progress" type="checkbox"/><span class="toggle-slider"></span></span>
+      <span style="font-size:.9rem">Modo progressbar <span class="text-muted">(rellena la zona ya recorrida)</span></span>
+    </label>
+  </div>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -627,7 +647,13 @@ async function loadConfig(){
     $('#blink').checked = cfg.colon_blink;
     $('#hour-lz').checked = cfg.hour_leading_zero !== false;   // default true
     $('#om-ind').checked = !!cfg.om_indicator;
-    $('#sec-bar').checked = !!cfg.seconds_bar;
+    $('#sec-indicator').value = cfg.seconds_indicator || (cfg.seconds_bar ? 'marker' : 'none');
+    $('#sec-bar-color').value = intToHex(cfg.seconds_bar_color != null ? cfg.seconds_bar_color : 0x333333);
+    $('#sec-bar-width').value = cfg.seconds_bar_width || 1;
+    $('#sec-bar-progress').checked = !!cfg.seconds_bar_progress;
+    const showBarExtras = ($('#sec-indicator').value === 'bar');
+    $('#sec-bar-color-wrap').style.display = showBarExtras ? '' : 'none';
+    $('#sec-bar-extras').style.display = showBarExtras ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
     initialRgbOrder = $('#rgb-order').value;
@@ -969,6 +995,11 @@ $('#bright').addEventListener('input', e => {
       body: JSON.stringify({brightness: e.target.value/100})}).catch(()=>{});
   }, 80);
 });
+$('#sec-indicator').addEventListener('change', e => {
+  const show = (e.target.value === 'bar');
+  $('#sec-bar-color-wrap').style.display = show ? '' : 'none';
+  $('#sec-bar-extras').style.display = show ? '' : 'none';
+});
 let nmBrightTimer;
 $('#nm-bright').addEventListener('input', e => {
   $('#nm-bright-val').textContent = e.target.value+'%';
@@ -986,7 +1017,10 @@ $('#save').onclick = async () => {
     colon_blink: $('#blink').checked,
     hour_leading_zero: $('#hour-lz').checked,
     om_indicator: $('#om-ind').checked,
-    seconds_bar: $('#sec-bar').checked,
+    seconds_indicator: $('#sec-indicator').value,
+    seconds_bar_color: hexToInt($('#sec-bar-color').value),
+    seconds_bar_width: +$('#sec-bar-width').value,
+    seconds_bar_progress: $('#sec-bar-progress').checked,
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,

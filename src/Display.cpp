@@ -246,6 +246,60 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
     if (!dma) return;
     dma->clearScreen();
 
+    // Barra vertical de segundos (modo BAR): columna full-height detras del
+    // contenido. Render por overlap pixel-caja con la barra continua centrada
+    // en pos_f y ancho secondsBarWidth, dando 2 modos:
+    //   - Normal: solo la barra (con flancos antialiased), wrap toroidal al
+    //     pasar por el minuto.
+    //   - Progress: rellena [0, pos_f + W/2] (zona ya recorrida) con flanco
+    //     suavizado a la derecha; al cruzar minuto resetea (no wrap).
+    if (Config::cfg.secondsIndicator == Config::SecondsIndicator::BAR &&
+        secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
+        bool progress = Config::cfg.secondsBarProgress;
+        float pos_f = secondOfMinuteF * (float)WIDTH / 60.0f;
+        if (!progress) pos_f = fmodf(pos_f, (float)WIDTH);   // toroidal solo en modo normal
+        float halfW = (float)Config::cfg.secondsBarWidth * 0.5f;
+        float left  = pos_f - halfW;
+        float right = pos_f + halfW;
+        // En progress mode la "barra" es realmente el rango [0, right] —
+        // funciona via la misma formula con left forzado a 0.
+        if (progress) left = 0.0f;
+        uint32_t base = Config::cfg.secondsBarColor;
+        uint8_t bR = (base >> 16) & 0xFF;
+        uint8_t bG = (base >> 8)  & 0xFF;
+        uint8_t bB =  base        & 0xFF;
+        auto paintCol = [&](int xw, float w) {
+            if (w <= 0.0f) return;
+            if (w > 1.0f) w = 1.0f;
+            uint8_t R = (uint8_t)((float)bR * w + 0.5f);
+            uint8_t G = (uint8_t)((float)bG * w + 0.5f);
+            uint8_t B = (uint8_t)((float)bB * w + 0.5f);
+            uint16_t c = rgb888to565(((uint32_t)R << 16) | ((uint32_t)G << 8) | (uint32_t)B);
+            if (!c) return;
+            for (int y = 0; y < HEIGHT; y++) dma->drawPixel(xw, y, c);
+        };
+        // Recorremos solo el rango necesario. En progress, [0, right]; en
+        // normal, [floor(left)-1, ceil(right)+1] con wrap.
+        int x0 = progress ? 0 : ((int)floorf(left) - 1);
+        int x1 = (int)ceilf(right) + 1;
+        for (int x = x0; x <= x1; x++) {
+            float pxL = (float)x - 0.5f;
+            float pxR = (float)x + 0.5f;
+            float ovL = fmaxf(left,  pxL);
+            float ovR = fminf(right, pxR);
+            float w = ovR - ovL;
+            if (w <= 0.0f) continue;
+            int xw;
+            if (progress) {
+                if (x < 0 || x >= WIDTH) continue;     // sin wrap
+                xw = x;
+            } else {
+                xw = ((x % WIDTH) + WIDTH) % WIDTH;
+            }
+            paintCol(xw, w);
+        }
+    }
+
     uint16_t divCol = dma->color565(0x33, 0x33, 0x33);
     for (int i = 0; i < 3; i++) drawDivider(DIV_YS[i], divCol);
 
@@ -364,7 +418,8 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
     // exactos con los valores originales; cuando esta entre dos pixeles
     // el patron se difumina a 4 pixeles con pesos simetricos. Es una
     // convolucion del kernel discreto con la posicion sub-pixel.
-    if (Config::cfg.secondsBar && secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
+    if (Config::cfg.secondsIndicator == Config::SecondsIndicator::MARKER &&
+        secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
         // Sweep cíclico (toroidal): pos_f recorre [0, WIDTH) en 60s. Al pasar
         // del segundo 59→0, la barra se enrolla por el otro lado (los pixeles
         // del flanco que se salen por la derecha aparecen por la izquierda y

@@ -92,7 +92,10 @@ static All defaults() {
     a.colonBlink = true;
     a.hourLeadingZero = true;
     a.omIndicator = false;
-    a.secondsBar = false;
+    a.secondsIndicator = SecondsIndicator::NONE;
+    a.secondsBarColor = 0x333333;
+    a.secondsBarWidth = 1;
+    a.secondsBarProgress = false;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -109,7 +112,12 @@ static void buildJson(JsonDocument& doc) {
     doc["colon_blink"] = cfg.colonBlink;
     doc["hour_leading_zero"] = cfg.hourLeadingZero;
     doc["om_indicator"] = cfg.omIndicator;
-    doc["seconds_bar"] = cfg.secondsBar;
+    doc["seconds_indicator"] = (cfg.secondsIndicator == SecondsIndicator::MARKER) ? "marker"
+                              : (cfg.secondsIndicator == SecondsIndicator::BAR)   ? "bar"
+                                                                                   : "none";
+    doc["seconds_bar_color"] = cfg.secondsBarColor;
+    doc["seconds_bar_width"] = cfg.secondsBarWidth;
+    doc["seconds_bar_progress"] = cfg.secondsBarProgress;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -152,8 +160,31 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["om_indicator"].is<bool>()) {
         cfg.omIndicator = doc["om_indicator"];
     }
-    if (doc["seconds_bar"].is<bool>()) {
-        cfg.secondsBar = doc["seconds_bar"];
+    // Indicador de segundos: nuevo formato (string + color) con migracion del
+    // legacy `seconds_bar: bool` (true → marker, false → none) si solo viene
+    // ese campo. Si vienen ambos, gana el nuevo.
+    if (doc["seconds_indicator"].is<const char*>()) {
+        String s = doc["seconds_indicator"].as<const char*>();
+        if (s == "marker")     cfg.secondsIndicator = SecondsIndicator::MARKER;
+        else if (s == "bar")   cfg.secondsIndicator = SecondsIndicator::BAR;
+        else                   cfg.secondsIndicator = SecondsIndicator::NONE;
+    } else if (doc["seconds_bar"].is<bool>()) {
+        cfg.secondsIndicator = doc["seconds_bar"]
+            ? SecondsIndicator::MARKER
+            : SecondsIndicator::NONE;
+    }
+    if (doc["seconds_bar_color"].is<unsigned int>() ||
+        doc["seconds_bar_color"].is<int>()) {
+        cfg.secondsBarColor = (uint32_t)(doc["seconds_bar_color"].as<unsigned int>()) & 0xFFFFFFu;
+    }
+    if (doc["seconds_bar_width"].is<int>()) {
+        int w = doc["seconds_bar_width"];
+        if (w < 1)  w = 1;
+        if (w > 16) w = 16;
+        cfg.secondsBarWidth = (uint8_t)w;
+    }
+    if (doc["seconds_bar_progress"].is<bool>()) {
+        cfg.secondsBarProgress = doc["seconds_bar_progress"];
     }
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
