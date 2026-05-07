@@ -76,11 +76,12 @@ void loop() {
 
     static uint32_t lastRender = 0;
     static uint8_t lastBrightness = 255;
-    // Renderizamos a ~30fps (33ms) para que la barra de segundos sub-pixel
-    // se vea fluida. Coste: bajo — panel via DMA, render es solo composicion
-    // de framebuffer logico.
-    if (millis() - lastRender < 33) {
-        delay(2);
+    // Renderizamos a 20fps (50ms): suficientemente fluido para la barra
+    // sub-pixel y el fade del colon, dejando mas slack a tasks de WiFi/HTTP
+    // que vivan en core 1. Antes era 30fps; bajo a 20 tras observar latencia
+    // alta en HTTP coincidente con el bump.
+    if (millis() - lastRender < 50) {
+        delay(5);
         return;
     }
     lastRender = millis();
@@ -116,7 +117,7 @@ void loop() {
         float frac = secondOfMinuteF - (float)intSec;
         float target = ((intSec % 2) == 0) ? 1.0f : 0.0f;
         float prev   = 1.0f - target;
-        const float FADE_SEC = 4.0f / 30.0f;   // 4 frames a 30fps ≈ 133ms
+        const float FADE_SEC = 4.0f / 20.0f;   // 4 frames a 20fps = 200ms
         if (frac < FADE_SEC) {
             float p = frac / FADE_SEC;
             colonAlpha = prev * (1.0f - p) + target * p;

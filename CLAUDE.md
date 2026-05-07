@@ -144,6 +144,8 @@ Estructura del JSON en `/cfg.json`:
 
 9. **`Weather::requestRefresh()`**: cuando cambian cities NO invalidamos `data[]`. Solo despertamos la task para refetch inmediato. Así los iconos/temps no parpadean vacíos durante la edición.
 
+10. **AsyncTCP en core 1 mata la WiFi percibida**. Por defecto `CONFIG_ASYNC_TCP_RUNNING_CORE=-1` deja que el scheduler decida, y como `WebApi::begin()` se llama desde `setup()` (core 1 en Arduino-ESP32), la service task de AsyncTCP acaba en core 1, compitiendo con el render loop y `weatherTask`. Síntoma: latencia HTTP alta y sensación de "WiFi mala" aunque la asociación esté bien (ping OK, RSSI razonable). Fix en `platformio.ini` build_flags: `-DCONFIG_ASYNC_TCP_RUNNING_CORE=0` la pinea a core 0 junto a WiFi/lwIP, donde ya está su counterpart natural; combinar con `-DCONFIG_ASYNC_TCP_QUEUE_SIZE=64` para holgura. El bump del render de 10 a 20-30fps fue lo que destapó este problema.
+
 ## Fases hechas / pendientes
 
 | Fase | Estado |
