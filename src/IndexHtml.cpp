@@ -454,6 +454,28 @@ code{
       <span style="font-size:.9rem">Modo progressbar <span class="text-muted">(rellena la zona ya recorrida)</span></span>
     </label>
   </div>
+  <label class="toggle-row">
+    <span class="toggle"><input id="trend-en" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Indicador de tendencia <span class="text-muted">(2 px tras el º: verde sube / rojo baja)</span></span>
+  </label>
+  <div class="grid-2 mb-3" id="trend-extras">
+    <label>
+      <span class="label">Horizonte forecast</span>
+      <select id="trend-horizon">
+        <option value="1">1 h</option>
+        <option value="2">2 h</option>
+      </select>
+    </label>
+    <label>
+      <span class="label">Umbrales (°C)</span>
+      <div class="row">
+        <input id="trend-th1" type="number" min="0" max="50" step="0.1" value="0.5" style="flex:1"/>
+        <input id="trend-th2" type="number" min="0" max="50" step="0.1" value="1.5" style="flex:1"/>
+        <input id="trend-th3" type="number" min="0" max="50" step="0.1" value="3" style="flex:1"/>
+      </div>
+      <span class="note" style="margin-top:.25rem">|Δ| ≥ th1 → 1px, ≥ th2 → 2px, ≥ th3 → 3px</span>
+    </label>
+  </div>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -654,6 +676,12 @@ async function loadConfig(){
     const showBarExtras = ($('#sec-indicator').value === 'bar');
     $('#sec-bar-color-wrap').style.display = showBarExtras ? '' : 'none';
     $('#sec-bar-extras').style.display = showBarExtras ? '' : 'none';
+    $('#trend-en').checked = !!cfg.forecast_indicator_enabled;
+    $('#trend-horizon').value = (cfg.forecast_indicator_horizon_h === 2) ? '2' : '1';
+    $('#trend-th1').value = cfg.forecast_thresh_1 != null ? cfg.forecast_thresh_1 : 0.5;
+    $('#trend-th2').value = cfg.forecast_thresh_2 != null ? cfg.forecast_thresh_2 : 1.5;
+    $('#trend-th3').value = cfg.forecast_thresh_3 != null ? cfg.forecast_thresh_3 : 3;
+    $('#trend-extras').style.display = $('#trend-en').checked ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
     initialRgbOrder = $('#rgb-order').value;
@@ -1000,6 +1028,9 @@ $('#sec-indicator').addEventListener('change', e => {
   $('#sec-bar-color-wrap').style.display = show ? '' : 'none';
   $('#sec-bar-extras').style.display = show ? '' : 'none';
 });
+$('#trend-en').addEventListener('change', e => {
+  $('#trend-extras').style.display = e.target.checked ? '' : 'none';
+});
 let nmBrightTimer;
 $('#nm-bright').addEventListener('input', e => {
   $('#nm-bright-val').textContent = e.target.value+'%';
@@ -1021,6 +1052,11 @@ $('#save').onclick = async () => {
     seconds_bar_color: hexToInt($('#sec-bar-color').value),
     seconds_bar_width: +$('#sec-bar-width').value,
     seconds_bar_progress: $('#sec-bar-progress').checked,
+    forecast_indicator_enabled: $('#trend-en').checked,
+    forecast_indicator_horizon_h: +$('#trend-horizon').value,
+    forecast_thresh_1: +$('#trend-th1').value,
+    forecast_thresh_2: +$('#trend-th2').value,
+    forecast_thresh_3: +$('#trend-th3').value,
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,

@@ -55,6 +55,14 @@ struct All {
                               // (estilo progressbar). false → solo la barra
                               // se mueve, sin estela. En progress mode el
                               // wrap toroidal queda desactivado.
+    // Indicador de tendencia: mini barra vertical 2px a la derecha del º que
+    // muestra si la temp va a subir (verde, hacia arriba) o bajar (rojo,
+    // hacia abajo) en N horas, con 3 niveles de magnitud por umbrales.
+    bool     forecastIndicatorEnabled;     // off por defecto
+    uint8_t  forecastIndicatorHorizonH;    // 1 o 2 horas vista
+    float    forecastThresh1;              // |Δ| ≥ thresh1 → 1 px
+    float    forecastThresh2;              // |Δ| ≥ thresh2 → 2 px
+    float    forecastThresh3;              // |Δ| ≥ thresh3 → 3 px
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

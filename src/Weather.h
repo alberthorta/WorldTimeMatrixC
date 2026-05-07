@@ -33,6 +33,12 @@ struct Data {
     bool hasWap;
     bool wapOk;
     uint32_t wapOkAtMs;     // misma logica que tioOkAtMs pero para WeatherAPI
+
+    // Forecast horario (Open-Meteo): temperatura prevista a +1h y +2h respecto
+    // a la hora actual UTC. Se usa para el indicador de tendencia. Siempre OM
+    // (los providers premium en su tier free no dan hourly comoda).
+    int  forecastT1h, forecastT2h;
+    bool hasForecast;
 };
 
 extern Data data[4];

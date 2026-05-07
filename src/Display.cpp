@@ -307,12 +307,19 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
     // con 1px de gap, asi el icono no salta entre 1 y 2 digitos de temperatura.
     constexpr int DEG_W = 2;            // ancho del simbolo grado (2x2 filled)
     constexpr int DEG_GAP = 1;          // gap entre digitos y grado
-    constexpr int ICON_GAP = 3;         // gap entre icono y temperatura
     constexpr int ICON_W = 5;
+    // Cuando el indicador de tendencia esta activo, reservamos 3 cols a la
+    // derecha de la temp (1 px margen + 2 px indicador) y desplazamos hora
+    // (-1), icono (-2) y temp (-3) para acomodarlo. iconGap pasa de 3 → 2
+    // para conseguir el shift -2 del icono mientras la temp se va -3.
+    bool trendShift = Config::cfg.forecastIndicatorEnabled;
+    int iconGap = trendShift ? 2 : 3;
+    int rightEdgeShift = trendShift ? 3 : 0;
+    int hourRightX = TIME_RIGHT_X - (trendShift ? 1 : 0);
     int refDigitsW = textWidth("-9");
     int refTempTotal = refDigitsW + DEG_GAP + DEG_W;
-    int rightEdge = WIDTH - RIGHT_MARGIN;
-    int iconX = rightEdge - refTempTotal - ICON_GAP - ICON_W;
+    int rightEdge = WIDTH - RIGHT_MARGIN - rightEdgeShift;
+    int iconX = rightEdge - refTempTotal - iconGap - ICON_W;
 
     for (int i = 0; i < 4; i++) {
         const Row& r = rows[i];
@@ -336,7 +343,7 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             int blockW = COLON_W;
             for (const char* p = hh; *p; p++) blockW += digitAdvance(*p);
             for (const char* p = mm; *p; p++) blockW += digitAdvance(*p);
-            int xStart = TIME_RIGHT_X - blockW;
+            int xStart = hourRightX - blockW;
             dma->setTextColor(r.color);
             int xCur = drawDigits(hh, xStart, y);
             if (r.colonAlpha > 0.01f) {
@@ -403,6 +410,29 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             // usando Open-Meteo y la opcion esta activa en Config.
             if (r.omIndicator) {
                 dma->drawPixel(degX + 1, y - 1, rgb888to565(0x444444));
+            }
+            // Indicador de tendencia: 2 px ancho × magnitud px alto, centrado
+            // verticalmente en la fila. 1 px de margen entre º y la barra.
+            // Verde = sube, rojo = baja. magnitud=0 → no se dibuja.
+            if (Config::cfg.forecastIndicatorEnabled && r.trendMagnitude > 0) {
+                int indL = degX + DEG_W + 1;     // 1 px margen tras el º (DEG_W=2)
+                int indR = indL + 1;
+                if (indR < WIDTH) {
+                    int rowCenterY = ROW_YS[i] - 3;   // centro vertical aproximado (1px arriba)
+                    uint16_t col = r.trendRising
+                        ? rgb888to565(0x00C000)        // verde un poco mas tenue que pure
+                        : rgb888to565(0xC00000);       // rojo idem
+                    int mag = r.trendMagnitude;
+                    if (mag > 3) mag = 3;
+                    for (int n = 0; n < mag; n++) {
+                        int dy = r.trendRising ? -n : n;
+                        int py = rowCenterY + dy;
+                        if (py >= 0 && py < HEIGHT) {
+                            dma->drawPixel(indL, py, col);
+                            dma->drawPixel(indR, py, col);
+                        }
+                    }
+                }
             }
         }
     }

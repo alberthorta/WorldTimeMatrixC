@@ -96,6 +96,11 @@ static All defaults() {
     a.secondsBarColor = 0x333333;
     a.secondsBarWidth = 1;
     a.secondsBarProgress = false;
+    a.forecastIndicatorEnabled = false;
+    a.forecastIndicatorHorizonH = 1;
+    a.forecastThresh1 = 0.5f;
+    a.forecastThresh2 = 1.5f;
+    a.forecastThresh3 = 3.0f;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -118,6 +123,11 @@ static void buildJson(JsonDocument& doc) {
     doc["seconds_bar_color"] = cfg.secondsBarColor;
     doc["seconds_bar_width"] = cfg.secondsBarWidth;
     doc["seconds_bar_progress"] = cfg.secondsBarProgress;
+    doc["forecast_indicator_enabled"] = cfg.forecastIndicatorEnabled;
+    doc["forecast_indicator_horizon_h"] = cfg.forecastIndicatorHorizonH;
+    doc["forecast_thresh_1"] = cfg.forecastThresh1;
+    doc["forecast_thresh_2"] = cfg.forecastThresh2;
+    doc["forecast_thresh_3"] = cfg.forecastThresh3;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -186,6 +196,24 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["seconds_bar_progress"].is<bool>()) {
         cfg.secondsBarProgress = doc["seconds_bar_progress"];
     }
+    if (doc["forecast_indicator_enabled"].is<bool>()) {
+        cfg.forecastIndicatorEnabled = doc["forecast_indicator_enabled"];
+    }
+    if (doc["forecast_indicator_horizon_h"].is<int>()) {
+        int h = doc["forecast_indicator_horizon_h"];
+        cfg.forecastIndicatorHorizonH = (h == 2) ? 2 : 1;
+    }
+    auto applyThresh = [&](const char* key, float& dst) {
+        if (doc[key].is<float>() || doc[key].is<int>()) {
+            float v = doc[key].as<float>();
+            if (v < 0.0f)  v = 0.0f;
+            if (v > 50.0f) v = 50.0f;
+            dst = v;
+        }
+    };
+    applyThresh("forecast_thresh_1", cfg.forecastThresh1);
+    applyThresh("forecast_thresh_2", cfg.forecastThresh2);
+    applyThresh("forecast_thresh_3", cfg.forecastThresh3);
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
         for (int i = 0; i < 4 && i < (int)arr.size(); i++) {

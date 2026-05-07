@@ -153,12 +153,24 @@ static bool fetchOne(int idx) {
     url += String(cc.lat, 6);
     url += "&longitude=";
     url += String(cc.lon, 6);
-    url += "&current=temperature_2m,weather_code,is_day&timezone=auto";
+    url += "&current=temperature_2m,weather_code,is_day";
+    // Hourly forecast solo si el indicador de tendencia esta activo. Pedirlo
+    // siempre crece el body ~3KB y el parse ~10KB de heap por fetch — sin
+    // necesidad si nadie va a leerlo. Ademas evita un crash sospechoso visto
+    // al activar el indicador (parse pesado en core 1 colisionando con render).
+    bool wantForecast = Config::cfg.forecastIndicatorEnabled;
+    if (wantForecast) {
+        // Solo 6 entries (hora actual + 5 siguientes): suficientes para
+        // localizar +1h y +2h, body ~10× mas pequeno que forecast_days=2,
+        // critico en RSSI marginal donde body grande causaba read-timeout.
+        url += "&hourly=temperature_2m&timeformat=unixtime&forecast_hours=6";
+    }
+    url += "&timezone=auto";
     dbg.lastUrl = url;
     dbg.lastBody = "";
 
     HTTPClient http;
-    http.setTimeout(8000);
+    http.setTimeout(15000);
     http.useHTTP10(true);
     if (!http.begin(url)) {
         dbg.lastError = "http.begin failed";
@@ -190,6 +202,36 @@ static bool fetchOne(int idx) {
                 d.tempC_om = (int)lround(t);
                 d.code_om = (int)(cur["weather_code"] | 0);
                 d.hasOm = true;
+                // Forecast horario: busca los entries cuyo timestamp >= now+1h
+                // y >= now+2h. Open-Meteo devuelve los hourly como arrays
+                // paralelos `time` (unix) y `temperature_2m` (float).
+                JsonArray times = doc["hourly"]["time"].as<JsonArray>();
+                JsonArray temps = doc["hourly"]["temperature_2m"].as<JsonArray>();
+                if (!times.isNull() && !temps.isNull() && times.size() == temps.size()) {
+                    time_t nowUtc = time(nullptr);
+                    time_t target1 = nowUtc + 3600;
+                    time_t target2 = nowUtc + 7200;
+                    bool found1 = false, found2 = false;
+                    int t1 = 0, t2 = 0;
+                    size_t n = times.size();
+                    for (size_t i = 0; i < n; i++) {
+                        time_t ts = (time_t)(times[i].as<int64_t>());
+                        if (!found1 && ts >= target1) {
+                            t1 = (int)lround((double)temps[i].as<float>());
+                            found1 = true;
+                        }
+                        if (!found2 && ts >= target2) {
+                            t2 = (int)lround((double)temps[i].as<float>());
+                            found2 = true;
+                        }
+                        if (found1 && found2) break;
+                    }
+                    if (found1 && found2) {
+                        d.forecastT1h = t1;
+                        d.forecastT2h = t2;
+                        d.hasForecast = true;
+                    }
+                }
                 ok = true;
                 dbg.lastError = "";
             } else {

@@ -164,6 +164,24 @@ void loop() {
                      : Display::IconType::NONE;
         r.colonAlpha = colonAlpha;
         r.omIndicator = Config::cfg.omIndicator && d.hasData && d.tempSource == 1;
+        // Indicador de tendencia: comparamos forecast OM (siempre OM, regardless
+        // del provider activo, para tener una baseline consistente) contra la
+        // temp efectiva mostrada. magnitud por umbrales configurables.
+        r.trendMagnitude = 0;
+        r.trendRising = false;
+        if (Config::cfg.forecastIndicatorEnabled && d.hasForecast && d.hasOm) {
+            int forecast = (Config::cfg.forecastIndicatorHorizonH == 2)
+                               ? d.forecastT2h
+                               : d.forecastT1h;
+            float delta = (float)forecast - (float)d.tempC_om;
+            float a = fabsf(delta);
+            int mag = 0;
+            if (a >= Config::cfg.forecastThresh3)      mag = 3;
+            else if (a >= Config::cfg.forecastThresh2) mag = 2;
+            else if (a >= Config::cfg.forecastThresh1) mag = 1;
+            r.trendMagnitude = (int8_t)mag;
+            r.trendRising = delta > 0.0f;
+        }
     }
     Display::renderRows(rows, secondOfMinuteF);
 }
