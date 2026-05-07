@@ -221,6 +221,8 @@ void begin() {
         // comparar con el reloj del navegador.
         doc["age_ms"] = dbg.lastAtMs ? (uint32_t)(millis() - dbg.lastAtMs) : 0;
         doc["last_at_ms"] = dbg.lastAtMs;
+        doc["ok_age_ms"] = dbg.lastOkAtMs ? (uint32_t)(millis() - dbg.lastOkAtMs) : 0;
+        doc["last_ok_at_ms"] = dbg.lastOkAtMs;
         doc["err"] = dbg.lastError;
         doc["body"] = dbg.lastBody;
         doc["body_len"] = dbg.lastBody.length();

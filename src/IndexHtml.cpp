@@ -901,7 +901,13 @@ async function loadWeather(){
     const thPrem = $('#th-prem');
     if (thPrem) thPrem.textContent = provLabel;
     const fmtAge = s => (s == null || s < 0) ? '<span class="text-muted">-</span>' : `${s}s`;
-    d.cities.forEach((c, idx) => {
+    // Orden visual por Ord (1 = proxima en la rotacion premium). idx original
+    // se mantiene para los onclick (API usa idx). Si no hay premium activo,
+    // mantenemos el orden natural por idx.
+    const ordOf = idx => ((idx - nextIdx + 4) % 4) + 1;
+    const ordered = d.cities.map((c, idx) => ({c, idx}));
+    if (provider !== 'none') ordered.sort((a, b) => ordOf(a.idx) - ordOf(b.idx));
+    ordered.forEach(({c, idx}) => {
       const tr = document.createElement('tr');
       const srcClass = c.temp_source === 'tomorrow'   ? 'src-tio'
                      : c.temp_source === 'weatherapi' ? 'src-tio'
@@ -974,7 +980,8 @@ async function renderWxDebug(){
     const r = await fetch(`/api/weather/debug?idx=${curWxIdx}&provider=${curWxProvider}`);
     const d = await r.json();
     $('#wx-modal-title').textContent = `Debug meteo · ${d.name || ('city '+d.idx)}`;
-    const ageStr = (d.age_ms && d.last_at_ms) ? `hace ${fmtUp(d.age_ms/1000)}` : 'nunca';
+    const ageStr   = (d.age_ms    && d.last_at_ms)    ? `hace ${fmtUp(d.age_ms/1000)}`     : 'nunca';
+    const okAgeStr = (d.ok_age_ms && d.last_ok_at_ms) ? `hace ${fmtUp(d.ok_age_ms/1000)}` : 'nunca';
     const httpClass = d.http === 200 ? 'text-accent' : (d.http>0?'text-warn':'text-muted');
     const tabs = `
       <div class="modal-tabs">
@@ -984,7 +991,8 @@ async function renderWxDebug(){
       </div>`;
     let meta = tabs + `<span><b>HTTP:</b> <span class="${httpClass}">${d.http}</span></span>`;
     meta += `<span><b>Intentos:</b> ${d.attempts}</span>`;
-    meta += `<span><b>Última:</b> ${ageStr}</span>`;
+    meta += `<span><b>Último intento:</b> ${ageStr}</span>`;
+    meta += `<span><b>Último éxito:</b> ${okAgeStr}</span>`;
     if (d.body_len) meta += `<span><b>Body:</b> ${d.body_len} B</span>`;
     if (d.err) meta += `<span class="text-warn"><b>Err:</b> ${d.err}</span>`;
     $('#wx-modal-meta').innerHTML = meta;

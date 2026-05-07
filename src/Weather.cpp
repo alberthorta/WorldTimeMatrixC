@@ -34,7 +34,10 @@ static const uint32_t PREMIUM_MAX_AGE_MS = 60UL * 60UL * 1000UL;   // 1 hora
 // Recalcula tempC/code/tempSource/hasData "efectivos" para una ciudad a partir
 // de los crudos por proveedor. Reglas:
 //   - Si hay un provider premium activo (TIO o WAP) Y la ciudad tiene crudos
-//     suyos fresh (hasX && xOk && fetch ok hace < 1h) → usar esos valores.
+//     suyos cuyo ultimo fetch ok fue hace < 1h → usar esos valores. NO se
+//     considera el flag xOk (last attempt) — un fallo aislado mantiene los
+//     datos previos en pantalla mientras esten fresh, evitando flicker
+//     visual por fallos transientes (e.g. connection refused).
 //   - Si no, fallback a Open-Meteo si lo hay.
 //   - Si tampoco, marca como sin datos.
 static void recomputeEffective(int idx) {
@@ -45,13 +48,13 @@ static void recomputeEffective(int idx) {
     bool wapFresh = (d.wapOkAtMs != 0) &&
                     (millis() - d.wapOkAtMs) < PREMIUM_MAX_AGE_MS;
     if (active == Config::PremiumProvider::TOMORROW &&
-        d.hasTio && d.tioOk && tioFresh) {
+        d.hasTio && tioFresh) {
         d.tempC = d.tempC_tio;
         d.code = d.code_tio;
         d.tempSource = 2;
         d.hasData = true;
     } else if (active == Config::PremiumProvider::WEATHERAPI &&
-               d.hasWap && d.wapOk && wapFresh) {
+               d.hasWap && wapFresh) {
         d.tempC = d.tempC_wap;
         d.code = d.code_wap;
         d.tempSource = 3;
@@ -234,6 +237,7 @@ static bool fetchOne(int idx) {
                 }
                 ok = true;
                 dbg.lastError = "";
+                dbg.lastOkAtMs = millis();
             } else {
                 dbg.lastError = "no current field";
             }
@@ -316,6 +320,7 @@ static bool fetchTomorrow(int idx) {
                 d.tioOkAtMs = millis();   // ancla de frescura (ver TIO_MAX_AGE_MS)
                 ok = true;
                 dbg.lastError = "";
+                dbg.lastOkAtMs = millis();
             } else {
                 dbg.lastError = "no data.values field";
             }
@@ -412,6 +417,7 @@ static bool fetchWeatherApi(int idx) {
                 d.wapOkAtMs = millis();
                 ok = true;
                 dbg.lastError = "";
+                dbg.lastOkAtMs = millis();
             } else {
                 dbg.lastError = "no current field";
             }

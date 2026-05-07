@@ -49,7 +49,8 @@ struct FetchDebug {
     String lastError;
     String lastUrl;     // URL llamada en el ultimo fetch
     String lastBody;    // respuesta raw (truncada a 2KB para acotar RAM)
-    uint32_t lastAtMs = 0;  // millis() al final del ultimo fetch
+    uint32_t lastAtMs = 0;     // millis() al final del ultimo intento (ok o no)
+    uint32_t lastOkAtMs = 0;   // millis() del ultimo intento con exito
 };
 extern FetchDebug debugInfo[4];     // por ciudad — Open-Meteo
 extern FetchDebug debugInfoTio[4];  // por ciudad — Tomorrow.io (vacios si provider no activo)
