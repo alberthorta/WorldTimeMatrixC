@@ -143,24 +143,74 @@ void switchToAp() {
     }
 }
 
-// Beacon UDP broadcast periodico para mantener el bridging del AP "vivo".
-// Algunos APs/extenders aging-out la entrada MAC del cliente tras unos
-// minutos sin trafico inbound dirigido al device, dejando el server HTTP
-// inalcanzable desde la LAN aunque outbound siga funcionando. Un broadcast
-// fuerza al AP a re-aprender la asociacion MAC↔puerto. Coste: 1 paquete UDP
-// pequeño cada 60s.
+// Health-check periodico:
+//   1) Beacon UDP broadcast cada 60s para refrescar el bridging del AP y
+//      evitar que dropee al cliente por inactividad inbound (aging-out).
+//   2) Probe TCP al gateway:53 cada 2 min. Si falla 2 veces seguidas,
+//      forzar reconnect — la cola lwIP probablemente este enterrada por
+//      retransmits acumulados en RSSI marginal y no se recupera sola.
+//   3) Failsafe duro: reconnect cada 30 min sin importar el estado. Coste
+//      5-10s de outage; beneficio: nunca queda colgado mas alla de eso.
 void tickHealth() {
     if (g_mode != Mode::Sta) return;
     static uint32_t lastBeaconMs = 0;
+    static uint32_t lastProbeMs = 0;
+    static uint32_t lastReconnectMs = 0;
+    static int consecutiveFails = 0;
     uint32_t now = millis();
-    if (lastBeaconMs != 0 && (now - lastBeaconMs) < 60000) return;
-    if (WiFi.status() != WL_CONNECTED) return;
-    lastBeaconMs = now;
-    WiFiUDP udp;
-    if (udp.beginPacket(IPAddress(255, 255, 255, 255), 5353)) {
-        const uint8_t kPing[2] = {'W', 'T'};
-        udp.write(kPing, sizeof(kPing));
-        udp.endPacket();
+    if (lastReconnectMs == 0) lastReconnectMs = now;
+
+    // (3) Failsafe duro 30 min.
+    if ((now - lastReconnectMs) >= 1800000UL) {
+        Serial.println("[wifi] periodic reconnect (failsafe 30min)");
+        WiFi.reconnect();
+        lastReconnectMs = now;
+        lastBeaconMs = now;
+        lastProbeMs = now;
+        consecutiveFails = 0;
+        return;
+    }
+
+    // (1) Beacon UDP broadcast cada 60s.
+    if ((now - lastBeaconMs) >= 60000UL && WiFi.status() == WL_CONNECTED) {
+        lastBeaconMs = now;
+        WiFiUDP udp;
+        if (udp.beginPacket(IPAddress(255, 255, 255, 255), 5353)) {
+            const uint8_t kPing[2] = {'W', 'T'};
+            udp.write(kPing, sizeof(kPing));
+            udp.endPacket();
+        }
+    }
+
+    // (2) Probe TCP al gateway:53 cada 2 min. Detecta el "stuck" donde el
+    // device esta asociado pero la cola lwIP no avanza. setTimeout corto
+    // (1.5s) para no bloquear el loop. Si falla 2 veces seguidas, reconnect.
+    const uint32_t PROBE_INTERVAL_MS = 120000UL;
+    const int PROBE_FAIL_THRESHOLD = 2;
+    if (WiFi.status() == WL_CONNECTED && (now - lastProbeMs) >= PROBE_INTERVAL_MS) {
+        lastProbeMs = now;
+        IPAddress gw = WiFi.gatewayIP();
+        if (gw == IPAddress(0, 0, 0, 0)) return;
+        WiFiClient c;
+        c.setTimeout(1500);
+        bool ok = c.connect(gw, 53);
+        if (c.connected()) c.stop();
+        if (ok) {
+            consecutiveFails = 0;
+        } else {
+            consecutiveFails++;
+            Serial.printf("[wifi] probe fail %d/%d gw=%s\n",
+                          consecutiveFails, PROBE_FAIL_THRESHOLD,
+                          gw.toString().c_str());
+            if (consecutiveFails >= PROBE_FAIL_THRESHOLD) {
+                Serial.println("[wifi] forcing reconnect (gateway unreachable)");
+                WiFi.reconnect();
+                consecutiveFails = 0;
+                lastReconnectMs = now;
+                lastBeaconMs = now;
+                lastProbeMs = now + 30000UL;   // skip probe 30s tras reconnect
+            }
+        }
     }
 }
 

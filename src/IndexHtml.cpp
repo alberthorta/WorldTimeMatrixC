@@ -427,6 +427,10 @@ code{
     <span style="font-size:.9rem">Cero a la izquierda en la hora <span class="text-muted">(p.ej. 07:05)</span></span>
   </label>
   <label class="toggle-row">
+    <span class="toggle"><input id="date-text" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">$DATE como "8 May" <span class="text-muted">(en lugar de "08/05"; mes en español, día sin cero a la izquierda)</span></span>
+  </label>
+  <label class="toggle-row">
     <span class="toggle"><input id="om-ind" type="checkbox"/><span class="toggle-slider"></span></span>
     <span style="font-size:.9rem">Indicador OM en panel <span class="text-muted">(punto gris bajo el º cuando una fila usa Open-Meteo)</span></span>
   </label>
@@ -680,6 +684,7 @@ async function loadConfig(){
     $('#nm-bright-val').textContent = $('#nm-bright').value+'%';
     $('#blink').checked = cfg.colon_blink;
     $('#hour-lz').checked = cfg.hour_leading_zero !== false;   // default true
+    $('#date-text').checked = !!cfg.date_format_text;
     $('#om-ind').checked = !!cfg.om_indicator;
     $('#sec-indicator').value = cfg.seconds_indicator || (cfg.seconds_bar ? 'marker' : 'none');
     $('#sec-bar-color').value = intToHex(cfg.seconds_bar_color != null ? cfg.seconds_bar_color : 0x333333);
@@ -1070,6 +1075,7 @@ $('#save').onclick = async () => {
     weather_refresh_sec: +$('#refresh').value,
     colon_blink: $('#blink').checked,
     hour_leading_zero: $('#hour-lz').checked,
+    date_format_text: $('#date-text').checked,
     om_indicator: $('#om-ind').checked,
     seconds_indicator: $('#sec-indicator').value,
     seconds_bar_color: hexToInt($('#sec-bar-color').value),

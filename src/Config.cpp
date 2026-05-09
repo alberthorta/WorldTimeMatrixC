@@ -91,6 +91,7 @@ static All defaults() {
     a.weatherRefreshSec = 60;
     a.colonBlink = true;
     a.hourLeadingZero = true;
+    a.dateFormatText = false;
     a.omIndicator = false;
     a.secondsIndicator = SecondsIndicator::NONE;
     a.secondsBarColor = 0x333333;
@@ -119,6 +120,7 @@ static void buildJson(JsonDocument& doc) {
     doc["weather_refresh_sec"] = cfg.weatherRefreshSec;
     doc["colon_blink"] = cfg.colonBlink;
     doc["hour_leading_zero"] = cfg.hourLeadingZero;
+    doc["date_format_text"] = cfg.dateFormatText;
     doc["om_indicator"] = cfg.omIndicator;
     doc["seconds_indicator"] = (cfg.secondsIndicator == SecondsIndicator::MARKER) ? "marker"
                               : (cfg.secondsIndicator == SecondsIndicator::BAR)   ? "bar"
@@ -172,6 +174,9 @@ static bool applyJson(JsonDocument& doc) {
     }
     if (doc["hour_leading_zero"].is<bool>()) {
         cfg.hourLeadingZero = doc["hour_leading_zero"];
+    }
+    if (doc["date_format_text"].is<bool>()) {
+        cfg.dateFormatText = doc["date_format_text"];
     }
     if (doc["om_indicator"].is<bool>()) {
         cfg.omIndicator = doc["om_indicator"];

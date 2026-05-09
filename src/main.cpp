@@ -185,8 +185,20 @@ void loop() {
             time_t local = utc + d.offsetSec;
             struct tm tm;
             gmtime_r(&local, &tm);
-            snprintf(nameBuffers[i], sizeof(nameBuffers[i]),
-                     "%02d/%02d", tm.tm_mday, tm.tm_mon + 1);
+            if (Config::cfg.dateFormatText) {
+                static const char* MESES_ES[12] = {
+                    "Ene","Feb","Mar","Abr","May","Jun",
+                    "Jul","Ago","Sep","Oct","Nov","Dic"
+                };
+                int mIdx = tm.tm_mon;
+                if (mIdx < 0)  mIdx = 0;
+                if (mIdx > 11) mIdx = 11;
+                snprintf(nameBuffers[i], sizeof(nameBuffers[i]),
+                         "%d %s", tm.tm_mday, MESES_ES[mIdx]);
+            } else {
+                snprintf(nameBuffers[i], sizeof(nameBuffers[i]),
+                         "%02d/%02d", tm.tm_mday, tm.tm_mon + 1);
+            }
             r.name = nameBuffers[i];
         } else {
             r.name = cc.name.c_str();

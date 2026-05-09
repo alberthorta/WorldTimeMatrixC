@@ -42,6 +42,9 @@ struct All {
     uint16_t weatherRefreshSec;
     bool colonBlink;
     bool hourLeadingZero;     // si false, "07:05" -> "7:05"
+    bool dateFormatText;      // si true, $DATE pinta "D Mes" (ej "8 May") en
+                              // lugar del default "DD/MM" ("08/05"). Mes en
+                              // espanol abreviado a 3 letras.
     bool omIndicator;         // si true, dibuja un puntito debajo del º en filas
                               // que estan usando Open-Meteo (fallback Tio)
     SecondsIndicator secondsIndicator;
