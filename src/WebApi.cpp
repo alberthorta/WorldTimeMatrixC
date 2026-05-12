@@ -10,6 +10,7 @@
 #include "Display.h"
 #include "IndexHtml.h"
 #include "MoonPhase.h"
+#include "Version.h"
 #include "Weather.h"
 #include "WifiSetup.h"
 
@@ -60,6 +61,7 @@ static void accumulateJsonBody(AsyncWebServerRequest* req, uint8_t* data, size_t
 
 static void handleGetStatus(AsyncWebServerRequest* req) {
     JsonDocument doc;
+    doc["fw_version"] = FW_VERSION;
     doc["wifi_mode"] = modeStr(WifiSetup::currentMode());
     doc["ip"] = WifiSetup::currentIp();
     doc["uptime_sec"] = millis() / 1000;

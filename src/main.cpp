@@ -4,9 +4,11 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "AutoUpdate.h"
 #include "Config.h"
 #include "Display.h"
 #include "Icons.h"
+#include "Version.h"
 #include "WebApi.h"
 #include "Weather.h"
 #include "WifiSetup.h"
@@ -55,12 +57,65 @@ void setup() {
     }
     WifiSetup::begin();
     if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
-        // Mensaje "IP : x.x.x.x" durante 5s antes de empezar el reloj.
+        // Splash "IP : x.x.x.x" durante 2s antes de buscar update (reducido de
+        // 5s; el auto-update ya da feedback visual si encuentra algo).
         char ipBuf[20];
         snprintf(ipBuf, sizeof(ipBuf), "%s", WifiSetup::currentIp().c_str());
-        const char* lines[] = {"WorldTime", "IP :", ipBuf, ""};
-        Display::drawSplash(lines, 3);
-        delay(5000);
+        {
+            const char* lines[] = {"WorldTime", "IP :", ipBuf, ""};
+            Display::drawSplash(lines, 3);
+        }
+        delay(2000);
+
+        // Auto-update via GitHub Releases. fetchLatestRelease tiene su propio
+        // timeout interno (~15s); si no hay red o la API falla, found=false y
+        // seguimos arrancando con el firmware actual.
+        {
+            const char* lines[] = {"WorldTime", "Buscando", "update...", FW_VERSION};
+            Display::drawSplash(lines, 4);
+        }
+        AutoUpdate::ReleaseInfo rel = AutoUpdate::fetchLatestRelease();
+        if (rel.found && rel.tagName != String(FW_VERSION)) {
+            Serial.printf("[autoupd] new release: %s (current %s)\n",
+                          rel.tagName.c_str(), FW_VERSION);
+            // Splash con version actual vs nueva. Snprintf en buffers estaticos
+            // porque drawSplash guarda punteros, no copia.
+            static char curBuf[20], newBuf[20], pctBuf[8];
+            snprintf(curBuf, sizeof(curBuf), "v %s", FW_VERSION);
+            snprintf(newBuf, sizeof(newBuf), "-> %s", rel.tagName.c_str());
+            snprintf(pctBuf, sizeof(pctBuf), "0%%");
+            {
+                const char* lines[] = {"Actualizando", curBuf, newBuf, pctBuf};
+                Display::drawSplash(lines, 4);
+            }
+            bool ok = AutoUpdate::downloadAndFlash(rel.binUrl, [](int pct) {
+                static char pb[8];
+                snprintf(pb, sizeof(pb), "%d%%", pct);
+                static char cur[20], nxt[20];
+                // Estos dos buffers solo se rellenan al inicio (el splash de
+                // antes), no hace falta tocarlos en el callback. drawSplash
+                // necesita los 4 punteros validos, asi que repintamos:
+                Serial.printf("[autoupd] %d%%\n", pct);
+                // Refrescamos solo cada 5% para no spamear el panel.
+                static int lastDrawn = -1;
+                if (pct - lastDrawn < 5 && pct < 100) return;
+                lastDrawn = pct;
+                const char* lines[] = {"Actualizando", "descargando", "", pb};
+                Display::drawSplash(lines, 4);
+            });
+            if (ok) {
+                const char* okLines[] = {"Update OK", "Reiniciando", "", ""};
+                Display::drawSplash(okLines, 2);
+                delay(1500);
+                ESP.restart();
+            } else {
+                const char* failLines[] = {"Update fallo", "Sigo con", "fw actual", ""};
+                Display::drawSplash(failLines, 3);
+                delay(2000);
+            }
+        } else if (rel.found) {
+            Serial.printf("[autoupd] up to date (%s)\n", FW_VERSION);
+        }
     } else {
         // Modo AP: deja el splash con instrucciones para el usuario. El loop
         // detectara el modo y no pintara el reloj.
