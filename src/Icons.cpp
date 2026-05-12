@@ -23,12 +23,30 @@ static const uint8_t DEF_PX[NUM_ICONS][ICON_H][ICON_W] = {
     {{0,2,2,2,0},{2,2,2,2,2},{0,0,0,0,0},{4,0,4,0,4},{0,4,0,4,0}},      // SNOW
     {{0,2,2,2,0},{2,2,2,2,2},{0,0,1,0,0},{0,1,1,0,0},{0,0,1,0,0}},      // STORM
     {{0,0,0,0,0},{2,2,2,2,2},{0,0,0,0,0},{2,2,2,2,2},{0,0,0,0,0}},      // FOG
+    // MOON base (fallback si la variante de fase no esta definida): shape "(".
+    // Por compat retro queda igual a antes; en runtime se sustituye por la
+    // variante de fase actual (MOON_NEW/WAXING/FULL/WANING).
     {{0,5,5,0,0},{5,5,0,0,0},{5,5,0,0,0},{5,5,0,0,0},{0,5,5,0,0}},      // MOON
     {{0,5,0,0,0},{5,5,0,0,0},{0,5,2,2,0},{0,2,2,2,2},{0,0,0,0,0}},      // PARTLY_NIGHT
+    // Variantes de fase lunar para MOON. Color idx 5 = azul tenue (luna),
+    // idx 11 = gris oscuro (luna nueva = solo silueta).
+    {{0,11,11,11,0},{11,0,0,0,11},{11,0,0,0,11},{11,0,0,0,11},{0,11,11,11,0}}, // MOON_NEW
+    {{0,0,5,5,0},{0,0,0,5,5},{0,0,0,5,5},{0,0,0,5,5},{0,0,5,5,0}},      // MOON_WAXING
+    {{0,5,5,5,0},{5,5,5,5,5},{5,5,5,5,5},{5,5,5,5,5},{0,5,5,5,0}},      // MOON_FULL
+    {{0,5,5,0,0},{5,5,0,0,0},{5,5,0,0,0},{5,5,0,0,0},{0,5,5,0,0}},      // MOON_WANING
+    // Variantes de fase lunar para PARTLY_NIGHT (luna+nube). El espacio es muy
+    // limitado en 5x5 con la nube ocupando la esquina inferior derecha, asi que
+    // los matices son sutiles. El usuario puede editarlos via UI.
+    {{0,11,0,0,0},{11,0,0,0,0},{0,11,2,2,0},{0,2,2,2,2},{0,0,0,0,0}},   // PARTLY_NIGHT_NEW
+    {{0,5,5,0,0},{5,5,5,0,0},{0,5,2,2,0},{0,2,2,2,2},{0,0,0,0,0}},      // PARTLY_NIGHT_WAXING
+    {{5,5,5,0,0},{5,5,5,0,0},{5,5,2,2,0},{0,2,2,2,2},{0,0,0,0,0}},      // PARTLY_NIGHT_FULL
+    {{0,5,0,0,0},{5,5,0,0,0},{0,5,2,2,0},{0,2,2,2,2},{0,0,0,0,0}},      // PARTLY_NIGHT_WANING
 };
 
 static const char* DEF_NAMES[NUM_ICONS] = {
-    "SUN", "PARTLY", "CLOUD", "RAIN", "SNOW", "STORM", "FOG", "MOON", "PARTLY_NIGHT"
+    "SUN", "PARTLY", "CLOUD", "RAIN", "SNOW", "STORM", "FOG", "MOON", "PARTLY_NIGHT",
+    "MOON_NEW", "MOON_WAXING", "MOON_FULL", "MOON_WANING",
+    "PARTLY_NIGHT_NEW", "PARTLY_NIGHT_WAXING", "PARTLY_NIGHT_FULL", "PARTLY_NIGHT_WANING"
 };
 
 void begin() {

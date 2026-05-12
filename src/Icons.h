@@ -10,7 +10,10 @@
 
 namespace Icons {
 
-constexpr int NUM_ICONS = 9;
+// 9 iconos base + 8 variantes de fase lunar (4 para MOON, 4 para PARTLY_NIGHT).
+// Las variantes no estan en Display::IconType (que solo tiene 9 valores); se
+// resuelven por nombre en iconDefForType() segun MoonPhase::current().
+constexpr int NUM_ICONS = 17;
 constexpr int PALETTE_SIZE = 16;
 constexpr int ICON_W = 5;
 constexpr int ICON_H = 5;

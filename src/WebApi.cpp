@@ -9,6 +9,7 @@
 #include "Config.h"
 #include "Display.h"
 #include "IndexHtml.h"
+#include "MoonPhase.h"
 #include "Weather.h"
 #include "WifiSetup.h"
 
@@ -66,6 +67,17 @@ static void handleGetStatus(AsyncWebServerRequest* req) {
     doc["psram_free"] = ESP.getFreePsram();
     if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
         doc["rssi"] = WiFi.RSSI();
+    }
+    // Fase lunar actual (util para verificar el calculo y debugear la seleccion
+    // de variante de icono MOON/PARTLY_NIGHT). Solo informativo si hay NTP sync.
+    time_t now = time(nullptr);
+    if (now > 1700000000) {
+        double age = MoonPhase::ageDays(now);
+        MoonPhase::Phase p = MoonPhase::bucketize(age);
+        JsonObject moon = doc["moon"].to<JsonObject>();
+        moon["age_days"] = age;
+        moon["phase"] = MoonPhase::name(p);
+        moon["synodic_days"] = MoonPhase::SYNODIC_DAYS;
     }
     sendJson(req, doc);
 }

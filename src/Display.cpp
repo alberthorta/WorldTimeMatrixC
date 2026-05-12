@@ -6,6 +6,7 @@
 
 #include "Config.h"
 #include "Icons.h"
+#include "MoonPhase.h"
 
 namespace Display {
 
@@ -146,8 +147,24 @@ static const Icons::Frame* tickPreviewAnim() {
     return &g_previewFrames[g_previewState.frameIdx];
 }
 
+// Para MOON y PARTLY_NIGHT, redirige a la variante de fase actual (MOON_NEW,
+// MOON_WAXING, MOON_FULL, MOON_WANING — y equivalentes _NIGHT). Si la variante
+// no esta definida o no hay NTP sync todavia, cae al icono base.
 static const Icons::IconDef* iconDefForType(IconType::Value v) {
     if (v < 0 || (int)v >= Icons::NUM_ICONS) return nullptr;
+    if (v == IconType::MOON || v == IconType::PARTLY_NIGHT) {
+        time_t now = time(nullptr);
+        // Sanity check: NTP no sincronizado todavia (epoch < 2023-11) -> fallback.
+        if (now > 1700000000) {
+            double age = MoonPhase::ageDays(now);
+            MoonPhase::Phase p = MoonPhase::bucketize(age);
+            const char* base = (v == IconType::MOON) ? "MOON" : "PARTLY_NIGHT";
+            char name[32];
+            snprintf(name, sizeof(name), "%s%s", base, MoonPhase::suffix(p));
+            const Icons::IconDef* variant = Icons::find(name);
+            if (variant && !variant->frames.empty()) return variant;
+        }
+    }
     return &Icons::icons[(int)v];
 }
 
@@ -169,6 +186,13 @@ static const Icons::Frame* tickRowAnim(int rowIdx, IconType::Value v) {
     } else if (n > 1 && (int32_t)(now - st.nextChangeMs) >= 0) {
         st.frameIdx = (st.frameIdx + 1) % n;
         st.nextChangeMs = now + def->frames[st.frameIdx].ms;
+    }
+    // Clamp: la fase lunar puede cambiar el `def` (MOON_WAXING -> MOON_FULL)
+    // sin que st.iconType cambie, y si el usuario edito frames a longitudes
+    // distintas el frameIdx puede haber quedado fuera de rango.
+    if (st.frameIdx >= n) {
+        st.frameIdx = 0;
+        st.nextChangeMs = now + def->frames[0].ms;
     }
     return &def->frames[st.frameIdx];
 }
