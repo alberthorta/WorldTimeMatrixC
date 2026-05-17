@@ -45,6 +45,65 @@ static constexpr uint8_t PIN_TTP3 = A4;  // GPIO 11  - derecha
 
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
+// Estado del check periodico de auto-update. Se inicializa a "hace mucho"
+// para que el primer check se dispare al boot (lo hace setup() explicitamente
+// pero asi seguimos en sintonia tambien si se desactiva al boot y se reactiva
+// despues).
+static uint32_t g_autoUpdateLastCheckMs = 0;
+
+// Hace un check de auto-update y, si hay nueva release, descarga+flash y
+// reinicia. Bloquea hasta ~15s en el fetch y luego 1-3 min en el download
+// si encuentra algo. El splash de busqueda solo se pinta si showSearchSplash
+// es true (en el periodic check no queremos parpadeo si no hay update).
+static void runAutoUpdateCheck(bool showSearchSplash) {
+    if (WifiSetup::currentMode() != WifiSetup::Mode::Sta) return;
+    Serial.printf("[autoupd] check (current=%s)\n", FW_VERSION);
+    if (showSearchSplash) {
+        const char* lines[] = {"WorldTime", "Checking", "update...", FW_VERSION};
+        Display::drawSplash(lines, 4);
+    }
+    AutoUpdate::ReleaseInfo rel = AutoUpdate::fetchLatestRelease();
+    g_autoUpdateLastCheckMs = millis();
+    if (!rel.found) {
+        Serial.println("[autoupd] no release info");
+        return;
+    }
+    if (rel.tagName == String(FW_VERSION)) {
+        Serial.printf("[autoupd] up to date (%s)\n", FW_VERSION);
+        return;
+    }
+    Serial.printf("[autoupd] new release: %s (current %s)\n",
+                  rel.tagName.c_str(), FW_VERSION);
+    static char curBuf[20], newBuf[20], pctBuf[8];
+    snprintf(curBuf, sizeof(curBuf), "v %s", FW_VERSION);
+    snprintf(newBuf, sizeof(newBuf), "-> %s", rel.tagName.c_str());
+    snprintf(pctBuf, sizeof(pctBuf), "0%%");
+    {
+        const char* lines[] = {"Updating", curBuf, newBuf, pctBuf};
+        Display::drawSplash(lines, 4);
+    }
+    bool ok = AutoUpdate::downloadAndFlash(rel.binUrl, [](int pct) {
+        Serial.printf("[autoupd] %d%%\n", pct);
+        static int lastDrawn = -1;
+        if (pct - lastDrawn < 5 && pct < 100) return;
+        lastDrawn = pct;
+        static char pb[8];
+        snprintf(pb, sizeof(pb), "%d%%", pct);
+        const char* lines[] = {"Updating", "downloading", "", pb};
+        Display::drawSplash(lines, 4);
+    });
+    if (ok) {
+        const char* okLines[] = {"Update OK", "Rebooting", "", ""};
+        Display::drawSplash(okLines, 2);
+        delay(1500);
+        ESP.restart();
+    } else {
+        const char* failLines[] = {"Update failed", "Keeping", "current fw", ""};
+        Display::drawSplash(failLines, 3);
+        delay(2000);
+    }
+}
+
 static bool inNightWindow(uint16_t nowMins) {
     const auto& nm = Config::cfg.nightMode;
     if (!nm.enabled) return false;
@@ -98,54 +157,13 @@ void setup() {
         }
         delay(2000);
 
-        // Auto-update via GitHub Releases. fetchLatestRelease tiene su propio
-        // timeout interno (~15s); si no hay red o la API falla, found=false y
-        // seguimos arrancando con el firmware actual.
-        {
-            const char* lines[] = {"WorldTime", "Buscando", "update...", FW_VERSION};
-            Display::drawSplash(lines, 4);
-        }
-        AutoUpdate::ReleaseInfo rel = AutoUpdate::fetchLatestRelease();
-        if (rel.found && rel.tagName != String(FW_VERSION)) {
-            Serial.printf("[autoupd] new release: %s (current %s)\n",
-                          rel.tagName.c_str(), FW_VERSION);
-            // Splash con version actual vs nueva. Snprintf en buffers estaticos
-            // porque drawSplash guarda punteros, no copia.
-            static char curBuf[20], newBuf[20], pctBuf[8];
-            snprintf(curBuf, sizeof(curBuf), "v %s", FW_VERSION);
-            snprintf(newBuf, sizeof(newBuf), "-> %s", rel.tagName.c_str());
-            snprintf(pctBuf, sizeof(pctBuf), "0%%");
-            {
-                const char* lines[] = {"Actualizando", curBuf, newBuf, pctBuf};
-                Display::drawSplash(lines, 4);
-            }
-            bool ok = AutoUpdate::downloadAndFlash(rel.binUrl, [](int pct) {
-                static char pb[8];
-                snprintf(pb, sizeof(pb), "%d%%", pct);
-                static char cur[20], nxt[20];
-                // Estos dos buffers solo se rellenan al inicio (el splash de
-                // antes), no hace falta tocarlos en el callback. drawSplash
-                // necesita los 4 punteros validos, asi que repintamos:
-                Serial.printf("[autoupd] %d%%\n", pct);
-                // Refrescamos solo cada 5% para no spamear el panel.
-                static int lastDrawn = -1;
-                if (pct - lastDrawn < 5 && pct < 100) return;
-                lastDrawn = pct;
-                const char* lines[] = {"Actualizando", "descargando", "", pb};
-                Display::drawSplash(lines, 4);
-            });
-            if (ok) {
-                const char* okLines[] = {"Update OK", "Reiniciando", "", ""};
-                Display::drawSplash(okLines, 2);
-                delay(1500);
-                ESP.restart();
-            } else {
-                const char* failLines[] = {"Update fallo", "Sigo con", "fw actual", ""};
-                Display::drawSplash(failLines, 3);
-                delay(2000);
-            }
-        } else if (rel.found) {
-            Serial.printf("[autoupd] up to date (%s)\n", FW_VERSION);
+        // Auto-update via GitHub Releases (si habilitado desde la UI). Bloquea
+        // hasta ~15s en el fetch y luego varios minutos si encuentra una
+        // release nueva — el splash da feedback durante la descarga.
+        if (Config::cfg.autoUpdateEnabled) {
+            runAutoUpdateCheck(/*showSearchSplash=*/true);
+        } else {
+            Serial.println("[autoupd] disabled by config, skipping boot check");
         }
     } else {
         // Modo AP: deja el splash con instrucciones para el usuario. El loop
@@ -176,6 +194,27 @@ void setup() {
 void loop() {
     ArduinoOTA.handle();
     WifiSetup::tickHealth();
+
+    // Auto-update: periodic check + on-demand (boton en la web). Bloquea el
+    // loop unos segundos mientras hace el fetch. Si nunca se llamo a
+    // runAutoUpdateCheck (e.g. autoUpdateEnabled=false al boot y se reactiva
+    // en runtime), g_autoUpdateLastCheckMs es 0 y forzamos un primer check.
+    if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
+        bool requested = AutoUpdate::consumeCheckRequest();
+        bool periodic  = false;
+        if (Config::cfg.autoUpdateEnabled) {
+            uint32_t intervalMs = (uint32_t)Config::cfg.autoUpdateCheckIntervalH
+                                  * 3600UL * 1000UL;
+            if (g_autoUpdateLastCheckMs == 0) {
+                periodic = true;
+            } else if ((millis() - g_autoUpdateLastCheckMs) >= intervalMs) {
+                periodic = true;
+            }
+        }
+        if (requested || periodic) {
+            runAutoUpdateCheck(/*showSearchSplash=*/requested);
+        }
+    }
 
     // TTP223: lectura + edge-detect para los tres botones. Activo en HIGH
     // (touch). El TTP223 ya debounce-a el contacto humano, pero la cercania

@@ -28,4 +28,10 @@ ReleaseInfo fetchLatestRelease();
 // ESP.restart() para arrancar el firmware nuevo.
 bool downloadAndFlash(const String& url, void (*progress)(int) = nullptr);
 
+// Flag de "check on demand": WebApi lo enciende via /api/autoupdate/check y
+// el loop principal lo consume cuando puede. Asi el endpoint HTTP responde
+// instantaneo sin bloquear hacer el fetch/flash sincrono.
+void requestCheck();
+bool consumeCheckRequest();   // devuelve true Y limpia el flag
+
 }  // namespace AutoUpdate

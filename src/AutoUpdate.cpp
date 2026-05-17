@@ -178,4 +178,15 @@ bool downloadAndFlash(const String& url, void (*progress)(int)) {
     return true;
 }
 
+// Flag de "check on demand" disparado desde WebApi y consumido por el loop
+// principal cuando esta listo para hacer el fetch/flash. Volatil porque WebApi
+// vive en otra task (AsyncWebServer).
+static volatile bool s_checkRequested = false;
+void requestCheck() { s_checkRequested = true; }
+bool consumeCheckRequest() {
+    bool req = s_checkRequested;
+    s_checkRequested = false;
+    return req;
+}
+
 }  // namespace AutoUpdate

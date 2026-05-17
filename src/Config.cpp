@@ -110,6 +110,8 @@ static All defaults() {
     a.claudeSessionKey     = "";
     a.claudeOrgId          = "";
     a.claudeRefreshSec     = 180;
+    a.autoUpdateEnabled    = true;
+    a.autoUpdateCheckIntervalH = 24;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -146,6 +148,8 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_session_key"]     = cfg.claudeSessionKey;
     doc["claude_org_id"]          = cfg.claudeOrgId;
     doc["claude_refresh_sec"]     = cfg.claudeRefreshSec;
+    doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
+    doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -265,6 +269,15 @@ static bool applyJson(JsonDocument& doc) {
         if (s < 60)   s = 60;
         if (s > 3600) s = 3600;
         cfg.claudeRefreshSec = s;
+    }
+    if (doc["auto_update_enabled"].is<bool>()) {
+        cfg.autoUpdateEnabled = doc["auto_update_enabled"];
+    }
+    if (doc["auto_update_check_interval_h"].is<int>()) {
+        int h = doc["auto_update_check_interval_h"];
+        if (h < 1)   h = 1;
+        if (h > 720) h = 720;
+        cfg.autoUpdateCheckIntervalH = h;
     }
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {

@@ -6,6 +6,7 @@
 #include <Update.h>
 #include <WiFi.h>
 
+#include "AutoUpdate.h"
 #include "Config.h"
 #include "Display.h"
 #include "IndexHtml.h"
@@ -477,6 +478,14 @@ void begin() {
         req->send(200, "application/json", "{\"ok\":true}");
         delay(200);
         ESP.restart();
+    });
+    // POST /api/autoupdate/check: dispara un check de auto-update ad-hoc.
+    // Respuesta inmediata; el chequeo + flash lo hace el loop principal en
+    // la siguiente iteracion (bloquea hasta varios minutos si hay release
+    // nueva, durante ese tiempo el reloj se cambia a splash de update).
+    server.on("/api/autoupdate/check", HTTP_POST, [](AsyncWebServerRequest* req) {
+        AutoUpdate::requestCheck();
+        req->send(200, "application/json", "{\"ok\":true}");
     });
     // /api/wifi/scan ANTES que /api/wifi: el matcher de ESPAsyncWebServer hace
     // startsWith con barra, asi que /api/wifi atraparia /api/wifi/scan.

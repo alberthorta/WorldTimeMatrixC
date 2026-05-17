@@ -504,6 +504,22 @@ code{
       <input id="focus-date-color" type="color" value="#AAAAAA"/>
     </label>
   </div>
+  <h3 style="margin-top:1rem">Auto-update</h3>
+  <span class="note">El firmware se comprueba con la ultima release publica en GitHub. Si hay una nueva, se descarga y flashea sobre la marcha (con splash en pantalla). El check al boot y los periodicos respetan estos ajustes.</span>
+  <div class="grid-2">
+    <label>
+      <input id="autoupd-en" type="checkbox"/>
+      <span class="label">Auto-update activado</span>
+    </label>
+    <label>
+      <span class="label">Intervalo del check (horas, 1-720)</span>
+      <input id="autoupd-interval" type="number" min="1" max="720" step="1" value="24"/>
+    </label>
+  </div>
+  <div>
+    <button id="autoupd-now" type="button" class="secondary">Buscar update ahora</button>
+    <span id="autoupd-status" class="note"></span>
+  </div>
   <h3 style="margin-top:1rem">Claude stats (modo 3)</h3>
   <span class="note">Pegar el valor de la cookie <code>sessionKey</code> de <code>claude.ai</code> (DevTools &rarr; Application &rarr; Cookies). Si esta vacio, el modo Claude no aparece en el ciclo del boton central. El <code>orgId</code> se descubre automaticamente al primer fetch exitoso.</span>
   <div class="grid-2">
@@ -731,6 +747,8 @@ async function loadConfig(){
     // en el campo para que el usuario pueda verla / editarla.
     $('#claude-session-key').value = cfg.claude_session_key || '';
     $('#claude-refresh').value = cfg.claude_refresh_sec || 180;
+    $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
+    $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
     $('#trend-extras').style.display = $('#trend-en').checked ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
@@ -1122,6 +1140,8 @@ $('#save').onclick = async () => {
     focus_hour_color:       hexToInt($('#focus-hour-color').value),
     focus_date_color:       hexToInt($('#focus-date-color').value),
     claude_refresh_sec:     parseInt($('#claude-refresh').value, 10) || 180,
+    auto_update_enabled:    $('#autoupd-en').checked,
+    auto_update_check_interval_h: Math.max(1, Math.min(720, parseInt($('#autoupd-interval').value, 10) || 24)),
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,
@@ -1153,6 +1173,20 @@ $('#save').onclick = async () => {
     setMsg('Guardado.' + (d.cities_changed ? ' (refresh meteo en curso)' : ''), 'ok');
     loadWeather();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
+};
+
+$('#autoupd-now').onclick = async () => {
+  const s = $('#autoupd-status');
+  s.textContent = 'pidiendo check...';
+  try {
+    const r = await fetch('/api/autoupdate/check', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      s.textContent = 'check disparado. Si hay nueva release, el panel mostrara la descarga; el device reiniciara solo al acabar.';
+    } else {
+      s.textContent = 'error: ' + (d.error || 'unknown');
+    }
+  } catch (e) { s.textContent = 'error: ' + e.message; }
 };
 
 $('#cfg-export').onclick = async () => {

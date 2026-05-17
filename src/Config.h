@@ -81,6 +81,11 @@ struct All {
     String   claudeSessionKey;
     String   claudeOrgId;
     uint16_t claudeRefreshSec;             // 60..3600, default 180
+    // Auto-update via GitHub Releases. Si enabled=false, ni se hace el check
+    // al boot ni el check periodico. checkIntervalH: cada cuantas horas se
+    // intenta despues del primer chequeo. 1..720 (1 mes).
+    bool     autoUpdateEnabled;
+    uint16_t autoUpdateCheckIntervalH;
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente
