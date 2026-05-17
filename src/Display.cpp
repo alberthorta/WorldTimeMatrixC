@@ -2,6 +2,7 @@
 
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Fonts/TomThumb.h>
+#include <Fonts/FreeSans12pt7b.h>
 #include <math.h>
 
 #include "Config.h"
@@ -267,6 +268,120 @@ void setBrightness(uint8_t v) {
 
 void clear() {
     if (dma) dma->clearScreen();
+}
+
+void fillScreen(uint16_t color565) {
+    if (!dma) return;
+    dma->fillScreen(color565);
+    dma->flipDMABuffer();
+}
+
+// Ripple state: hasta 2 ripples simultaneos (uno por boton). El draw real se
+// hace al final de renderRows, asi se aplica como overlay encima del reloj.
+struct RippleState {
+    bool active;
+    int16_t cx, cy;
+    uint32_t startMs;
+};
+static RippleState g_ripples[3] = {{false,0,0,0}, {false,0,0,0}, {false,0,0,0}};
+static constexpr uint32_t RIPPLE_DURATION_MS = 700;
+static constexpr float RIPPLE_MAX_RADIUS = 40.0f;
+
+void triggerRipple(int slot, int16_t cx, int16_t cy) {
+    if (slot < 0 || slot >= 3) return;
+    g_ripples[slot].active = true;
+    g_ripples[slot].cx = cx;
+    g_ripples[slot].cy = cy;
+    g_ripples[slot].startMs = millis();
+}
+
+// Overlay del brillo (label + barra + %). Se dispara desde main al pulsar
+// los botones izq/der. Cada trigger renueva el timer; cuando expira, vuelve
+// el render del reloj normal.
+static uint32_t g_brightnessOverlayStartMs = 0;
+static float    g_brightnessOverlayValue = 0.0f;
+static constexpr uint32_t BRIGHTNESS_OVERLAY_DURATION_MS = 1500;
+
+void triggerBrightnessOverlay(float value) {
+    if (value < 0.0f) value = 0.0f;
+    if (value > 1.0f) value = 1.0f;
+    g_brightnessOverlayValue = value;
+    g_brightnessOverlayStartMs = millis();
+}
+
+static int textWidth(const char* s);   // forward
+static void drawBrightnessOverlay() {
+    if (!dma || g_brightnessOverlayStartMs == 0) return;
+    uint32_t age = millis() - g_brightnessOverlayStartMs;
+    if (age >= BRIGHTNESS_OVERLAY_DURATION_MS) {
+        g_brightnessOverlayStartMs = 0;
+        return;
+    }
+    uint16_t white = rgb888to565(0xFFFFFF);
+    uint16_t black = 0;
+
+    // Caja centrada que cubre casi toda la pantalla (60x26, deja 2px de
+    // margen lateral y 3 arriba/abajo). Fondo negro + borde blanco para
+    // separarse del reloj que tiene debajo.
+    const int BX = 2, BY = 3, BW = 60, BH = 26;
+    dma->fillRect(BX, BY, BW, BH, black);
+    dma->drawRect(BX, BY, BW, BH, white);
+
+    dma->setFont(&TomThumb);
+    dma->setTextColor(white);
+
+    // Label "BRIGHTNESS" centrado, baseline a 5px del top de la caja.
+    const char* label = "BRIGHTNESS";
+    int wl = textWidth(label);
+    dma->setCursor((WIDTH - wl) / 2, BY + 6);
+    dma->print(label);
+
+    // Barra de progreso: borde + relleno proporcional al brightness.
+    const int BAR_X = BX + 4;
+    const int BAR_Y = BY + 11;
+    const int BAR_W = BW - 8;
+    const int BAR_H = 4;
+    dma->drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, white);
+    int fillW = (int)(g_brightnessOverlayValue * (float)(BAR_W - 2) + 0.5f);
+    if (fillW > BAR_W - 2) fillW = BAR_W - 2;
+    if (fillW > 0) dma->fillRect(BAR_X + 1, BAR_Y + 1, fillW, BAR_H - 2, white);
+
+    // Porcentaje en la fila inferior.
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%",
+             (int)(g_brightnessOverlayValue * 100.0f + 0.5f));
+    int wp = textWidth(pct);
+    dma->setCursor((WIDTH - wp) / 2, BY + 23);
+    dma->print(pct);
+}
+
+// Dibuja los ripples activos. Cada uno es un anillo (2px grosor) que crece de
+// radio 1 a RIPPLE_MAX_RADIUS y se desvanece linealmente. Llamado desde
+// renderRows antes del flip.
+static void drawActiveRipples() {
+    if (!dma) return;
+    uint32_t now = millis();
+    for (int i = 0; i < 3; i++) {
+        if (!g_ripples[i].active) continue;
+        uint32_t age = now - g_ripples[i].startMs;
+        if (age >= RIPPLE_DURATION_MS) {
+            g_ripples[i].active = false;
+            continue;
+        }
+        float t = (float)age / (float)RIPPLE_DURATION_MS;
+        float radius = t * RIPPLE_MAX_RADIUS;
+        float alpha  = 1.0f - t;
+        if (radius < 1.0f) continue;
+        uint16_t color = scale565(0xFFFF, alpha);
+        int r1 = (int)radius;
+        dma->drawCircle(g_ripples[i].cx, g_ripples[i].cy, r1, color);
+        // Anillo interior 1px mas pequeño con un poco menos de intensidad,
+        // para dar grosor a la onda y que no se vea pixelado en saltos.
+        if (r1 >= 2) {
+            uint16_t color2 = scale565(0xFFFF, alpha * 0.6f);
+            dma->drawCircle(g_ripples[i].cx, g_ripples[i].cy, r1 - 1, color2);
+        }
+    }
 }
 
 static int textWidth(const char* s);   // forward, def mas abajo
@@ -768,7 +883,273 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
             dma->drawPixel(xw, y, rgb888to565(rgb));
         }
     }
+    // Overlay del ripple (gota de los TTPs) antes del flip, para que se vea
+    // encima del reloj sin parpadeo.
+    drawActiveRipples();
+    // Overlay del brillo: cubre la pantalla mientras esta activo, por lo que
+    // va despues del ripple (un toque al subir/bajar brillo se ve sobre la
+    // caja, no detras). Si no esta activo no hace nada.
+    drawBrightnessOverlay();
     dma->flipDMABuffer();   // intercambia front/back, anti-flicker
+}
+
+// Dibuja un Icons::Frame escalado por `scale` (cada pixel del icono -> bloque
+// scale x scale). Usado en modo focus para que el icono 5x5 se vea como 10x10.
+static void drawFrameScaled(int x, int y, const Icons::Frame& f, int scale) {
+    for (int yy = 0; yy < Icons::ICON_H; yy++) {
+        for (int xx = 0; xx < Icons::ICON_W; xx++) {
+            uint8_t idx = f.px[yy][xx];
+            if (idx == 0) continue;
+            uint16_t c = Icons::paletteAs565(idx);
+            for (int dy = 0; dy < scale; dy++) {
+                for (int dx = 0; dx < scale; dx++) {
+                    dma->drawPixel(x + xx * scale + dx, y + yy * scale + dy, c);
+                }
+            }
+        }
+    }
+}
+
+void renderFocus(const Row& r, float secondOfMinuteF) {
+    if (!dma) return;
+    dma->clearScreen();
+    dma->setFont(&TomThumb);
+
+    // ---- 1) HH:MM grande con FreeSans12pt7b (~18px alto), CENTRADA en la
+    // parte superior con 1px de margen al borde de arriba. Color
+    // configurable desde la UI (focus_hour_color), independiente del color
+    // de la ciudad.
+    int hourBottomY = 0;     // ultimo y del texto de la hora, para centrar la fecha debajo
+    if (r.hasTime) {
+        char hhmm[8];
+        bool leadingZero = Config::cfg.hourLeadingZero || r.hour >= 10;
+        if (leadingZero) snprintf(hhmm, sizeof(hhmm), "%02u:%02u", r.hour, r.minute);
+        else             snprintf(hhmm, sizeof(hhmm), "%u:%02u",  r.hour, r.minute);
+        dma->setFont(&FreeSans12pt7b);
+        dma->setTextSize(1);
+        dma->setTextColor(rgb888to565(Config::cfg.focusHourColor));
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(hhmm, 0, 0, &x1, &y1, &w, &h);
+        int x = (WIDTH - (int)w) / 2 - (int)x1;   // centrado horizontal
+        int y = 1 - (int)y1;                       // top en y=1
+        dma->setCursor(x, y);
+        dma->print(hhmm);
+        hourBottomY = 1 + (int)h - 1;             // top + h - 1
+        dma->setFont(&TomThumb);
+    }
+
+    // ---- 2) Fila inferior (y entre el bottom de la hora y el segundero):
+    // fecha izq | icono animado centro | temp der. El icono usa
+    // tickRowAnim(0, ...) para reusar el state de la animacion (mismo slot
+    // que la fila 0 del modo normal — no se mezclan porque cada render solo
+    // dibuja uno de los dos modos).
+    const int SECONDS_BAR_TOP = 30;
+    dma->setTextSize(1);
+    // Fecha centrada: horizontalmente entre borde izq (x=0) y borde del
+    // icono; verticalmente entre el bottom de la hora y el top del segundero.
+    if (r.name && *r.name) {
+        const int sc = 2;
+        int iconX = (WIDTH - Icons::ICON_W * sc) / 2;  // = 27 con scale 2
+        int xCenter = iconX / 2;                        // medio del rango [0, iconX)
+        int yCenter = (hourBottomY + SECONDS_BAR_TOP) / 2;
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(r.name, 0, 0, &x1, &y1, &w, &h);
+        int cursorX = xCenter - (int)w / 2 - (int)x1;
+        int cursorY = yCenter - (int)y1 - ((int)h - 1) / 2;
+        dma->setTextColor(rgb888to565(Config::cfg.focusDateColor));
+        dma->setCursor(cursorX, cursorY);
+        dma->print(r.name);
+    }
+    if (r.hasWeather && r.icon != IconType::NONE) {
+        // Si hay preview de icono activo (editando desde la UI) lo usamos;
+        // sino, tick del icono normal por meteo.
+        const Icons::Frame* frame = nullptr;
+        if (g_previewActive) frame = tickPreviewAnim();
+        else                 frame = tickRowAnim(0, r.icon);
+        if (frame) {
+            const int sc = 2;
+            int iconX = (WIDTH - Icons::ICON_W * sc) / 2;
+            drawFrameScaled(iconX, 19, *frame, sc);
+        }
+    }
+    if (r.hasWeather) {
+        // Temperatura TomThumb x2 right-aligned, con º como cuadrado hueco
+        // 4x4 escalado para que combine visualmente con la fuente grande.
+        char tnum[6];
+        snprintf(tnum, sizeof(tnum), "%d", r.tempC);
+        dma->setTextSize(2);
+        uint16_t tcol = tempColor(r.tempC);
+        int16_t x1b, y1b; uint16_t wb, hb;
+        dma->getTextBounds(tnum, 0, 0, &x1b, &y1b, &wb, &hb);
+        const int DEG_W = 4, DEG_GAP = 2;
+        int totalW = (int)wb + DEG_GAP + DEG_W;
+        int xStart = WIDTH - totalW - 2;            // 2px margen derecho
+        int yBase = 29;                              // baseline en y=29
+        dma->setTextColor(tcol);
+        dma->setCursor(xStart, yBase);
+        dma->print(tnum);
+        int degX = xStart + (int)wb + DEG_GAP;
+        int degTopY = yBase - 9;
+        for (int i = 0; i < 4; i++) {
+            dma->drawPixel(degX + i, degTopY,     tcol);
+            dma->drawPixel(degX + i, degTopY + 3, tcol);
+            dma->drawPixel(degX,     degTopY + i, tcol);
+            dma->drawPixel(degX + 3, degTopY + i, tcol);
+        }
+        dma->setTextSize(1);
+    }
+
+    // ---- 4) Segundera: barra horizontal de 2px de alto en y=30..31. ----
+    if (secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
+        int barEnd = (int)(secondOfMinuteF * (float)WIDTH / 60.0f + 0.5f);
+        if (barEnd > WIDTH) barEnd = WIDTH;
+        uint16_t dim = rgb888to565(0x303030);
+        uint16_t head = rgb888to565(0xC0C0C0);
+        for (int x = 0; x < barEnd; x++) {
+            dma->drawPixel(x, 30, dim);
+            dma->drawPixel(x, 31, dim);
+        }
+        if (barEnd > 0 && barEnd <= WIDTH) {
+            dma->drawPixel(barEnd - 1, 30, head);
+            dma->drawPixel(barEnd - 1, 31, head);
+        }
+    }
+
+    // Overlays compartidos con el modo normal.
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
+}
+
+// ── Modo Claude stats ───────────────────────────────────────────────────
+// Layout 64x32 mostrando ambas ventanas (5h y 7d) con pace bar + countdown,
+// mas una cabecera compacta con la hora/icono/temp de la primera ciudad.
+//
+//   y=0..5   : HH:MM | icon 5x5 | TT°  (header con info meteorologica)
+//   y=7..11  : "5h NN%  HhMMm"          (stats 5h en texto)
+//   y=13..16 : pace bar 5h (4 px alto, color por pace + marker elapsed)
+//   y=18..22 : "7d NN%  DdHh"           (idem 7d)
+//   y=24..27 : pace bar 7d (4 px alto)
+//   y=29..31 : zona libre / pace label de 5h
+static void drawClaudePaceBar(int y0, int height, double used, double elapsed,
+                              uint32_t color888) {
+    uint16_t bg     = rgb888to565(0x202020);
+    uint16_t fill   = rgb888to565(color888);
+    uint16_t marker = rgb888to565(0xFFFFFF);
+    if (used < 0) used = 0; if (used > 1) used = 1;
+    if (elapsed < 0) elapsed = 0; if (elapsed > 1) elapsed = 1;
+    int fillW = (int)(used * WIDTH + 0.5);
+    int mx    = (int)(elapsed * WIDTH + 0.5);
+    if (mx >= WIDTH) mx = WIDTH - 1;
+    for (int x = 0; x < WIDTH; x++) {
+        uint16_t c = (x < fillW) ? fill : bg;
+        for (int dy = 0; dy < height; dy++) dma->drawPixel(x, y0 + dy, c);
+    }
+    if (mx >= 0) {
+        for (int dy = 0; dy < height; dy++) dma->drawPixel(mx, y0 + dy, marker);
+    }
+}
+
+void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF) {
+    if (!dma) return;
+    dma->clearScreen();
+    dma->setFont(&TomThumb);
+    dma->setTextSize(1);
+
+    uint16_t white = rgb888to565(0xFFFFFF);
+    uint16_t dim   = rgb888to565(0xAAAAAA);
+    uint16_t dim2  = rgb888to565(0x666666);
+
+    // ── Header: HH:MM:SS | icono animado | TT° (info de cities[0]) ──
+    // HH:MM:SS ocupa ~32 px (8 chars TomThumb), por lo que dejamos el icono
+    // pegado a su derecha en lugar de centrarlo.
+    if (weatherRow.hasTime) {
+        char hms[12];
+        int sec = (secondOfMinuteF >= 0.0f) ? (int)secondOfMinuteF : 0;
+        if (sec < 0) sec = 0; if (sec > 59) sec = 59;
+        bool lz = Config::cfg.hourLeadingZero || weatherRow.hour >= 10;
+        if (lz) snprintf(hms, sizeof(hms), "%02u:%02u:%02d",
+                         weatherRow.hour, weatherRow.minute, sec);
+        else    snprintf(hms, sizeof(hms), "%u:%02u:%02d",
+                         weatherRow.hour, weatherRow.minute, sec);
+        dma->setTextColor(white);
+        dma->setCursor(0, 5);
+        dma->print(hms);
+    }
+    if (weatherRow.hasWeather && weatherRow.icon != IconType::NONE) {
+        const Icons::Frame* frame = nullptr;
+        if (g_previewActive) frame = tickPreviewAnim();
+        else                 frame = tickRowAnim(0, weatherRow.icon);
+        // Tras la hora HH:MM:SS (~x=32). Pongo el icono en x=35 con 1px de
+        // margen, dejando hueco para la temp en la derecha.
+        if (frame) drawFrame(35, 0, *frame);
+    }
+    if (weatherRow.hasWeather) {
+        char tnum[6];
+        snprintf(tnum, sizeof(tnum), "%d", weatherRow.tempC);
+        uint16_t tc = tempColor(weatherRow.tempC);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(tnum, 0, 0, &x1, &y1, &w, &h);
+        const int DEG_W = 2, DEG_GAP = 1;
+        int totalW = (int)w + DEG_GAP + DEG_W;
+        int xStart = WIDTH - totalW;
+        dma->setTextColor(tc);
+        dma->setCursor(xStart, 5);
+        dma->print(tnum);
+        int degX = xStart + (int)w + DEG_GAP;
+        int degTopY = 0;
+        for (int yy = 0; yy < 2; yy++)
+            for (int xx = 0; xx < 2; xx++)
+                dma->drawPixel(degX + xx, degTopY + yy, tc);
+    }
+
+    // ── Linea 5h ──
+    if (cv.fiveValid) {
+        char line[24];
+        long mins = cv.fiveRemainingSec / 60;
+        snprintf(line, sizeof(line), "5h %d%% %ldh%02ldm",
+                 (int)(cv.fiveUsed * 100.0 + 0.5),
+                 mins / 60, mins % 60);
+        dma->setTextColor(dim);
+        dma->setCursor(0, 11);
+        dma->print(line);
+        drawClaudePaceBar(11, 4, cv.fiveUsed, cv.fiveElapsed, cv.fiveColor);
+    } else {
+        dma->setTextColor(dim2);
+        dma->setCursor(0, 11);
+        dma->print(cv.hasData ? "5h: no data" : "fetching 5h...");
+    }
+
+    // ── Linea 7d ──
+    if (cv.sevenValid) {
+        char line[24];
+        long days  = cv.sevenRemainingSec / 86400;
+        long hours = (cv.sevenRemainingSec % 86400) / 3600;
+        snprintf(line, sizeof(line), "7d %d%% %ldd%ldh",
+                 (int)(cv.sevenUsed * 100.0 + 0.5), days, hours);
+        dma->setTextColor(dim);
+        dma->setCursor(0, 22);
+        dma->print(line);
+        drawClaudePaceBar(22, 4, cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
+    } else {
+        dma->setTextColor(dim2);
+        dma->setCursor(0, 22);
+        dma->print(cv.hasData ? "7d: no data" : "fetching 7d...");
+    }
+
+    // ── Pace label 5h en y=29..31 (5px de alto, baseline 31) ──
+    if (cv.fiveValid && cv.fiveLabel && *cv.fiveLabel) {
+        dma->setTextColor(rgb888to565(cv.fiveColor));
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(cv.fiveLabel, 0, 0, &x1, &y1, &w, &h);
+        int x = (WIDTH - (int)w) / 2 - (int)x1;
+        dma->setCursor(x, 31);
+        dma->print(cv.fiveLabel);
+    }
+
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
 }
 
 }  // namespace Display

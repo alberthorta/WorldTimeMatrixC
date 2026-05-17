@@ -492,6 +492,30 @@ code{
       <input id="trend-color-stable" type="color" value="#666666"/>
     </label>
   </div>
+  <h3 style="margin-top:1rem">Modo focus (boton central)</h3>
+  <span class="note">Colores especificos cuando el modo focus esta activo (solo se muestra la primera ciudad en grande). Independientes del color de la ciudad.</span>
+  <div class="grid-2">
+    <label>
+      <span class="label">Color hora (focus)</span>
+      <input id="focus-hour-color" type="color" value="#FFFFFF"/>
+    </label>
+    <label>
+      <span class="label">Color fecha (focus)</span>
+      <input id="focus-date-color" type="color" value="#AAAAAA"/>
+    </label>
+  </div>
+  <h3 style="margin-top:1rem">Claude stats (modo 3)</h3>
+  <span class="note">Pegar el valor de la cookie <code>sessionKey</code> de <code>claude.ai</code> (DevTools &rarr; Application &rarr; Cookies). Si esta vacio, el modo Claude no aparece en el ciclo del boton central. El <code>orgId</code> se descubre automaticamente al primer fetch exitoso.</span>
+  <div class="grid-2">
+    <label>
+      <span class="label">sessionKey (claude.ai)</span>
+      <input id="claude-session-key" type="text" autocomplete="off" spellcheck="false" placeholder="sk-ant-sid01-...."/>
+    </label>
+    <label>
+      <span class="label">Refresco (segundos, 60-3600)</span>
+      <input id="claude-refresh" type="number" min="60" max="3600" step="30" value="180"/>
+    </label>
+  </div>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -701,6 +725,12 @@ async function loadConfig(){
     $('#trend-color-up').value     = intToHex(cfg.forecast_color_rising  != null ? cfg.forecast_color_rising  : 0x00C000);
     $('#trend-color-down').value   = intToHex(cfg.forecast_color_falling != null ? cfg.forecast_color_falling : 0xC00000);
     $('#trend-color-stable').value = intToHex(cfg.forecast_color_stable  != null ? cfg.forecast_color_stable  : 0x666666);
+    $('#focus-hour-color').value   = intToHex(cfg.focus_hour_color       != null ? cfg.focus_hour_color       : 0xFFFFFF);
+    $('#focus-date-color').value   = intToHex(cfg.focus_date_color       != null ? cfg.focus_date_color       : 0xAAAAAA);
+    // Claude: la sessionKey se devuelve plana desde el backend y se muestra
+    // en el campo para que el usuario pueda verla / editarla.
+    $('#claude-session-key').value = cfg.claude_session_key || '';
+    $('#claude-refresh').value = cfg.claude_refresh_sec || 180;
     $('#trend-extras').style.display = $('#trend-en').checked ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
@@ -1089,6 +1119,9 @@ $('#save').onclick = async () => {
     forecast_color_rising:  hexToInt($('#trend-color-up').value),
     forecast_color_falling: hexToInt($('#trend-color-down').value),
     forecast_color_stable:  hexToInt($('#trend-color-stable').value),
+    focus_hour_color:       hexToInt($('#focus-hour-color').value),
+    focus_date_color:       hexToInt($('#focus-date-color').value),
+    claude_refresh_sec:     parseInt($('#claude-refresh').value, 10) || 180,
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,
@@ -1109,6 +1142,10 @@ $('#save').onclick = async () => {
       if (!rd.ok) throw new Error('rgb_order: '+(rd.error||'fallo'));
       initialRgbOrder = newRgb;
     }
+    // Claude sessionKey: la enviamos siempre tal cual aparece en el input.
+    // Vacio = borra la key, contenido = la guarda. El campo se muestra ya
+    // pre-poblada con el valor actual al cargar la pagina.
+    patch.claude_session_key = $('#claude-session-key').value.trim();
     const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(patch)});
     const d = await r.json();

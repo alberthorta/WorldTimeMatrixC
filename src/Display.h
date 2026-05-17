@@ -59,7 +59,42 @@ void setBrightness(uint8_t v);     // 0..255 hardware brightness
 // barra de segundos se mueva continua a la velocidad de render del loop.
 // < 0 → sin tiempo valido, no se dibuja.
 void renderRows(const Row rows[4], float secondOfMinuteF = -1.0f);
+// Modo focus: dibuja UNA sola ciudad ocupando los 64x32 con HH:MM grande, temp
+// grande, icono escalado y barra de segundera abajo. Pensado para resaltar la
+// primera ciudad de la lista. Toggle desde el boton central.
+void renderFocus(const Row& row, float secondOfMinuteF = -1.0f);
+// Modo Claude stats: muestra utilizacion 5h + 7d con pace bars y countdown.
+// Recibe la primera ciudad para pintar tambien una hora + icono + temp
+// compactos en la parte superior.
+struct ClaudeView {
+    bool hasData;
+    bool fiveValid;
+    double fiveUsed;        // 0..1
+    double fiveElapsed;     // 0..1
+    long   fiveRemainingSec;
+    uint32_t fiveColor;     // RGB888 (pace color)
+    const char* fiveLabel;
+    bool sevenValid;
+    double sevenUsed;
+    double sevenElapsed;
+    long   sevenRemainingSec;
+    uint32_t sevenColor;
+    const char* sevenLabel;
+};
+void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF = -1.0f);
 void clear();
+// Pinta toda la pantalla del color RGB565 indicado (con flip de buffer).
+void fillScreen(uint16_t color565);
+// Dispara un ripple ("gota") centrado en (cx, cy). Se dibuja como overlay
+// encima del render del reloj durante ~700ms: un anillo que crece de radio 1
+// a ~40px y se desvanece. Llamar en el flanco PRESSED del boton, no en cada
+// frame mientras esta pulsado.
+//   slot: 0..1, permite tener dos ripples simultaneos (A2 y A3).
+void triggerRipple(int slot, int16_t cx, int16_t cy);
+// Muestra un overlay temporal con label "BRIGHTNESS", barra de progreso y
+// porcentaje. Cada llamada renueva el timer (timeout 1.5s sin nuevos pulsos).
+// `value` debe ser 0..1.
+void triggerBrightnessOverlay(float value);
 // Splash de boot: hasta 4 lineas centradas horizontalmente en sus rows.
 // Lineas vacias se omiten. Util para "WorldTime" + estado de WiFi en boot.
 void drawSplash(const char* const lines[], int nLines);

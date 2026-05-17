@@ -18,6 +18,32 @@ Repo: `git@github.com:alberthorta/WorldTimeMatrixC.git` (privado).
 
 GPIO base (`MTX_*` de CircuitPython): R1=42 G1=41 B1=40 R2=38 G2=39 B2=37 A=45 B=36 C=48 D=35 E=-1 LAT=47 OE=14 CLK=2.
 
+### Botones tactiles externos (TTP223)
+
+Tres sensores capacitivos TTP223 cableados a los pads analogicos para control sin abrir la caja:
+
+| Pad | GPIO | Funcion |
+|---|---|---|
+| A2 | 9  | Izquierda → brillo -5% |
+| A3 | 10 | Centro    → cicla modo display (FOUR_ROWS → FOCUS → CLAUDE) |
+| A4 | 11 | Derecha   → brillo +5% |
+
+- **NO usar A1 (GPIO 3)**: es strapping pin del ESP32-S3 (JTAG signal source). Conectar ahi un TTP que arranca en estado indefinido bloquea el boot del panel.
+- `pinMode(pin, INPUT)` sin pull interno — el TTP223 tiene salida push-pull activa-HIGH.
+- Sin debounce HW: el chip ya filtra contacto humano. Pero el switching del HUB75 genera ruido EMI que puede meter pulsos espurios. Filtro SW en `main.cpp`: una transicion solo se acepta tras `STABLE_THRESH` (3) lecturas consecutivas iguales — ~15ms de latencia, transparente.
+
+### Anti-ruido del HUB75 sobre los TTP223
+
+El switching del panel (CLK 25 MHz, OE rapido, lineas address conmutando) acopla EMI a los cables de output de los TTP223. Si el filtro SW de estabilidad no es suficiente (sigues viendo pulsaciones fantasma), ataja el problema en HW por orden de eficacia:
+
+1. **Acortar el cable del OUT**. Cualquier cable largo o suelto entre el pin OUT del TTP y el pad del MatrixPortal actua de antena. < 5 cm idealmente, trenzado con el GND si va paralelo.
+2. **Condensador 100 nF ceramico** entre OUT y GND, pegado al pin del ESP (no al TTP). Filtra el ruido de alta frecuencia que recoge el cable hacia GND antes de que llegue al GPIO.
+3. **Condensador de desacoplo en la alimentacion del TTP**: 10–100 µF electrolitico entre VCC y GND de cada TTP, pegado al modulo. El rail 3V3 del MatrixPortal puede tener ripple por la carga conmutada del panel; estabilizarlo evita que el TTP oscile.
+4. **Ferrita o resistencia serie 1 kΩ** en el cable OUT, cerca del TTP. Limita el slew rate del flanco y reduce reflexiones en cable largo.
+5. **Comprobar GND comun**: VCC del TTP a 3V3 del MatrixPortal Y GND del TTP a GND del MatrixPortal con cables independientes (no compartir GND con el panel HUB75, cuya corriente de retorno mete ruido en el plano de tierra).
+
+Si todo lo anterior falla, subir `STABLE_THRESH` en `main.cpp` a 4-5 (a costa de mas latencia).
+
 ## Devices conocidos en mi LAN
 
 | IP | rgb_order | Notas |

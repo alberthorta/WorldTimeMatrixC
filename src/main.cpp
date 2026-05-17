@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "AutoUpdate.h"
+#include "ClaudeStats.h"
 #include "Config.h"
 #include "Display.h"
 #include "Icons.h"
@@ -14,6 +15,33 @@
 #include "WifiSetup.h"
 
 volatile bool g_pendingReset = false;
+
+// Modo de visualizacion. Toggle con el boton central (TTP2/A3). Vive solo
+// en RAM por ahora (no persiste tras reboot); migrar a Config si se valida.
+//   FOUR_ROWS: render normal con las 4 ciudades.
+//   FOCUS:     una sola ciudad (cities[0]) ocupando los 64x32 con HH:MM
+//              grande, temp grande, icono x2 y barra de segundera.
+enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2 };
+static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
+
+// Avanza al siguiente modo del toggle (boton central). CLAUDE solo si hay
+// sessionKey configurada — sino se salta directamente.
+static DisplayMode nextDisplayMode(DisplayMode m) {
+    switch (m) {
+        case DisplayMode::FOUR_ROWS: return DisplayMode::FOCUS;
+        case DisplayMode::FOCUS:
+            return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
+                                                : DisplayMode::FOUR_ROWS;
+        case DisplayMode::CLAUDE:    return DisplayMode::FOUR_ROWS;
+    }
+    return DisplayMode::FOUR_ROWS;
+}
+
+// Sensores tactiles TTP223 externos. Salida push-pull activa-HIGH, sin pull
+// interno necesario. Tres botones en linea: izquierda / centro / derecha.
+static constexpr uint8_t PIN_TTP1 = A2;  // GPIO 9   - izquierda
+static constexpr uint8_t PIN_TTP2 = A3;  // GPIO 10  - centro
+static constexpr uint8_t PIN_TTP3 = A4;  // GPIO 11  - derecha
 
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
@@ -46,6 +74,9 @@ void setup() {
     Serial.println("[boot] WorldTime fw starting (build OTA test)");
 
     pinMode(PIN_BUTTON_UP, INPUT_PULLUP);
+    pinMode(PIN_TTP1, INPUT);
+    pinMode(PIN_TTP2, INPUT);
+    pinMode(PIN_TTP3, INPUT);
     Icons::begin();          // Defaults (nombres + frame inicial); Config los sobrescribe.
     Config::begin();
     Weather::loadCache();   // muestra ultima meteo conocida mientras NTP/fetch arrancan
@@ -138,11 +169,95 @@ void setup() {
     }
     WebApi::begin();
     Weather::taskStart();
+    ClaudeStats::loadCache();
+    ClaudeStats::taskStart();
 }
 
 void loop() {
     ArduinoOTA.handle();
     WifiSetup::tickHealth();
+
+    // TTP223: lectura + edge-detect para los tres botones. Activo en HIGH
+    // (touch). El TTP223 ya debounce-a el contacto humano, pero la cercania
+    // del panel HUB75 mete switching noise en los cables del output y a veces
+    // genera pulsos espurios (~1-2 lecturas en HIGH). Filtramos por
+    // estabilidad: una transicion solo se acepta cuando la lectura cruda se
+    // mantiene STABLE_THRESH ticks consecutivos en el nuevo nivel. A ~200Hz
+    // del loop, STABLE_THRESH=3 = ~15ms de latencia, transparente al usuario.
+    //
+    //   TTP1 (A2) izquierda -> brillo - 0.05
+    //   TTP2 (A3) centro    -> toggle modo (FOUR_ROWS → FOCUS → CLAUDE)
+    //   TTP3 (A4) derecha   -> brillo + 0.05
+    static bool ttp[3] = {false, false, false};         // estado debounceado
+    static bool ttpPrev[3] = {false, false, false};     // estado debounceado anterior
+    static uint8_t ttpStable[3] = {0, 0, 0};            // ticks consecutivos con raw != debounced
+    static uint32_t brightnessDirtyMs = 0;
+    constexpr uint8_t STABLE_THRESH = 3;
+    bool ttpRaw[3] = {
+        digitalRead(PIN_TTP1) == HIGH,
+        digitalRead(PIN_TTP2) == HIGH,
+        digitalRead(PIN_TTP3) == HIGH
+    };
+    for (int i = 0; i < 3; i++) {
+        if (ttpRaw[i] != ttp[i]) {
+            if (++ttpStable[i] >= STABLE_THRESH) {
+                ttp[i] = ttpRaw[i];
+                ttpStable[i] = 0;
+            }
+        } else {
+            // raw vuelve a coincidir con el estado actual: glitch descartado.
+            ttpStable[i] = 0;
+        }
+    }
+    const uint8_t ttpPin[3] = {PIN_TTP1, PIN_TTP2, PIN_TTP3};
+    const char* const ttpLabel[3] = {"A2/izq", "A3/cen", "A4/der"};
+    const int16_t ttpRippleX[3] = {16, Display::WIDTH / 2, Display::WIDTH - 16};
+    for (int i = 0; i < 3; i++) {
+        if (ttp[i] != ttpPrev[i]) {
+            Serial.printf("[ttp] TTP%d (%s, GPIO%d) %s\n",
+                          i + 1, ttpLabel[i], ttpPin[i],
+                          ttp[i] ? "PRESSED" : "released");
+            if (ttp[i]) {
+                Display::triggerRipple(i, ttpRippleX[i], 0);
+                // Boton centro: cicla por los modos disponibles.
+                if (i == 1) {
+                    g_displayMode = nextDisplayMode(g_displayMode);
+                    const char* name =
+                        (g_displayMode == DisplayMode::FOCUS)     ? "FOCUS" :
+                        (g_displayMode == DisplayMode::CLAUDE)    ? "CLAUDE" :
+                                                                    "FOUR_ROWS";
+                    Serial.printf("[ttp] displayMode -> %s\n", name);
+                    if (g_displayMode == DisplayMode::CLAUDE) {
+                        ClaudeStats::requestRefresh();
+                    }
+                }
+                // Mismos limites que el endpoint /api/brightness.
+                if (i == 0 || i == 2) {
+                    float delta = (i == 0) ? -0.05f : 0.05f;
+                    float b = constrain(Config::cfg.brightness + delta, 0.05f, 1.0f);
+                    if (b != Config::cfg.brightness) {
+                        Config::cfg.brightness = b;
+                        brightnessDirtyMs = millis();
+                        Serial.printf("[ttp] brightness -> %.2f\n", b);
+                    } else {
+                        Serial.printf("[ttp] brightness ya en limite (%.2f)\n", b);
+                    }
+                    // Overlay visual con valor actualizado, tambien cuando
+                    // estamos en el limite (asi el usuario ve que sigue al
+                    // tope o al minimo y no piensa que el boton falla).
+                    Display::triggerBrightnessOverlay(Config::cfg.brightness);
+                }
+            }
+            ttpPrev[i] = ttp[i];
+        }
+    }
+    // Persistencia diferida del brillo: 2s tras el ultimo cambio.
+    if (brightnessDirtyMs != 0 && millis() - brightnessDirtyMs >= 2000) {
+        Serial.printf("[cfg] persistiendo brillo %.2f\n", Config::cfg.brightness);
+        Config::save();
+        brightnessDirtyMs = 0;
+    }
+
     // Botón UP mantenido 3s → forzar modo AP. Util para reconfigurar WiFi
     // sin tener que esperar a que falle STA. Edge-detect: pressedSinceMs
     // arranca al detectar la primera lectura LOW; si suelta antes de 3s
@@ -300,5 +415,40 @@ void loop() {
             }
         }
     }
-    Display::renderRows(rows, secondOfMinuteF);
+    if (g_displayMode == DisplayMode::FOCUS) {
+        Display::renderFocus(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::CLAUDE) {
+        // Montamos ClaudeView desde ClaudeStats::data + computePace para los
+        // dos windows. Si la sessionKey se ha borrado por la web, volvemos
+        // a FOUR_ROWS para no quedarnos en un modo "inutil".
+        if (!ClaudeStats::isConfigured()) {
+            g_displayMode = DisplayMode::FOUR_ROWS;
+            Display::renderRows(rows, secondOfMinuteF);
+        } else {
+            time_t now = utc;
+            ClaudeStats::Pace p5 = ClaudeStats::computePace(
+                ClaudeStats::data.fiveHour, 5L * 3600L, now);
+            ClaudeStats::Pace p7 = ClaudeStats::computePace(
+                ClaudeStats::data.sevenDay, 7L * 86400L, now);
+            Display::ClaudeView cv;
+            cv.hasData         = ClaudeStats::data.hasData;
+            cv.fiveValid       = ClaudeStats::data.fiveHour.valid;
+            cv.fiveUsed        = p5.used;
+            cv.fiveElapsed     = p5.elapsed;
+            cv.fiveRemainingSec = (long)(ClaudeStats::data.fiveHour.resetsAt - now);
+            if (cv.fiveRemainingSec < 0) cv.fiveRemainingSec = 0;
+            cv.fiveColor       = p5.color;
+            cv.fiveLabel       = p5.label;
+            cv.sevenValid      = ClaudeStats::data.sevenDay.valid;
+            cv.sevenUsed       = p7.used;
+            cv.sevenElapsed    = p7.elapsed;
+            cv.sevenRemainingSec = (long)(ClaudeStats::data.sevenDay.resetsAt - now);
+            if (cv.sevenRemainingSec < 0) cv.sevenRemainingSec = 0;
+            cv.sevenColor      = p7.color;
+            cv.sevenLabel      = p7.label;
+            Display::renderClaude(rows[0], cv, secondOfMinuteF);
+        }
+    } else {
+        Display::renderRows(rows, secondOfMinuteF);
+    }
 }

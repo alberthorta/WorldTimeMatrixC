@@ -105,6 +105,11 @@ static All defaults() {
     a.forecastColorRising  = 0x00C000;
     a.forecastColorFalling = 0xC00000;
     a.forecastColorStable  = 0x666666;
+    a.focusHourColor       = 0xFFFFFF;
+    a.focusDateColor       = 0xAAAAAA;
+    a.claudeSessionKey     = "";
+    a.claudeOrgId          = "";
+    a.claudeRefreshSec     = 180;
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -136,6 +141,11 @@ static void buildJson(JsonDocument& doc) {
     doc["forecast_color_rising"]  = cfg.forecastColorRising;
     doc["forecast_color_falling"] = cfg.forecastColorFalling;
     doc["forecast_color_stable"]  = cfg.forecastColorStable;
+    doc["focus_hour_color"]       = cfg.focusHourColor;
+    doc["focus_date_color"]       = cfg.focusDateColor;
+    doc["claude_session_key"]     = cfg.claudeSessionKey;
+    doc["claude_org_id"]          = cfg.claudeOrgId;
+    doc["claude_refresh_sec"]     = cfg.claudeRefreshSec;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -233,6 +243,29 @@ static bool applyJson(JsonDocument& doc) {
     applyColor("forecast_color_rising",  cfg.forecastColorRising);
     applyColor("forecast_color_falling", cfg.forecastColorFalling);
     applyColor("forecast_color_stable",  cfg.forecastColorStable);
+    applyColor("focus_hour_color",       cfg.focusHourColor);
+    applyColor("focus_date_color",       cfg.focusDateColor);
+    if (doc["claude_session_key"].is<const char*>()) {
+        String newKey = doc["claude_session_key"].as<const char*>();
+        if (newKey != cfg.claudeSessionKey) {
+            // Solo invalidamos orgId si la key cambio realmente. La web ahora
+            // pre-puebla el input con la key actual y la reenvia en cada save,
+            // asi que tenemos que distinguir "save sin cambio" de "save con
+            // nueva key" para no forzar redescubrimiento inutil.
+            cfg.claudeSessionKey = newKey;
+            cfg.claudeOrgId = "";
+        }
+    }
+    if (doc["claude_org_id"].is<const char*>()) {
+        // Permitir setear manualmente (raro, pero util para debugging).
+        cfg.claudeOrgId = doc["claude_org_id"].as<const char*>();
+    }
+    if (doc["claude_refresh_sec"].is<int>()) {
+        int s = doc["claude_refresh_sec"];
+        if (s < 60)   s = 60;
+        if (s > 3600) s = 3600;
+        cfg.claudeRefreshSec = s;
+    }
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
         for (int i = 0; i < 4 && i < (int)arr.size(); i++) {

@@ -69,6 +69,18 @@ struct All {
     uint32_t forecastColorRising;          // 0xRRGGBB (default 0x00C000)
     uint32_t forecastColorFalling;         // 0xRRGGBB (default 0xC00000)
     uint32_t forecastColorStable;          // 0xRRGGBB (default 0x666666)
+    // Colores especificos del modo focus (boton central). Independientes del
+    // color de la ciudad: en focus el contenido es uno solo, asi se puede
+    // personalizar a gusto sin afectar al modo 4-filas.
+    uint32_t focusHourColor;               // 0xRRGGBB (default 0xFFFFFF)
+    uint32_t focusDateColor;               // 0xRRGGBB (default 0xAAAAAA)
+    // Stats de Claude Code (claude.ai/api/organizations/.../usage). Si la
+    // sessionKey esta vacia, el modo Claude no se ofrece en el toggle del
+    // boton central. orgId se autodescubre desde la sessionKey en el primer
+    // fetch exitoso y se persiste para no volver a llamarlo.
+    String   claudeSessionKey;
+    String   claudeOrgId;
+    uint16_t claudeRefreshSec;             // 60..3600, default 180
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente
