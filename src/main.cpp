@@ -216,36 +216,52 @@ void loop() {
         }
     }
 
-    // TTP223: lectura + edge-detect para los tres botones. Activo en HIGH
-    // (touch). El TTP223 ya debounce-a el contacto humano, pero la cercania
-    // del panel HUB75 mete switching noise en los cables del output y a veces
-    // genera pulsos espurios (~1-2 lecturas en HIGH). Filtramos por
-    // estabilidad: una transicion solo se acepta cuando la lectura cruda se
-    // mantiene STABLE_THRESH ticks consecutivos en el nuevo nivel. A ~200Hz
-    // del loop, STABLE_THRESH=3 = ~15ms de latencia, transparente al usuario.
+    // TTP223: lectura + edge-detect con filtrado por *tiempo continuo*. El
+    // TTP223 ya filtra contacto humano, pero la cercania del HUB75 mete
+    // bursts de ruido EMI que producen pulsos espurios cortos (1-10 ms).
+    // En lugar de contar ticks (afectado por la frecuencia del loop), exijo
+    // que el pin RAW se mantenga en el nuevo nivel un tiempo continuo:
+    //   PRESS_HOLD_MS    = 80   → pin HIGH continuo 80ms para aceptar PRESSED
+    //   RELEASE_HOLD_MS  = 40   → pin LOW continuo 40ms para aceptar release
+    //   POST_PRESS_LOCK  = 350  → tras un PRESSED aceptado, ignora nuevos
+    //                             PRESSED durante ese tiempo (anti-multiclick)
+    // Una pulsacion humana dura >100ms con holgura, asi que 80ms se siente
+    // instantaneo; un glitch de 5ms no llega ni cerca.
     //
     //   TTP1 (A2) izquierda -> brillo - 0.05
     //   TTP2 (A3) centro    -> toggle modo (FOUR_ROWS → FOCUS → CLAUDE)
     //   TTP3 (A4) derecha   -> brillo + 0.05
-    static bool ttp[3] = {false, false, false};         // estado debounceado
-    static bool ttpPrev[3] = {false, false, false};     // estado debounceado anterior
-    static uint8_t ttpStable[3] = {0, 0, 0};            // ticks consecutivos con raw != debounced
+    static bool     ttp[3] = {false, false, false};
+    static bool     ttpPrev[3] = {false, false, false};
+    static bool     ttpRawPrev[3] = {false, false, false};
+    static uint32_t ttpRawSinceMs[3] = {0, 0, 0};
+    static uint32_t ttpLastPressMs[3] = {0, 0, 0};
     static uint32_t brightnessDirtyMs = 0;
-    constexpr uint8_t STABLE_THRESH = 3;
+    constexpr uint32_t PRESS_HOLD_MS    = 80;
+    constexpr uint32_t RELEASE_HOLD_MS  = 40;
+    constexpr uint32_t POST_PRESS_LOCK  = 350;
     bool ttpRaw[3] = {
         digitalRead(PIN_TTP1) == HIGH,
         digitalRead(PIN_TTP2) == HIGH,
         digitalRead(PIN_TTP3) == HIGH
     };
+    uint32_t now = millis();
     for (int i = 0; i < 3; i++) {
-        if (ttpRaw[i] != ttp[i]) {
-            if (++ttpStable[i] >= STABLE_THRESH) {
-                ttp[i] = ttpRaw[i];
-                ttpStable[i] = 0;
+        if (ttpRaw[i] != ttpRawPrev[i]) {
+            // El nivel raw acaba de cambiar: empieza a contar holding time.
+            ttpRawSinceMs[i] = now;
+            ttpRawPrev[i] = ttpRaw[i];
+        }
+        uint32_t held = now - ttpRawSinceMs[i];
+        if (ttpRaw[i] && !ttp[i] && held >= PRESS_HOLD_MS) {
+            bool tooSoon = (ttpLastPressMs[i] != 0) &&
+                           (now - ttpLastPressMs[i] < POST_PRESS_LOCK);
+            if (!tooSoon) {
+                ttp[i] = true;
+                ttpLastPressMs[i] = now;
             }
-        } else {
-            // raw vuelve a coincidir con el estado actual: glitch descartado.
-            ttpStable[i] = 0;
+        } else if (!ttpRaw[i] && ttp[i] && held >= RELEASE_HOLD_MS) {
+            ttp[i] = false;
         }
     }
     const uint8_t ttpPin[3] = {PIN_TTP1, PIN_TTP2, PIN_TTP3};
@@ -420,8 +436,11 @@ void loop() {
             gmtime_r(&local, &tm);
             r.hour = tm.tm_hour;
             r.minute = tm.tm_min;
+            r.day = (uint8_t)tm.tm_mday;
+            r.month = (uint8_t)(tm.tm_mon + 1);
         } else {
             r.hour = 0; r.minute = 0;
+            r.day = 0; r.month = 0;
         }
         r.hasWeather = d.hasData;
         r.tempC = d.tempC;

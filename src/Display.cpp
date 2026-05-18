@@ -1031,25 +1031,28 @@ void renderFocus(const Row& r, float secondOfMinuteF) {
 //   y=18..22 : "7d NN%  DdHh"           (idem 7d)
 //   y=24..27 : pace bar 7d (4 px alto)
 //   y=29..31 : zona libre / pace label de 5h
-static void drawClaudePaceBar(int y0, int height, double used, double elapsed,
-                              uint32_t color888) {
+static void drawClaudePaceBar(int x0, int y0, int barW, int height,
+                              double used, double elapsed, uint32_t color888) {
     uint16_t bg     = rgb888to565(0x202020);
     uint16_t fill   = rgb888to565(color888);
     uint16_t marker = rgb888to565(0xFFFFFF);
     if (used < 0) used = 0; if (used > 1) used = 1;
     if (elapsed < 0) elapsed = 0; if (elapsed > 1) elapsed = 1;
-    int fillW = (int)(used * WIDTH + 0.5);
-    int mx    = (int)(elapsed * WIDTH + 0.5);
-    if (mx >= WIDTH) mx = WIDTH - 1;
-    for (int x = 0; x < WIDTH; x++) {
+    int fillW = (int)(used * barW + 0.5);
+    int mx    = (int)(elapsed * barW + 0.5);
+    if (mx >= barW) mx = barW - 1;
+    for (int x = 0; x < barW; x++) {
         uint16_t c = (x < fillW) ? fill : bg;
-        for (int dy = 0; dy < height; dy++) dma->drawPixel(x, y0 + dy, c);
+        for (int dy = 0; dy < height; dy++) dma->drawPixel(x0 + x, y0 + dy, c);
     }
     if (mx >= 0) {
-        for (int dy = 0; dy < height; dy++) dma->drawPixel(mx, y0 + dy, marker);
+        for (int dy = 0; dy < height; dy++) dma->drawPixel(x0 + mx, y0 + dy, marker);
     }
 }
 
+// Layout 2/3 + 1/3: columna izquierda 42 px con stats de Claude (5h + 7d
+// + pace label), columna derecha 21 px con hora, fecha, temp e icono de la
+// primera ciudad apilados de arriba a abajo y centrados.
 void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF) {
     if (!dma) return;
     dma->clearScreen();
@@ -1060,91 +1063,278 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
     uint16_t dim   = rgb888to565(0xAAAAAA);
     uint16_t dim2  = rgb888to565(0x666666);
 
-    // ── Header: HH:MM:SS | icono animado | TT° (info de cities[0]) ──
-    // HH:MM:SS ocupa ~32 px (8 chars TomThumb), por lo que dejamos el icono
-    // pegado a su derecha en lugar de centrarlo.
+    const int LEFT_W   = (WIDTH * 2) / 3;        // 42
+    const int RIGHT_X  = LEFT_W + 1;             // 43, deja 1 px de gap
+    const int RIGHT_W  = WIDTH - RIGHT_X;        // 21
+    const int RIGHT_CX = RIGHT_X + RIGHT_W / 2;  // x medio para centrar
+
+    // Separador vertical fino entre las dos columnas. Termina 2 px antes
+    // del bottom para que la barra de segundos de abajo recorra la pantalla
+    // de punta a punta sin interrumpirse.
+    uint16_t sepCol = rgb888to565(0x202020);
+    for (int y = 0; y < HEIGHT - 2; y++) dma->drawPixel(LEFT_W, y, sepCol);
+
+    // ── LEFT 2/3: Claude stats ─────────────────────────────────────────
+    //
+    // Helper: dibuja countdown + simbolo de "tiempo" (4x5 px) a su derecha,
+    // todo alineado a la derecha y en gris oscuro discreto.
+    auto drawCountdownRight = [&](const char* cd, int yBaseline) {
+        // Simbolo (4 ancho x 5 alto):
+        //   . . . .
+        //   . X X X
+        //   . . . X
+        //   . . X X
+        //   . . . X
+        static const uint8_t SYM[5] = {
+            0b0000,
+            0b0111,
+            0b0001,
+            0b0011,
+            0b0001,
+        };
+        const int SYM_W = 4, SYM_GAP = 0;   // el sprite ya tiene su propio margen izq
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(cd, 0, 0, &x1, &y1, &w, &h);
+        int blockW = (int)w + SYM_GAP + SYM_W;
+        // Ultimo pixel del simbolo en LEFT_W-2 (col 40 con LEFT_W=42 → 1 px
+        // de gap antes del separador en col 42).
+        int textX = (LEFT_W - 1) - blockW - (int)x1;
+        if (textX < 0) textX = 0;
+        uint16_t col = rgb888to565(0x404040);
+        dma->setTextColor(col);
+        dma->setCursor(textX, yBaseline);
+        dma->print(cd);
+        // Simbolo: top-left en (sx0, sy0). Lo alineamos con el top del texto
+        // (top de TomThumb = baseline - 4).
+        int sx0 = textX + (int)x1 + (int)w + SYM_GAP;
+        int sy0 = yBaseline - 5;   // 1 px arriba
+        for (int yy = 0; yy < 5; yy++) {
+            uint8_t row = SYM[yy];
+            for (int xx = 0; xx < 4; xx++) {
+                if (row & (0x8 >> xx)) dma->drawPixel(sx0 + xx, sy0 + yy, col);
+            }
+        }
+    };
+
+    // Linea 5h: "5h NN%" izquierda + countdown right (XhYYm, gris oscuro).
+    if (cv.fiveValid) {
+        char line[12];
+        snprintf(line, sizeof(line), "5h %d%%", (int)(cv.fiveUsed * 100.0 + 0.5));
+        dma->setTextColor(dim);
+        dma->setCursor(0, 6);
+        dma->print(line);
+        char cd[10];
+        snprintf(cd, sizeof(cd), "%ldm", cv.fiveRemainingSec / 60);
+        drawCountdownRight(cd, 6);
+    } else {
+        dma->setTextColor(dim2);
+        dma->setCursor(0, 6);
+        dma->print(cv.hasData ? "5h -" : "5h ...");
+    }
+    // Pace bar 5h: ancho LEFT_W-1 → deja 1 px de gap a la izquierda del
+    // separador. Bar termina en x=40 con LEFT_W=42 (separador en x=42).
+    if (cv.fiveValid) {
+        drawClaudePaceBar(0, 7, LEFT_W - 1, 4,
+                          cv.fiveUsed, cv.fiveElapsed, cv.fiveColor);
+    }
+
+    // Linea 7d: "7d NN%" izquierda + countdown right (XdYYh si >=1d, sino XhYYm).
+    if (cv.sevenValid) {
+        char line[12];
+        snprintf(line, sizeof(line), "7d %d%%", (int)(cv.sevenUsed * 100.0 + 0.5));
+        dma->setTextColor(dim);
+        dma->setCursor(0, 18);
+        dma->print(line);
+        char cd[10];
+        snprintf(cd, sizeof(cd), "%ldh", cv.sevenRemainingSec / 3600);
+        drawCountdownRight(cd, 18);
+    } else {
+        dma->setTextColor(dim2);
+        dma->setCursor(0, 18);
+        dma->print(cv.hasData ? "7d -" : "7d ...");
+    }
+    if (cv.sevenValid) {
+        drawClaudePaceBar(0, 19, LEFT_W - 1, 4,
+                          cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
+    }
+
+    // Pace label 5h centrada en la columna izquierda (y=29 baseline, top
+    // alrededor de y=25).
+    if (cv.fiveValid && cv.fiveLabel && *cv.fiveLabel) {
+        dma->setTextColor(rgb888to565(cv.fiveColor));
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(cv.fiveLabel, 0, 0, &x1, &y1, &w, &h);
+        int x = (LEFT_W - (int)w) / 2 - (int)x1;
+        if (x < 0) x = 0;
+        dma->setCursor(x, 29);
+        dma->print(cv.fiveLabel);
+    }
+
+    // ── RIGHT 1/3: hora | fecha | temp | icono (centrados, top→bottom) ──
+    // 4 elementos en 32 px → baselines a y=6 / 14 / 22, icono y=24..28.
+    auto centerInRight = [&](int textW) -> int {
+        int x = RIGHT_CX - textW / 2;
+        if (x < RIGHT_X) x = RIGHT_X;
+        return x;
+    };
+
+    // Hora HH:MM (sin segundos: no cabe en 21 px).
     if (weatherRow.hasTime) {
-        char hms[12];
-        int sec = (secondOfMinuteF >= 0.0f) ? (int)secondOfMinuteF : 0;
-        if (sec < 0) sec = 0; if (sec > 59) sec = 59;
+        char hhmm[8];
         bool lz = Config::cfg.hourLeadingZero || weatherRow.hour >= 10;
-        if (lz) snprintf(hms, sizeof(hms), "%02u:%02u:%02d",
-                         weatherRow.hour, weatherRow.minute, sec);
-        else    snprintf(hms, sizeof(hms), "%u:%02u:%02d",
-                         weatherRow.hour, weatherRow.minute, sec);
+        if (lz) snprintf(hhmm, sizeof(hhmm), "%02u:%02u",
+                         weatherRow.hour, weatherRow.minute);
+        else    snprintf(hhmm, sizeof(hhmm), "%u:%02u",
+                         weatherRow.hour, weatherRow.minute);
         dma->setTextColor(white);
-        dma->setCursor(0, 5);
-        dma->print(hms);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(hhmm, 0, 0, &x1, &y1, &w, &h);
+        dma->setCursor(centerInRight((int)w) - (int)x1, 6);
+        dma->print(hhmm);
     }
-    if (weatherRow.hasWeather && weatherRow.icon != IconType::NONE) {
-        const Icons::Frame* frame = nullptr;
-        if (g_previewActive) frame = tickPreviewAnim();
-        else                 frame = tickRowAnim(0, weatherRow.icon);
-        // Tras la hora HH:MM:SS (~x=32). Pongo el icono en x=35 con 1px de
-        // margen, dejando hueco para la temp en la derecha.
-        if (frame) drawFrame(35, 0, *frame);
+
+    // Fecha siempre en formato DD/MM en este modo (ignora dateFormatText),
+    // porque "8 May" + el resto de elementos satura visualmente la columna
+    // de 21 px. El modo focus sigue respetando la opcion del usuario.
+    if (weatherRow.hasTime && weatherRow.day > 0 && weatherRow.month > 0) {
+        char dateBuf[10];
+        snprintf(dateBuf, sizeof(dateBuf), "%02u/%02u",
+                 weatherRow.day, weatherRow.month);
+        dma->setTextColor(dim);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(dateBuf, 0, 0, &x1, &y1, &w, &h);
+        dma->setCursor(centerInRight((int)w) - (int)x1, 12);
+        dma->print(dateBuf);
     }
+
+    // Fila 3: icono del tiempo (animado) + temperatura uno al lado del otro,
+    // bloque centrado en la columna derecha. y=14..18.
     if (weatherRow.hasWeather) {
         char tnum[6];
         snprintf(tnum, sizeof(tnum), "%d", weatherRow.tempC);
         uint16_t tc = tempColor(weatherRow.tempC);
         int16_t x1, y1; uint16_t w, h;
         dma->getTextBounds(tnum, 0, 0, &x1, &y1, &w, &h);
+        const int ICON_GAP = 1;
         const int DEG_W = 2, DEG_GAP = 1;
-        int totalW = (int)w + DEG_GAP + DEG_W;
-        int xStart = WIDTH - totalW;
+        int tempW = (int)w + DEG_GAP + DEG_W;
+        bool hasIcon = (weatherRow.icon != IconType::NONE);
+        int totalW = (hasIcon ? Icons::ICON_W + ICON_GAP : 0) + tempW;
+        int xStart = RIGHT_CX - totalW / 2;
+        if (xStart < RIGHT_X) xStart = RIGHT_X;
+        int iconY = 13;   // icono 2 px arriba (antes 15)
+        int yBase = 18;   // baseline temp 2 px arriba (antes 20)
+        if (hasIcon) {
+            const Icons::Frame* frame = nullptr;
+            if (g_previewActive) frame = tickPreviewAnim();
+            else                 frame = tickRowAnim(0, weatherRow.icon);
+            if (frame) drawFrame(xStart, iconY, *frame);
+        }
+        int tempX = xStart + (hasIcon ? Icons::ICON_W + ICON_GAP : 0);
         dma->setTextColor(tc);
-        dma->setCursor(xStart, 5);
+        dma->setCursor(tempX - (int)x1, yBase);
         dma->print(tnum);
-        int degX = xStart + (int)w + DEG_GAP;
-        int degTopY = 0;
+        int degX = tempX + (int)w + DEG_GAP;
+        int degTopY = yBase - 5;
         for (int yy = 0; yy < 2; yy++)
             for (int xx = 0; xx < 2; xx++)
                 dma->drawPixel(degX + xx, degTopY + yy, tc);
     }
 
-    // ── Linea 5h ──
-    if (cv.fiveValid) {
-        char line[24];
-        long mins = cv.fiveRemainingSec / 60;
-        snprintf(line, sizeof(line), "5h %d%% %ldh%02ldm",
-                 (int)(cv.fiveUsed * 100.0 + 0.5),
-                 mins / 60, mins % 60);
-        dma->setTextColor(dim);
-        dma->setCursor(0, 11);
-        dma->print(line);
-        drawClaudePaceBar(11, 4, cv.fiveUsed, cv.fiveElapsed, cv.fiveColor);
-    } else {
-        dma->setTextColor(dim2);
-        dma->setCursor(0, 11);
-        dma->print(cv.hasData ? "5h: no data" : "fetching 5h...");
+    // Tick del guiño de Clawd. Devuelve cuantos rows del ojo estan
+    // "cerrados" en este frame (0 = abierto, 1 = medio, 2 = cerrado).
+    // Patron: cada 6-15s un ciclo de 2 guiños seguidos.
+    auto clawdEyeRowsClosed = []() -> int {
+        static uint32_t s_blinkNextAtMs = 0;
+        static uint32_t s_blinkStartMs  = 0;
+        static int      s_blinkRemaining = 0;
+        uint32_t now = millis();
+        if (s_blinkStartMs == 0) {
+            if (s_blinkNextAtMs == 0) {
+                s_blinkNextAtMs = now + 6000 + (esp_random() % 9000);
+            }
+            if (now < s_blinkNextAtMs) return 0;
+            // Empezamos un ciclo de 2 guiños.
+            s_blinkRemaining = 2;
+            s_blinkStartMs = now;
+        }
+        uint32_t elapsed = now - s_blinkStartMs;
+        // Animacion de un guiño individual: 60ms cerrando, 120ms cerrado,
+        // 60ms abriendo, 60ms abierto = 300ms total.
+        if (elapsed >= 300) {
+            s_blinkRemaining--;
+            if (s_blinkRemaining > 0) {
+                s_blinkStartMs = now;       // segundo guiño inmediato
+                elapsed = 0;
+            } else {
+                s_blinkStartMs = 0;
+                s_blinkNextAtMs = now + 6000 + (esp_random() % 9000);
+                return 0;
+            }
+        }
+        if (elapsed < 60)  return 1;        // bajando
+        if (elapsed < 180) return 2;        // cerrado
+        if (elapsed < 240) return 1;        // subiendo
+        return 0;                            // ojo abierto antes del siguiente
+    };
+
+    // Fila 4: pixel art de Clawd (mascot naranja de Anthropic). 14x10 con:
+    //   - cabeza recta arriba y abajo (sin redondeo)
+    //   - 2 ojos rectangulares verticales
+    //   - bracitos sobresaliendo 2 px a cada lado del cuerpo (rows 4-5)
+    //   - 4 patitas en la base
+    // Cuerpo 10 wide centrado; bracitos suman 2 px a cada lado = 14 total.
+    {
+        static const uint16_t CLAWD[10] = {
+            0b00111111111100,   // ..XXXXXXXXXX..   cabeza top recta
+            0b00111111111100,   // ..XXXXXXXXXX..
+            0b00110111101100,   // ..XX.XXXX.XX..   ojos
+            0b00110111101100,   // ..XX.XXXX.XX..   ojos
+            0b11111111111111,   // XXXXXXXXXXXXXX   bracitos full
+            0b11111111111111,   // XXXXXXXXXXXXXX
+            0b00111111111100,   // ..XXXXXXXXXX..
+            0b00111111111100,   // ..XXXXXXXXXX..   bottom recto
+            0b00110100101100,   // ..XX.X..X.XX..   patas
+            0b00110100101100,   // ..XX.X..X.XX..
+        };
+        uint16_t orange = rgb888to565(0xE07A2F);
+        int x0 = RIGHT_CX - 7;
+        int y0 = 19;
+        for (int yy = 0; yy < 10; yy++) {
+            uint16_t row = CLAWD[yy];
+            for (int xx = 0; xx < 14; xx++) {
+                if (row & (0x2000 >> xx)) dma->drawPixel(x0 + xx, y0 + yy, orange);
+            }
+        }
+        // Guiño: relleno los 2 px de cada ojo de arriba a abajo segun el frame.
+        // Los ojos son los huecos en cols 4 y 9, rows 2-3 del sprite.
+        int eyeRows = clawdEyeRowsClosed();
+        if (eyeRows >= 1) {
+            dma->drawPixel(x0 + 4, y0 + 2, orange);
+            dma->drawPixel(x0 + 9, y0 + 2, orange);
+        }
+        if (eyeRows >= 2) {
+            dma->drawPixel(x0 + 4, y0 + 3, orange);
+            dma->drawPixel(x0 + 9, y0 + 3, orange);
+        }
     }
 
-    // ── Linea 7d ──
-    if (cv.sevenValid) {
-        char line[24];
-        long days  = cv.sevenRemainingSec / 86400;
-        long hours = (cv.sevenRemainingSec % 86400) / 3600;
-        snprintf(line, sizeof(line), "7d %d%% %ldd%ldh",
-                 (int)(cv.sevenUsed * 100.0 + 0.5), days, hours);
-        dma->setTextColor(dim);
-        dma->setCursor(0, 22);
-        dma->print(line);
-        drawClaudePaceBar(22, 4, cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
-    } else {
-        dma->setTextColor(dim2);
-        dma->setCursor(0, 22);
-        dma->print(cv.hasData ? "7d: no data" : "fetching 7d...");
-    }
-
-    // ── Pace label 5h en y=29..31 (5px de alto, baseline 31) ──
-    if (cv.fiveValid && cv.fiveLabel && *cv.fiveLabel) {
-        dma->setTextColor(rgb888to565(cv.fiveColor));
-        int16_t x1, y1; uint16_t w, h;
-        dma->getTextBounds(cv.fiveLabel, 0, 0, &x1, &y1, &w, &h);
-        int x = (WIDTH - (int)w) / 2 - (int)x1;
-        dma->setCursor(x, 31);
-        dma->print(cv.fiveLabel);
+    // ── Barra de segundos full width en y=30..31. El separador vertical
+    // termina 2 px antes, asi que la barra recorre toda la pantalla sin
+    // interrupciones.
+    if (secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
+        int barEnd = (int)(secondOfMinuteF * (float)WIDTH / 60.0f + 0.5f);
+        if (barEnd > WIDTH) barEnd = WIDTH;
+        uint16_t dimBar  = rgb888to565(0x303030);
+        uint16_t headBar = rgb888to565(0xC0C0C0);
+        for (int x = 0; x < barEnd; x++) {
+            dma->drawPixel(x, 30, dimBar);
+            dma->drawPixel(x, 31, dimBar);
+        }
+        if (barEnd > 0 && barEnd <= WIDTH) {
+            dma->drawPixel(barEnd - 1, 30, headBar);
+            dma->drawPixel(barEnd - 1, 31, headBar);
+        }
     }
 
     drawActiveRipples();

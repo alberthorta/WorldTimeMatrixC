@@ -27,6 +27,8 @@ struct Row {
     const char* name;
     uint8_t hour;
     uint8_t minute;
+    uint8_t day;        // 1..31 si hasTime, sino indef. Usado por renderClaude.
+    uint8_t month;      // 1..12 si hasTime, sino indef.
     int8_t tempC;
     IconType::Value icon;
     uint16_t color;     // 565 RGB para nombre/hora
