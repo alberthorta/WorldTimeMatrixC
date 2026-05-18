@@ -1431,6 +1431,57 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
                 dma->drawPixel(degX + xx, degTopY + yy, tc);
     }
 
+    // Tick "happy": de vez en cuando Clawd pone cara feliz (parpado inferior
+    // en V invertida). True durante el periodo de animacion. Cada 8-20s pone
+    // cara feliz durante 4-10s. Mientras dura, no parpadea ni mira a los
+    // lados (decidido en el sitio donde se usan estos valores).
+    auto clawdIsHappy = []() -> bool {
+        static uint32_t s_nextAtMs = 0;
+        static uint32_t s_startMs  = 0;
+        static uint32_t s_durMs    = 0;
+        uint32_t now = millis();
+        if (s_startMs == 0) {
+            if (s_nextAtMs == 0) {
+                s_nextAtMs = now + 8000 + (esp_random() % 12000);
+            }
+            if (now < s_nextAtMs) return false;
+            s_startMs = now;
+            s_durMs   = 4000 + (esp_random() % 6000);
+        }
+        if ((now - s_startMs) >= s_durMs) {
+            s_startMs = 0;
+            s_nextAtMs = now + 8000 + (esp_random() % 12000);
+            return false;
+        }
+        return true;
+    };
+
+    // Tick del "look": de vez en cuando Clawd mira a un lado. Devuelve
+    // desplazamiento horizontal de los ojos: -1 (izq), 0 (centro), +1 (der).
+    // Patron: cada 4-10s mira a un lado durante 0.8-2.3s.
+    auto clawdEyeOffset = []() -> int {
+        static uint32_t s_nextLookAtMs = 0;
+        static uint32_t s_lookStartMs  = 0;
+        static int8_t   s_lookOffset   = 0;
+        static uint32_t s_lookDurMs    = 0;
+        uint32_t now = millis();
+        if (s_lookStartMs == 0) {
+            if (s_nextLookAtMs == 0) {
+                s_nextLookAtMs = now + 4000 + (esp_random() % 6000);
+            }
+            if (now < s_nextLookAtMs) return 0;
+            s_lookOffset = (esp_random() & 1) ? -1 : 1;
+            s_lookStartMs = now;
+            s_lookDurMs   = 800 + (esp_random() % 1500);
+        }
+        if ((now - s_lookStartMs) >= s_lookDurMs) {
+            s_lookStartMs   = 0;
+            s_nextLookAtMs  = now + 4000 + (esp_random() % 6000);
+            return 0;
+        }
+        return (int)s_lookOffset;
+    };
+
     // Tick del guiño de Clawd. Devuelve cuantos rows del ojo estan
     // "cerrados" en este frame (0 = abierto, 1 = medio, 2 = cerrado).
     // Patron: cada 6-15s un ciclo de 2 guiños seguidos.
@@ -1475,11 +1526,13 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
     //   - 4 patitas en la base
     // Cuerpo 10 wide centrado; bracitos suman 2 px a cada lado = 14 total.
     {
+        // Sprite SIN ojos. Los huecos se pintan despues, asi podemos
+        // desplazarlos para "mirar" a un lado sin tocar el sprite base.
         static const uint16_t CLAWD[10] = {
             0b00111111111100,   // ..XXXXXXXXXX..   cabeza top recta
             0b00111111111100,   // ..XXXXXXXXXX..
-            0b00110111101100,   // ..XX.XXXX.XX..   ojos
-            0b00110111101100,   // ..XX.XXXX.XX..   ojos
+            0b00111111111100,   // ..XXXXXXXXXX..   (ojos pintados despues)
+            0b00111111111100,   // ..XXXXXXXXXX..
             0b11111111111111,   // XXXXXXXXXXXXXX   bracitos full
             0b11111111111111,   // XXXXXXXXXXXXXX
             0b00111111111100,   // ..XXXXXXXXXX..
@@ -1496,16 +1549,59 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
                 if (row & (0x2000 >> xx)) dma->drawPixel(x0 + xx, y0 + yy, orange);
             }
         }
-        // Guiño: relleno los 2 px de cada ojo de arriba a abajo segun el frame.
-        // Los ojos son los huecos en cols 4 y 9, rows 2-3 del sprite.
-        int eyeRows = clawdEyeRowsClosed();
+        // Pintar ojos: posicion base cols 4 y 9, desplazada por eyeOff.
+        // Si Clawd esta "feliz": mira al frente y no parpadea (forzamos
+        // eyeOff=0 y eyeRows=0 sin llamar los otros ticks para que sus
+        // timers no se queden mid-animacion). El patron feliz pinta 4
+        // huecos extra en la row inferior tipo "^_^".
+        bool happy = clawdIsHappy();
+        int eyeOff  = happy ? 0 : clawdEyeOffset();
+        int eyeRows = happy ? 0 : clawdEyeRowsClosed();
+        int eyeLX = x0 + 4 + eyeOff;
+        int eyeRX = x0 + 9 + eyeOff;
+        // Pintar negro (huecos) los 2 rows de cada ojo.
+        dma->drawPixel(eyeLX, y0 + 2, 0);
+        dma->drawPixel(eyeLX, y0 + 3, 0);
+        dma->drawPixel(eyeRX, y0 + 2, 0);
+        dma->drawPixel(eyeRX, y0 + 3, 0);
+        // Mano derecha saludando cuando esta feliz. Los 2 px de la punta
+        // (col 13 rows 4-5 del sprite) se levantan 1 row a rows 3-4, y
+        // vuelven a su posicion normal, alternando cada ~350 ms.
+        if (happy) {
+            bool handUp = ((millis() / 350) & 1) == 0;
+            if (handUp) {
+                dma->drawPixel(x0 + 13, y0 + 5, 0);        // limpia la punta inferior
+                dma->drawPixel(x0 + 13, y0 + 3, orange);   // pinta la mano un row mas arriba
+            }
+        }
+
+        // Patron feliz (V invertida): la row 2 mantiene los 2 huecos del ojo;
+        // la row 3 rellena el centro de los ojos (col base) y abre huecos en
+        // las dos cols adyacentes, formando un "^".
+        if (happy) {
+            dma->drawPixel(eyeLX,     y0 + 3, orange);
+            dma->drawPixel(eyeRX,     y0 + 3, orange);
+            dma->drawPixel(eyeLX - 1, y0 + 3, 0);
+            dma->drawPixel(eyeLX + 1, y0 + 3, 0);
+            dma->drawPixel(eyeRX - 1, y0 + 3, 0);
+            dma->drawPixel(eyeRX + 1, y0 + 3, 0);
+        }
+        // Guiño: reponer naranja desde arriba segun frame. Si esta feliz y se
+        // cierra del todo, tapamos tambien los huecos adyacentes para que la
+        // cara feliz desaparezca cuando los ojos cierran.
         if (eyeRows >= 1) {
-            dma->drawPixel(x0 + 4, y0 + 2, orange);
-            dma->drawPixel(x0 + 9, y0 + 2, orange);
+            dma->drawPixel(eyeLX, y0 + 2, orange);
+            dma->drawPixel(eyeRX, y0 + 2, orange);
         }
         if (eyeRows >= 2) {
-            dma->drawPixel(x0 + 4, y0 + 3, orange);
-            dma->drawPixel(x0 + 9, y0 + 3, orange);
+            dma->drawPixel(eyeLX, y0 + 3, orange);
+            dma->drawPixel(eyeRX, y0 + 3, orange);
+            if (happy) {
+                dma->drawPixel(eyeLX - 1, y0 + 3, orange);
+                dma->drawPixel(eyeLX + 1, y0 + 3, orange);
+                dma->drawPixel(eyeRX - 1, y0 + 3, orange);
+                dma->drawPixel(eyeRX + 1, y0 + 3, orange);
+            }
         }
     }
 

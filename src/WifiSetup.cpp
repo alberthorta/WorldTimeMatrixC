@@ -28,6 +28,34 @@ static bool tryConnect(const String& ssid, const String& password, uint32_t time
     char tmpHost[24];
     snprintf(tmpHost, sizeof(tmpHost), "WorldTime-%02X%02X%02X", mac[3], mac[4], mac[5]);
     WiFi.setHostname(tmpHost);
+    // IP estatica vs DHCP. Si wifiUseDhcp=false, intentamos parsear los
+    // strings y aplicar antes de WiFi.begin. Si algun campo es invalido
+    // (ip/gw/subnet vacios o malformados), retrocedemos a DHCP silenciosamente
+    // para no dejar al device sin red.
+    const auto& cf = Config::cfg;
+    if (!cf.wifiUseDhcp) {
+        IPAddress ip, gw, sn, dns1, dns2;
+        bool ok = ip.fromString(cf.wifiStaticIp)
+               && gw.fromString(cf.wifiStaticGateway)
+               && sn.fromString(cf.wifiStaticSubnet);
+        if (ok) {
+            bool hasDns1 = cf.wifiStaticDns1.length() > 0 && dns1.fromString(cf.wifiStaticDns1);
+            bool hasDns2 = cf.wifiStaticDns2.length() > 0 && dns2.fromString(cf.wifiStaticDns2);
+            bool cfgOk;
+            if (hasDns1 && hasDns2)      cfgOk = WiFi.config(ip, gw, sn, dns1, dns2);
+            else if (hasDns1)            cfgOk = WiFi.config(ip, gw, sn, dns1);
+            else                         cfgOk = WiFi.config(ip, gw, sn);
+            Serial.printf("[wifi] static ip=%s gw=%s sn=%s dns1=%s dns2=%s -> cfg=%d\n",
+                          cf.wifiStaticIp.c_str(), cf.wifiStaticGateway.c_str(),
+                          cf.wifiStaticSubnet.c_str(),
+                          hasDns1 ? cf.wifiStaticDns1.c_str() : "(auto)",
+                          hasDns2 ? cf.wifiStaticDns2.c_str() : "(none)",
+                          (int)cfgOk);
+        } else {
+            Serial.println("[wifi] static cfg invalid, falling back to DHCP");
+            WiFi.config(IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0));
+        }
+    }
     // Power save off: por defecto el ESP32 entra en sleep entre beacons.
     // En APs marginales esto retrasa muchisimo la atencion de TCP incoming
     // y puede hacer que el server HTTP "tarde" en responder aunque este up.

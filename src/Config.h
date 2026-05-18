@@ -86,6 +86,15 @@ struct All {
     // intenta despues del primer chequeo. 1..720 (1 mes).
     bool     autoUpdateEnabled;
     uint16_t autoUpdateCheckIntervalH;
+    // Configuracion IP: DHCP por defecto. Si wifiUseDhcp=false aplicamos IP
+    // estatica con los 5 campos antes de WiFi.begin. Strings vacias = no
+    // setear ese campo (asi DNS secundario es opcional).
+    bool     wifiUseDhcp;
+    String   wifiStaticIp;
+    String   wifiStaticGateway;
+    String   wifiStaticSubnet;
+    String   wifiStaticDns1;
+    String   wifiStaticDns2;
     City cities[4];
     NightMode nightMode;
     uint32_t palette[16];     // 0xRRGGBB; slot 0 es transparente

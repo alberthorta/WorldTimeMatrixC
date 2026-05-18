@@ -112,6 +112,12 @@ static All defaults() {
     a.claudeRefreshSec     = 180;
     a.autoUpdateEnabled    = true;
     a.autoUpdateCheckIntervalH = 24;
+    a.wifiUseDhcp          = true;
+    a.wifiStaticIp         = "";
+    a.wifiStaticGateway    = "";
+    a.wifiStaticSubnet     = "";
+    a.wifiStaticDns1       = "";
+    a.wifiStaticDns2       = "";
     a.cities[0] = {"BCN",   41.41651f,    2.177195f, 0xCCCCCC};
     a.cities[1] = {"NEGRA", -32.88946f,  -68.8458f,  0xCCCCCC};
     a.cities[2] = {"MAMI",   10.64232f,  -71.61088f, 0xCCCCCC};
@@ -150,6 +156,12 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_refresh_sec"]     = cfg.claudeRefreshSec;
     doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
     doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
+    doc["wifi_use_dhcp"]                = cfg.wifiUseDhcp;
+    doc["wifi_static_ip"]               = cfg.wifiStaticIp;
+    doc["wifi_static_gateway"]          = cfg.wifiStaticGateway;
+    doc["wifi_static_subnet"]           = cfg.wifiStaticSubnet;
+    doc["wifi_static_dns1"]             = cfg.wifiStaticDns1;
+    doc["wifi_static_dns2"]             = cfg.wifiStaticDns2;
     JsonArray cities = doc["cities"].to<JsonArray>();
     for (int i = 0; i < 4; i++) {
         const City& c = cfg.cities[i];
@@ -279,6 +291,18 @@ static bool applyJson(JsonDocument& doc) {
         if (h > 720) h = 720;
         cfg.autoUpdateCheckIntervalH = h;
     }
+    if (doc["wifi_use_dhcp"].is<bool>())
+        cfg.wifiUseDhcp = doc["wifi_use_dhcp"];
+    if (doc["wifi_static_ip"].is<const char*>())
+        cfg.wifiStaticIp = doc["wifi_static_ip"].as<const char*>();
+    if (doc["wifi_static_gateway"].is<const char*>())
+        cfg.wifiStaticGateway = doc["wifi_static_gateway"].as<const char*>();
+    if (doc["wifi_static_subnet"].is<const char*>())
+        cfg.wifiStaticSubnet = doc["wifi_static_subnet"].as<const char*>();
+    if (doc["wifi_static_dns1"].is<const char*>())
+        cfg.wifiStaticDns1 = doc["wifi_static_dns1"].as<const char*>();
+    if (doc["wifi_static_dns2"].is<const char*>())
+        cfg.wifiStaticDns2 = doc["wifi_static_dns2"].as<const char*>();
     JsonArray arr = doc["cities"].as<JsonArray>();
     if (!arr.isNull()) {
         for (int i = 0; i < 4 && i < (int)arr.size(); i++) {

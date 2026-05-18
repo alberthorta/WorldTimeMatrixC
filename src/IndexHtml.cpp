@@ -368,6 +368,22 @@ code{
     <label><span class="label">SSID</span><input id="ssid"/></label>
     <label><span class="label">Password</span><input id="pwd" type="password"/></label>
   </div>
+  <label class="toggle-row" style="margin-bottom:.5rem">
+    <span class="toggle"><input id="wifi-dhcp" type="checkbox" checked/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Usar DHCP (recomendado). Desmarca para IP estatica.</span>
+  </label>
+  <div id="wifi-static-fields" style="display:none">
+    <div class="grid-2">
+      <label><span class="label">IP</span><input id="wifi-ip" placeholder="192.168.1.50"/></label>
+      <label><span class="label">Gateway</span><input id="wifi-gw" placeholder="192.168.1.1"/></label>
+    </div>
+    <div class="grid-2">
+      <label><span class="label">Subnet</span><input id="wifi-sn" placeholder="255.255.255.0"/></label>
+      <label><span class="label">DNS 1</span><input id="wifi-dns1" placeholder="1.1.1.1"/></label>
+    </div>
+    <label><span class="label">DNS 2 (opcional)</span><input id="wifi-dns2" placeholder=""/></label>
+    <span class="note">Los cambios de IP se aplican al siguiente boot. Si los valores son invalidos, el device vuelve a DHCP automaticamente.</span>
+  </div>
   <button id="connect" class="btn btn-primary">Conectar y reiniciar</button>
 </section>
 
@@ -759,6 +775,15 @@ async function loadConfig(){
     $('#claude-refresh').value = cfg.claude_refresh_sec || 180;
     $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
     $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
+    // WiFi DHCP / static
+    const useDhcp = cfg.wifi_use_dhcp !== false;
+    $('#wifi-dhcp').checked = useDhcp;
+    $('#wifi-static-fields').style.display = useDhcp ? 'none' : '';
+    $('#wifi-ip').value   = cfg.wifi_static_ip      || '';
+    $('#wifi-gw').value   = cfg.wifi_static_gateway || '';
+    $('#wifi-sn').value   = cfg.wifi_static_subnet  || '';
+    $('#wifi-dns1').value = cfg.wifi_static_dns1    || '';
+    $('#wifi-dns2').value = cfg.wifi_static_dns2    || '';
     $('#trend-extras').style.display = $('#trend-en').checked ? '' : 'none';
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
@@ -1152,6 +1177,12 @@ $('#save').onclick = async () => {
     claude_refresh_sec:     parseInt($('#claude-refresh').value, 10) || 180,
     auto_update_enabled:    $('#autoupd-en').checked,
     auto_update_check_interval_h: Math.max(1, Math.min(720, parseInt($('#autoupd-interval').value, 10) || 24)),
+    wifi_use_dhcp:          $('#wifi-dhcp').checked,
+    wifi_static_ip:         $('#wifi-ip').value.trim(),
+    wifi_static_gateway:    $('#wifi-gw').value.trim(),
+    wifi_static_subnet:     $('#wifi-sn').value.trim(),
+    wifi_static_dns1:       $('#wifi-dns1').value.trim(),
+    wifi_static_dns2:       $('#wifi-dns2').value.trim(),
     cities: cfg.cities,
     night_mode: {
       enabled: $('#nm-en').checked,
@@ -1183,6 +1214,11 @@ $('#save').onclick = async () => {
     setMsg('Guardado.' + (d.cities_changed ? ' (refresh meteo en curso)' : ''), 'ok');
     loadWeather();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
+};
+
+// Toggle DHCP/static
+$('#wifi-dhcp').onchange = () => {
+  $('#wifi-static-fields').style.display = $('#wifi-dhcp').checked ? 'none' : '';
 };
 
 // Botones simulados: POST /api/button?b=left|center|right
