@@ -96,6 +96,28 @@ static const int FADE_CANVAS_H = 8;
 static GFXcanvas1* g_canvasOld = nullptr;
 static GFXcanvas1* g_canvasNew = nullptr;
 
+// Canvases adicionales para crossfade del HH:MM en los modos FOCUS (fuente
+// FreeSans12pt7b, ~56x18) y CLAUDE (TomThumb, cabe en 22x7 igual que el
+// existente, pero usamos par dedicado para no pisar el de renderRows si en
+// el futuro se mezclan).
+static const int FOCUS_FADE_CANVAS_W = 56;
+static const int FOCUS_FADE_CANVAS_H = 20;
+static GFXcanvas1* g_focusCanvasOld = nullptr;
+static GFXcanvas1* g_focusCanvasNew = nullptr;
+static const int CLAUDE_FADE_CANVAS_W = 22;
+static const int CLAUDE_FADE_CANVAS_H = 7;
+static GFXcanvas1* g_claudeCanvasOld = nullptr;
+static GFXcanvas1* g_claudeCanvasNew = nullptr;
+
+struct HHMMTransState {
+    bool inited = false;
+    int8_t prevHour = 0;
+    int8_t prevMinute = 0;
+    uint32_t startMs = 0;
+};
+static HHMMTransState s_focusHHMMTrans;
+static HHMMTransState s_claudeHHMMTrans;
+
 // Escala un color 565 por alpha [0..1] decodificando a 888, multiplicando por
 // canal y reencodificando. Usado por el fade del colon, las transiciones de
 // HH:MM/temp y el º cuando hay alpha.
@@ -260,6 +282,10 @@ void begin() {
     Serial.println("[display] HUB75 DMA up (double-buffered)");
     g_canvasOld = new GFXcanvas1(FADE_CANVAS_W, FADE_CANVAS_H);
     g_canvasNew = new GFXcanvas1(FADE_CANVAS_W, FADE_CANVAS_H);
+    g_focusCanvasOld  = new GFXcanvas1(FOCUS_FADE_CANVAS_W, FOCUS_FADE_CANVAS_H);
+    g_focusCanvasNew  = new GFXcanvas1(FOCUS_FADE_CANVAS_W, FOCUS_FADE_CANVAS_H);
+    g_claudeCanvasOld = new GFXcanvas1(CLAUDE_FADE_CANVAS_W, CLAUDE_FADE_CANVAS_H);
+    g_claudeCanvasNew = new GFXcanvas1(CLAUDE_FADE_CANVAS_W, CLAUDE_FADE_CANVAS_H);
 }
 
 void setBrightness(uint8_t v) {
@@ -293,6 +319,60 @@ void triggerRipple(int slot, int16_t cx, int16_t cy) {
     g_ripples[slot].cx = cx;
     g_ripples[slot].cy = cy;
     g_ripples[slot].startMs = millis();
+}
+
+static uint16_t blendColor(uint16_t cOld, float aOld, uint16_t cNew, float aNew);   // fwd
+
+// Dibuja una barra de segundos "smooth" con la cabeza renderizada sub-pixel:
+// los pixeles ya recorridos se pintan en color dim; la cabeza se reparte
+// entre dos pixeles adyacentes con alpha proporcional a la fraccion de
+// segundo, dando sensacion de movimiento continuo a la velocidad del render.
+static void drawSecondsBarSmooth(int x0, int y0, int barW, int height,
+                                 float secondOfMinuteF) {
+    if (secondOfMinuteF < 0.0f || secondOfMinuteF >= 60.0f) return;
+    float barEndF = secondOfMinuteF * (float)barW / 60.0f;
+    int barEndInt = (int)floorf(barEndF);
+    float frac = barEndF - (float)barEndInt;
+    uint16_t dimBar  = rgb888to565(0x303030);
+    uint16_t headBar = rgb888to565(0xC0C0C0);
+    for (int x = 0; x < barEndInt; x++) {
+        for (int dy = 0; dy < height; dy++) {
+            dma->drawPixel(x0 + x, y0 + dy, dimBar);
+        }
+    }
+    if (barEndInt >= 0 && barEndInt < barW) {
+        // Interpola entre head y dim segun la fraccion: cuando frac=0 el
+        // pixel es head pleno, cuando frac=1 es practicamente dim (porque
+        // la cabeza ha "pasado" al siguiente).
+        uint16_t c = blendColor(headBar, 1.0f - frac, dimBar, frac);
+        for (int dy = 0; dy < height; dy++) {
+            dma->drawPixel(x0 + barEndInt, y0 + dy, c);
+        }
+    }
+    if (barEndInt + 1 >= 0 && barEndInt + 1 < barW) {
+        // Pixel donde la cabeza esta apareciendo: alpha=frac sobre head.
+        uint16_t c = scale565(headBar, frac);
+        for (int dy = 0; dy < height; dy++) {
+            dma->drawPixel(x0 + barEndInt + 1, y0 + dy, c);
+        }
+    }
+}
+
+// Calcula el alpha del ":" entre HH y MM segun el segundo actual y el flag
+// colonBlink del Config. Misma formula que la usada en renderRows: parpadeo
+// 1Hz con fade de 200ms al cambiar. Si colonBlink esta off devuelve 1.0.
+static float computeColonAlpha(float secondOfMinuteF) {
+    if (!Config::cfg.colonBlink || secondOfMinuteF < 0.0f) return 1.0f;
+    int intSec = (int)floorf(secondOfMinuteF);
+    float frac = secondOfMinuteF - (float)intSec;
+    float target = ((intSec % 2) == 0) ? 1.0f : 0.0f;
+    float prev   = 1.0f - target;
+    const float FADE_SEC = 4.0f / 20.0f;       // 200 ms a 20 fps
+    if (frac < FADE_SEC) {
+        float p = frac / FADE_SEC;
+        return prev * (1.0f - p) + target * p;
+    }
+    return target;
 }
 
 // Overlay del brillo (label + barra + %). Se dispara desde main al pulsar
@@ -893,6 +973,124 @@ void renderRows(const Row rows[4], float secondOfMinuteF) {
     dma->flipDMABuffer();   // intercambia front/back, anti-flicker
 }
 
+// Renderiza HH:MM con dos efectos compartidos entre los modos FOCUS y CLAUDE:
+//   1) Crossfade pixel-por-pixel al cambiar de minuto (300 ms), reusando dos
+//      canvases 1-bit con el OLD y el NEW rasterizados con la misma baseline.
+//   2) Colon blink: solo activo cuando no hay crossfade (durante el fade lo
+//      ignoramos porque solo dura 300 ms y no compensa el coste).
+// `dstCenterX` define el centro horizontal donde se alinea el HH:MM en el
+// panel; `dstBaselineY` la baseline. `color` se aplica al texto entero (los
+// 565 a alpha 0..1 se hacen con scale565).
+static void renderHHMMWithFade(
+    HHMMTransState& tr,
+    GFXcanvas1* cOld, GFXcanvas1* cNew,
+    const GFXfont* font,
+    uint8_t hour, uint8_t minute, bool leadingZero,
+    int dstCenterX, int dstBaselineY,
+    uint16_t color, float colonAlpha) {
+
+    uint32_t now = millis();
+    if (!tr.inited) {
+        tr.prevHour = (int8_t)hour;
+        tr.prevMinute = (int8_t)minute;
+        tr.inited = true;
+    }
+    bool changed = (tr.prevHour != (int8_t)hour) || (tr.prevMinute != (int8_t)minute);
+    if (changed && tr.startMs == 0) tr.startMs = now;
+    bool inFade = (tr.startMs != 0);
+    uint32_t elapsed = inFade ? (now - tr.startMs) : 0;
+    if (inFade && elapsed >= FADE_MS) {
+        tr.prevHour = (int8_t)hour;
+        tr.prevMinute = (int8_t)minute;
+        tr.startMs = 0;
+        inFade = false;
+    }
+
+    auto formatTime = [&](char* hh, size_t hhSz, char* mm, size_t mmSz,
+                          char* full, size_t fullSz,
+                          uint8_t h, uint8_t m) {
+        bool lz = leadingZero || h >= 10;
+        if (lz) snprintf(hh, hhSz, "%02u", h);
+        else    snprintf(hh, hhSz, "%u",  h);
+        snprintf(mm, mmSz, "%02u", m);
+        snprintf(full, fullSz, "%s:%s", hh, mm);
+    };
+
+    if (!inFade) {
+        // Render directo al panel con colon blink.
+        char hh[4], mm[4], full[8];
+        formatTime(hh, sizeof(hh), mm, sizeof(mm), full, sizeof(full), hour, minute);
+        dma->setFont(font);
+        dma->setTextSize(1);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(full, 0, 0, &x1, &y1, &w, &h);
+        int xStart = dstCenterX - (int)w / 2 - (int)x1;
+        dma->setCursor(xStart, dstBaselineY);
+        dma->setTextColor(color);
+        dma->print(hh);
+        dma->setTextColor(scale565(color, colonAlpha));
+        dma->print(":");
+        dma->setTextColor(color);
+        dma->print(mm);
+        return;
+    }
+
+    // En fade: rasterizar OLD y NEW en sus canvases con la misma baseline.
+    // Cada canvas alinea el texto con su top-left interno en (1, 0) (1 px de
+    // margen izq por seguridad). Guardamos el ancho real para centrar luego.
+    auto rasterize = [&](GFXcanvas1& c, uint8_t h, uint8_t m) -> int {
+        c.fillScreen(0);
+        c.setFont(font);
+        c.setTextSize(1);
+        c.setTextColor(1);
+        char hh[4], mm[4], full[8];
+        formatTime(hh, sizeof(hh), mm, sizeof(mm), full, sizeof(full), h, m);
+        int16_t x1, y1; uint16_t w, ht;
+        c.getTextBounds(full, 0, 0, &x1, &y1, &w, &ht);
+        c.setCursor(1 - x1, -y1);
+        c.print(full);
+        return (int)w;
+    };
+    int wOld = rasterize(*cOld, (uint8_t)tr.prevHour, (uint8_t)tr.prevMinute);
+    int wNew = rasterize(*cNew, hour, minute);
+
+    // Calculamos el desplazamiento vertical: usamos el bbox del NEW (mas
+    // relevante visualmente).
+    char hh[4], mm[4], full[8];
+    formatTime(hh, sizeof(hh), mm, sizeof(mm), full, sizeof(full), hour, minute);
+    dma->setFont(font);
+    dma->setTextSize(1);
+    int16_t x1, y1; uint16_t w, h;
+    dma->getTextBounds(full, 0, 0, &x1, &y1, &w, &h);
+    int dstTopY = dstBaselineY + (int)y1;
+
+    int dstNewX = dstCenterX - (1 + wNew / 2);
+    int dstOldX = dstCenterX - (1 + wOld / 2);
+    int canvasW = cNew->width();
+    int canvasH = cNew->height();
+    float p = (float)elapsed / (float)FADE_MS;
+    float aOld = 1.0f - p;
+    float aNew = p;
+    int minX = (dstNewX < dstOldX) ? dstNewX : dstOldX;
+    int maxX = ((dstNewX + canvasW) > (dstOldX + canvasW))
+                   ? (dstNewX + canvasW) : (dstOldX + canvasW);
+    for (int yy = 0; yy < canvasH; yy++) {
+        int yPanel = dstTopY + yy;
+        if (yPanel < 0 || yPanel >= HEIGHT) continue;
+        for (int xPanel = minX; xPanel < maxX; xPanel++) {
+            if (xPanel < 0 || xPanel >= WIDTH) continue;
+            int xOldC = xPanel - dstOldX;
+            int xNewC = xPanel - dstNewX;
+            bool inOld = (xOldC >= 0 && xOldC < canvasW) ? cOld->getPixel(xOldC, yy) : false;
+            bool inNew = (xNewC >= 0 && xNewC < canvasW) ? cNew->getPixel(xNewC, yy) : false;
+            float a = (inOld ? aOld : 0.0f) + (inNew ? aNew : 0.0f);
+            if (a < 0.01f) continue;
+            if (a > 1.0f) a = 1.0f;
+            dma->drawPixel(xPanel, yPanel, scale565(color, a));
+        }
+    }
+}
+
 // Dibuja un Icons::Frame escalado por `scale` (cada pixel del icono -> bloque
 // scale x scale). Usado en modo focus para que el icono 5x5 se vea como 10x10.
 static void drawFrameScaled(int x, int y, const Icons::Frame& f, int scale) {
@@ -921,20 +1119,24 @@ void renderFocus(const Row& r, float secondOfMinuteF) {
     // de la ciudad.
     int hourBottomY = 0;     // ultimo y del texto de la hora, para centrar la fecha debajo
     if (r.hasTime) {
-        char hhmm[8];
-        bool leadingZero = Config::cfg.hourLeadingZero || r.hour >= 10;
-        if (leadingZero) snprintf(hhmm, sizeof(hhmm), "%02u:%02u", r.hour, r.minute);
-        else             snprintf(hhmm, sizeof(hhmm), "%u:%02u",  r.hour, r.minute);
+        uint16_t base = rgb888to565(Config::cfg.focusHourColor);
+        float colonAlpha = computeColonAlpha(secondOfMinuteF);
+        // baseline en panel: top a 1 px del borde superior. Para FreeSans12pt7b
+        // calculamos baselineY usando getTextBounds (independiente del valor
+        // exacto de "HH:MM" siempre que use la misma fuente).
         dma->setFont(&FreeSans12pt7b);
         dma->setTextSize(1);
-        dma->setTextColor(rgb888to565(Config::cfg.focusHourColor));
         int16_t x1, y1; uint16_t w, h;
-        dma->getTextBounds(hhmm, 0, 0, &x1, &y1, &w, &h);
-        int x = (WIDTH - (int)w) / 2 - (int)x1;   // centrado horizontal
-        int y = 1 - (int)y1;                       // top en y=1
-        dma->setCursor(x, y);
-        dma->print(hhmm);
-        hourBottomY = 1 + (int)h - 1;             // top + h - 1
+        dma->getTextBounds("88:88", 0, 0, &x1, &y1, &w, &h);
+        int baselineY = 1 - (int)y1;
+        renderHHMMWithFade(s_focusHHMMTrans,
+                           g_focusCanvasOld, g_focusCanvasNew,
+                           &FreeSans12pt7b,
+                           r.hour, r.minute,
+                           Config::cfg.hourLeadingZero,
+                           WIDTH / 2, baselineY,
+                           base, colonAlpha);
+        hourBottomY = 1 + (int)h - 1;
         dma->setFont(&TomThumb);
     }
 
@@ -999,21 +1201,8 @@ void renderFocus(const Row& r, float secondOfMinuteF) {
         dma->setTextSize(1);
     }
 
-    // ---- 4) Segundera: barra horizontal de 2px de alto en y=30..31. ----
-    if (secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
-        int barEnd = (int)(secondOfMinuteF * (float)WIDTH / 60.0f + 0.5f);
-        if (barEnd > WIDTH) barEnd = WIDTH;
-        uint16_t dim = rgb888to565(0x303030);
-        uint16_t head = rgb888to565(0xC0C0C0);
-        for (int x = 0; x < barEnd; x++) {
-            dma->drawPixel(x, 30, dim);
-            dma->drawPixel(x, 31, dim);
-        }
-        if (barEnd > 0 && barEnd <= WIDTH) {
-            dma->drawPixel(barEnd - 1, 30, head);
-            dma->drawPixel(barEnd - 1, 31, head);
-        }
-    }
+    // ---- 4) Segundera smooth (sub-pixel) en y=30..31. ----
+    drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
 
     // Overlays compartidos con el modo normal.
     drawActiveRipples();
@@ -1059,9 +1248,13 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
     dma->setFont(&TomThumb);
     dma->setTextSize(1);
 
-    uint16_t white = rgb888to565(0xFFFFFF);
-    uint16_t dim   = rgb888to565(0xAAAAAA);
-    uint16_t dim2  = rgb888to565(0x666666);
+    // Colores hora/fecha: reutilizamos los pickers de la web focus_hour_color
+    // y focus_date_color tambien para el modo Claude. dim y dim2 son fijos
+    // para los stats (no expuestos en la UI).
+    uint16_t hourCol = rgb888to565(Config::cfg.focusHourColor);
+    uint16_t dateCol = rgb888to565(Config::cfg.focusDateColor);
+    uint16_t dim     = rgb888to565(0xAAAAAA);
+    uint16_t dim2    = rgb888to565(0x666666);
 
     const int LEFT_W   = (WIDTH * 2) / 3;        // 42
     const int RIGHT_X  = LEFT_W + 1;             // 43, deja 1 px de gap
@@ -1143,18 +1336,18 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         char line[12];
         snprintf(line, sizeof(line), "7d %d%%", (int)(cv.sevenUsed * 100.0 + 0.5));
         dma->setTextColor(dim);
-        dma->setCursor(0, 18);
+        dma->setCursor(0, 17);
         dma->print(line);
         char cd[10];
         snprintf(cd, sizeof(cd), "%ldh", cv.sevenRemainingSec / 3600);
-        drawCountdownRight(cd, 18);
+        drawCountdownRight(cd, 17);
     } else {
         dma->setTextColor(dim2);
-        dma->setCursor(0, 18);
+        dma->setCursor(0, 17);
         dma->print(cv.hasData ? "7d -" : "7d ...");
     }
     if (cv.sevenValid) {
-        drawClaudePaceBar(0, 19, LEFT_W - 1, 4,
+        drawClaudePaceBar(0, 18, LEFT_W - 1, 4,
                           cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
     }
 
@@ -1166,7 +1359,7 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         dma->getTextBounds(cv.fiveLabel, 0, 0, &x1, &y1, &w, &h);
         int x = (LEFT_W - (int)w) / 2 - (int)x1;
         if (x < 0) x = 0;
-        dma->setCursor(x, 29);
+        dma->setCursor(x, 28);
         dma->print(cv.fiveLabel);
     }
 
@@ -1178,19 +1371,16 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         return x;
     };
 
-    // Hora HH:MM (sin segundos: no cabe en 21 px).
+    // Hora HH:MM con crossfade + colon blink. Reutiliza el helper compartido.
     if (weatherRow.hasTime) {
-        char hhmm[8];
-        bool lz = Config::cfg.hourLeadingZero || weatherRow.hour >= 10;
-        if (lz) snprintf(hhmm, sizeof(hhmm), "%02u:%02u",
-                         weatherRow.hour, weatherRow.minute);
-        else    snprintf(hhmm, sizeof(hhmm), "%u:%02u",
-                         weatherRow.hour, weatherRow.minute);
-        dma->setTextColor(white);
-        int16_t x1, y1; uint16_t w, h;
-        dma->getTextBounds(hhmm, 0, 0, &x1, &y1, &w, &h);
-        dma->setCursor(centerInRight((int)w) - (int)x1, 6);
-        dma->print(hhmm);
+        float colonAlpha = computeColonAlpha(secondOfMinuteF);
+        renderHHMMWithFade(s_claudeHHMMTrans,
+                           g_claudeCanvasOld, g_claudeCanvasNew,
+                           &TomThumb,
+                           weatherRow.hour, weatherRow.minute,
+                           Config::cfg.hourLeadingZero,
+                           RIGHT_CX, 6,
+                           hourCol, colonAlpha);
     }
 
     // Fecha siempre en formato DD/MM en este modo (ignora dateFormatText),
@@ -1200,7 +1390,7 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         char dateBuf[10];
         snprintf(dateBuf, sizeof(dateBuf), "%02u/%02u",
                  weatherRow.day, weatherRow.month);
-        dma->setTextColor(dim);
+        dma->setTextColor(dateCol);
         int16_t x1, y1; uint16_t w, h;
         dma->getTextBounds(dateBuf, 0, 0, &x1, &y1, &w, &h);
         dma->setCursor(centerInRight((int)w) - (int)x1, 12);
@@ -1319,23 +1509,8 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         }
     }
 
-    // ── Barra de segundos full width en y=30..31. El separador vertical
-    // termina 2 px antes, asi que la barra recorre toda la pantalla sin
-    // interrupciones.
-    if (secondOfMinuteF >= 0.0f && secondOfMinuteF < 60.0f) {
-        int barEnd = (int)(secondOfMinuteF * (float)WIDTH / 60.0f + 0.5f);
-        if (barEnd > WIDTH) barEnd = WIDTH;
-        uint16_t dimBar  = rgb888to565(0x303030);
-        uint16_t headBar = rgb888to565(0xC0C0C0);
-        for (int x = 0; x < barEnd; x++) {
-            dma->drawPixel(x, 30, dimBar);
-            dma->drawPixel(x, 31, dimBar);
-        }
-        if (barEnd > 0 && barEnd <= WIDTH) {
-            dma->drawPixel(barEnd - 1, 30, headBar);
-            dma->drawPixel(barEnd - 1, 31, headBar);
-        }
-    }
+    // ── Barra de segundos full width en y=30..31, sub-pixel smooth.
+    drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
 
     drawActiveRipples();
     drawBrightnessOverlay();

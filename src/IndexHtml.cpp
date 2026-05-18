@@ -348,6 +348,16 @@ code{
 </header>
 
 <section class="card">
+  <h2 class="h-section mb-3">Botones (simulacion)</h2>
+  <span class="note">Disparan la misma accion que los TTP223 fisicos: izquierda = brillo -, centro = cambiar de modo, derecha = brillo +.</span>
+  <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
+    <button id="btn-sim-left"   type="button" class="btn">&larr; Brillo -</button>
+    <button id="btn-sim-center" type="button" class="btn">Modo</button>
+    <button id="btn-sim-right"  type="button" class="btn">Brillo + &rarr;</button>
+  </div>
+</section>
+
+<section class="card">
   <div class="card-head">
     <h2 class="h-section">WiFi</h2>
     <button id="scan" class="btn btn-sm">Buscar redes</button>
@@ -492,15 +502,15 @@ code{
       <input id="trend-color-stable" type="color" value="#666666"/>
     </label>
   </div>
-  <h3 style="margin-top:1rem">Modo focus (boton central)</h3>
-  <span class="note">Colores especificos cuando el modo focus esta activo (solo se muestra la primera ciudad en grande). Independientes del color de la ciudad.</span>
+  <h3 style="margin-top:1rem">Colores hora y fecha (modos focus + Claude)</h3>
+  <span class="note">Se aplica al modo focus (modo 2) y al modo Claude (modo 3). Independientes del color de cada ciudad.</span>
   <div class="grid-2">
     <label>
-      <span class="label">Color hora (focus)</span>
+      <span class="label">Color hora</span>
       <input id="focus-hour-color" type="color" value="#FFFFFF"/>
     </label>
     <label>
-      <span class="label">Color fecha (focus)</span>
+      <span class="label">Color fecha</span>
       <input id="focus-date-color" type="color" value="#AAAAAA"/>
     </label>
   </div>
@@ -1174,6 +1184,15 @@ $('#save').onclick = async () => {
     loadWeather();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
+
+// Botones simulados: POST /api/button?b=left|center|right
+async function pressButton(side) {
+  try { await fetch('/api/button?b=' + side, {method:'POST'}); }
+  catch (e) { /* swallow, no es critico */ }
+}
+$('#btn-sim-left').onclick   = () => pressButton('left');
+$('#btn-sim-center').onclick = () => pressButton('center');
+$('#btn-sim-right').onclick  = () => pressButton('right');
 
 $('#autoupd-now').onclick = async () => {
   const s = $('#autoupd-status');

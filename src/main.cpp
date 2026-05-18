@@ -23,6 +23,73 @@ volatile bool g_pendingReset = false;
 //              grande, temp grande, icono x2 y barra de segundera.
 enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2 };
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
+static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
+
+// Flag set desde WebApi para simular pulsaciones desde el navegador. bit i
+// = idx del boton (0=izq, 1=centro, 2=der). El loop lo consume y dispara
+// la misma accion que el flanco PRESSED del TTP correspondiente.
+static volatile uint8_t g_buttonRequestMask = 0;
+static uint32_t g_brightnessDirtyMs = 0;
+void requestButtonPress(int idx) {
+    if (idx >= 0 && idx < 3) g_buttonRequestMask |= (1 << idx);
+}
+
+// Forward decls para handleButtonAction (definida tras inNightWindow).
+static bool inNightWindow(uint16_t nowMins);
+static DisplayMode nextDisplayMode(DisplayMode m);
+// Centros del ripple para los 3 botones (mismas constantes que el TTP loop).
+static const int16_t BTN_RIPPLE_X[3] = {16, Display::WIDTH / 2, Display::WIDTH - 16};
+
+// Lanza la accion correspondiente al boton `idx` (0=izq, 1=centro, 2=der).
+// Compartida entre el flanco PRESSED del TTP y la simulacion via WebApi.
+// `source` es texto para los logs ("ttp" / "web").
+static void handleButtonAction(int idx, const char* source) {
+    if (idx < 0 || idx >= 3) return;
+    Display::triggerRipple(idx, BTN_RIPPLE_X[idx], 0);
+    if (idx == 1) {
+        g_displayMode = nextDisplayMode(g_displayMode);
+        const char* name =
+            (g_displayMode == DisplayMode::FOCUS)  ? "FOCUS" :
+            (g_displayMode == DisplayMode::CLAUDE) ? "CLAUDE" :
+                                                     "FOUR_ROWS";
+        Serial.printf("[%s] displayMode -> %s\n", source, name);
+        if (g_displayMode == DisplayMode::CLAUDE) {
+            ClaudeStats::requestRefresh();
+        }
+        return;
+    }
+    // Botones de brillo (izq/der). Si estamos en ventana de modo noche se
+    // ajusta nightMode.brightness para que el cambio sea visible; sino el
+    // brillo normal.
+    float delta = (idx == 0) ? -0.05f : 0.05f;
+    bool inNight = false;
+    const auto& nm = Config::cfg.nightMode;
+    if (nm.enabled) {
+        time_t utc = time(nullptr);
+        if (utc > TIME_VALID_THRESHOLD) {
+            int refOffset = Weather::data[0].hasData
+                                ? Weather::data[0].offsetSec : 0;
+            time_t local = utc + refOffset;
+            struct tm tm;
+            gmtime_r(&local, &tm);
+            uint16_t nowMins = tm.tm_hour * 60 + tm.tm_min;
+            inNight = inNightWindow(nowMins);
+        }
+    }
+    float& target = inNight ? Config::cfg.nightMode.brightness
+                            : Config::cfg.brightness;
+    float b = constrain(target + delta, 0.05f, 1.0f);
+    if (b != target) {
+        target = b;
+        g_brightnessDirtyMs = millis();
+        Serial.printf("[%s] %s -> %.2f\n", source,
+                      inNight ? "night brightness" : "brightness", b);
+    } else {
+        Serial.printf("[%s] %s ya en limite (%.2f)\n", source,
+                      inNight ? "night brightness" : "brightness", b);
+    }
+    Display::triggerBrightnessOverlay(target);
+}
 
 // Avanza al siguiente modo del toggle (boton central). CLAUDE solo si hay
 // sessionKey configurada — sino se salta directamente.
@@ -42,8 +109,6 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
 static constexpr uint8_t PIN_TTP1 = A2;  // GPIO 9   - izquierda
 static constexpr uint8_t PIN_TTP2 = A3;  // GPIO 10  - centro
 static constexpr uint8_t PIN_TTP3 = A4;  // GPIO 11  - derecha
-
-static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
 // Estado del check periodico de auto-update. Se inicializa a "hace mucho"
 // para que el primer check se dispare al boot (lo hace setup() explicitamente
@@ -236,7 +301,8 @@ void loop() {
     static bool     ttpRawPrev[3] = {false, false, false};
     static uint32_t ttpRawSinceMs[3] = {0, 0, 0};
     static uint32_t ttpLastPressMs[3] = {0, 0, 0};
-    static uint32_t brightnessDirtyMs = 0;
+    // g_brightnessDirtyMs es global para que handleButton pueda escribirla
+    // tanto desde el TTP edge como desde el web simulado.
     constexpr uint32_t PRESS_HOLD_MS    = 80;
     constexpr uint32_t RELEASE_HOLD_MS  = 40;
     constexpr uint32_t POST_PRESS_LOCK  = 350;
@@ -267,50 +333,32 @@ void loop() {
     const uint8_t ttpPin[3] = {PIN_TTP1, PIN_TTP2, PIN_TTP3};
     const char* const ttpLabel[3] = {"A2/izq", "A3/cen", "A4/der"};
     const int16_t ttpRippleX[3] = {16, Display::WIDTH / 2, Display::WIDTH - 16};
+    // Atender requests del web (simulacion de pulsacion desde la UI). Se
+    // procesan antes del edge detect del TTP para que los logs salgan en
+    // orden si ambos coinciden.
+    uint8_t webReq = g_buttonRequestMask;
+    g_buttonRequestMask = 0;
+    for (int i = 0; i < 3; i++) {
+        if (webReq & (1 << i)) {
+            Serial.printf("[web] button %s\n", ttpLabel[i]);
+            handleButtonAction(i, "web");
+        }
+    }
+    // Edge detect de los TTPs fisicos.
     for (int i = 0; i < 3; i++) {
         if (ttp[i] != ttpPrev[i]) {
             Serial.printf("[ttp] TTP%d (%s, GPIO%d) %s\n",
                           i + 1, ttpLabel[i], ttpPin[i],
                           ttp[i] ? "PRESSED" : "released");
-            if (ttp[i]) {
-                Display::triggerRipple(i, ttpRippleX[i], 0);
-                // Boton centro: cicla por los modos disponibles.
-                if (i == 1) {
-                    g_displayMode = nextDisplayMode(g_displayMode);
-                    const char* name =
-                        (g_displayMode == DisplayMode::FOCUS)     ? "FOCUS" :
-                        (g_displayMode == DisplayMode::CLAUDE)    ? "CLAUDE" :
-                                                                    "FOUR_ROWS";
-                    Serial.printf("[ttp] displayMode -> %s\n", name);
-                    if (g_displayMode == DisplayMode::CLAUDE) {
-                        ClaudeStats::requestRefresh();
-                    }
-                }
-                // Mismos limites que el endpoint /api/brightness.
-                if (i == 0 || i == 2) {
-                    float delta = (i == 0) ? -0.05f : 0.05f;
-                    float b = constrain(Config::cfg.brightness + delta, 0.05f, 1.0f);
-                    if (b != Config::cfg.brightness) {
-                        Config::cfg.brightness = b;
-                        brightnessDirtyMs = millis();
-                        Serial.printf("[ttp] brightness -> %.2f\n", b);
-                    } else {
-                        Serial.printf("[ttp] brightness ya en limite (%.2f)\n", b);
-                    }
-                    // Overlay visual con valor actualizado, tambien cuando
-                    // estamos en el limite (asi el usuario ve que sigue al
-                    // tope o al minimo y no piensa que el boton falla).
-                    Display::triggerBrightnessOverlay(Config::cfg.brightness);
-                }
-            }
+            if (ttp[i]) handleButtonAction(i, "ttp");
             ttpPrev[i] = ttp[i];
         }
     }
     // Persistencia diferida del brillo: 2s tras el ultimo cambio.
-    if (brightnessDirtyMs != 0 && millis() - brightnessDirtyMs >= 2000) {
+    if (g_brightnessDirtyMs != 0 && millis() - g_brightnessDirtyMs >= 2000) {
         Serial.printf("[cfg] persistiendo brillo %.2f\n", Config::cfg.brightness);
         Config::save();
-        brightnessDirtyMs = 0;
+        g_brightnessDirtyMs = 0;
     }
 
     // Botón UP mantenido 3s → forzar modo AP. Util para reconfigurar WiFi

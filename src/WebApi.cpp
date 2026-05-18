@@ -11,6 +11,9 @@
 #include "Display.h"
 #include "IndexHtml.h"
 #include "MoonPhase.h"
+
+// Definida en main.cpp (sin namespace). Forward decl global.
+extern void requestButtonPress(int idx);
 #include "Version.h"
 #include "Weather.h"
 #include "WifiSetup.h"
@@ -479,6 +482,27 @@ void begin() {
         delay(200);
         ESP.restart();
     });
+    // POST /api/button?b=left|center|right: simula pulsacion fisica del TTP
+    // correspondiente (mismo flujo: ripple visual + cambio de modo o brillo).
+    server.on("/api/button", HTTP_POST,
+        [](AsyncWebServerRequest* req) {
+            int idx = -1;
+            if (req->hasParam("b")) {
+                String v = req->getParam("b")->value();
+                if (v == "left")        idx = 0;
+                else if (v == "center") idx = 1;
+                else if (v == "right")  idx = 2;
+                else if (v == "0" || v == "1" || v == "2") idx = v.toInt();
+            }
+            if (idx < 0) {
+                req->send(400, "application/json",
+                          "{\"error\":\"need b=left|center|right\"}");
+                return;
+            }
+            requestButtonPress(idx);
+            req->send(200, "application/json", "{\"ok\":true}");
+        });
+
     // POST /api/autoupdate/check: dispara un check de auto-update ad-hoc.
     // Respuesta inmediata; el chequeo + flash lo hace el loop principal en
     // la siguiente iteracion (bloquea hasta varios minutos si hay release
