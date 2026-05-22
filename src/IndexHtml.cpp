@@ -575,6 +575,28 @@ code{
 </section>
 
 <section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Modo Demoscene (modo 6)</h2>
+  <label style="display:block;margin-top:.25rem">
+    <span class="label">Efecto</span>
+    <select id="demoscene-effect">
+      <option value="0">Llama (Doom fire)</option>
+      <option value="1">Plasma</option>
+      <option value="2">Moire</option>
+      <option value="3">Nyan Cat</option>
+    </select>
+  </label>
+  <label class="toggle-row" style="margin-top:.5rem">
+    <span class="toggle"><input id="fire-default" type="checkbox" checked/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Paleta clasica (naranja Doom)</span>
+  </label>
+  <label id="fire-color-row" style="display:block;margin-top:.5rem">
+    <span class="label">Color base</span>
+    <input id="fire-color" type="color" value="#FF6000"/>
+  </label>
+  <span class="note">El color y la paleta se aplican a los 3 efectos. Si desactivas la paleta clasica, la paleta se genera desde el color elegido (negro → color → blanco).</span>
+</section>
+
+<section class="card" data-tab="modes">
   <h2 class="h-section mb-3">Modo Game of Life (modo 4)</h2>
   <label class="toggle-row" style="margin-top:.25rem">
     <span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span>
@@ -601,6 +623,7 @@ code{
       <option value="2">3 - Claude</option>
       <option value="3">4 - Life</option>
       <option value="4">5 - Imagen</option>
+      <option value="5">6 - Demoscene</option>
     </select>
   </label>
   <span class="note">Si seleccionas Claude pero no hay sessionKey configurada, arrancara en 4 filas.</span>
@@ -907,6 +930,12 @@ async function loadConfig(){
     $('#life-color').value   = intToHex(cfg.life_color != null ? cfg.life_color : 0x80C0FF);
     $('#life-rainbow').checked = !!cfg.life_rainbow;
     $('#life-color-row').style.display = cfg.life_rainbow ? 'none' : '';
+    // Modo Llama
+    const fireDef = cfg.fire_use_default !== false;
+    $('#fire-default').checked = fireDef;
+    $('#fire-color').value = intToHex(cfg.fire_color != null ? cfg.fire_color : 0xFF6000);
+    $('#fire-color-row').style.display = fireDef ? 'none' : '';
+    $('#demoscene-effect').value = cfg.demoscene_effect != null ? cfg.demoscene_effect : 0;
     const lifeStep = cfg.life_step_ms || 150;
     $('#life-step').value = lifeStep;
     $('#life-step-val').textContent = lifeStep;
@@ -930,6 +959,7 @@ async function loadConfig(){
           <option value="2" ${s.mode==2?'selected':''}>3 - Claude</option>
           <option value="3" ${s.mode==3?'selected':''}>4 - Life</option>
           <option value="4" ${s.mode==4?'selected':''}>5 - Imagen</option>
+          <option value="5" ${s.mode==5?'selected':''}>6 - Demoscene</option>
         </select>
       `;
       schedList.appendChild(row);
@@ -1387,6 +1417,9 @@ $('#save').onclick = async () => {
     life_color:   hexToInt($('#life-color').value),
     life_rainbow: $('#life-rainbow').checked,
     life_step_ms: parseInt($('#life-step').value, 10) || 150,
+    fire_use_default: $('#fire-default').checked,
+    fire_color: hexToInt($('#fire-color').value),
+    demoscene_effect: parseInt($('#demoscene-effect').value, 10) || 0,
     schedule: (function() {
       const rows = document.querySelectorAll('#schedule-list > div');
       const out = [];
@@ -1611,6 +1644,10 @@ $('#life-rainbow').onchange = () => {
 // Live label del slider de velocidad
 $('#life-step').oninput = () => {
   $('#life-step-val').textContent = $('#life-step').value;
+};
+// Toggle paleta clasica del fuego
+$('#fire-default').onchange = () => {
+  $('#fire-color-row').style.display = $('#fire-default').checked ? 'none' : '';
 };
 
 // Botones simulados: POST /api/button?b=left|center|right

@@ -95,6 +95,12 @@ void renderLife(const Row& weatherRow, float secondOfMinuteF = -1.0f);
 void renderImage(const Row& weatherRow, float secondOfMinuteF = -1.0f);
 // Recarga la imagen de usuario desde LittleFS (llamar tras subir una nueva).
 void reloadUserImage();
+// Modo Llama: clasico efecto fuego de demoscene (Doom-style). Parte
+// superior: simulacion de fuego ascendente. Parte inferior: hora,
+// fecha, icono y temperatura (igual que LIFE / IMAGE).
+void renderFire(const Row& weatherRow, float secondOfMinuteF = -1.0f);
+// Modo Nyan: animacion del clasico Nyan Cat con estela arcoiris.
+void renderNyan(const Row& weatherRow, float secondOfMinuteF = -1.0f);
 void clear();
 // Pinta toda la pantalla del color RGB565 indicado (con flip de buffer).
 void fillScreen(uint16_t color565);

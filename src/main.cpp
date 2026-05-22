@@ -21,7 +21,7 @@ volatile bool g_pendingReset = false;
 //   FOUR_ROWS: render normal con las 4 ciudades.
 //   FOCUS:     una sola ciudad (cities[0]) ocupando los 64x32 con HH:MM
 //              grande, temp grande, icono x2 y barra de segundera.
-enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4 };
+enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4, FIRE = 5 };
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
@@ -61,6 +61,7 @@ static void handleButtonAction(int idx, const char* source) {
             (g_displayMode == DisplayMode::CLAUDE) ? "CLAUDE" :
             (g_displayMode == DisplayMode::LIFE)   ? "LIFE"   :
             (g_displayMode == DisplayMode::IMAGE)  ? "IMAGE"  :
+            (g_displayMode == DisplayMode::FIRE)   ? "FIRE"   :
                                                      "FOUR_ROWS";
         Serial.printf("[%s] displayMode -> %s\n", source, name);
         if (g_displayMode == DisplayMode::CLAUDE) {
@@ -111,7 +112,8 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
                                                 : DisplayMode::LIFE;
         case DisplayMode::CLAUDE:    return DisplayMode::LIFE;
         case DisplayMode::LIFE:      return DisplayMode::IMAGE;
-        case DisplayMode::IMAGE:     return DisplayMode::FOUR_ROWS;
+        case DisplayMode::IMAGE:     return DisplayMode::FIRE;
+        case DisplayMode::FIRE:      return DisplayMode::FOUR_ROWS;
     }
     return DisplayMode::FOUR_ROWS;
 }
@@ -629,6 +631,8 @@ void loop() {
         Display::renderLife(rows[0], secondOfMinuteF);
     } else if (g_displayMode == DisplayMode::IMAGE) {
         Display::renderImage(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::FIRE) {
+        Display::renderFire(rows[0], secondOfMinuteF);
     } else {
         Display::renderRows(rows, secondOfMinuteF);
     }

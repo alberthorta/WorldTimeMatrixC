@@ -127,7 +127,10 @@ static All defaults() {
     a.startupMode = 0;
     a.lifeColor   = 0x80C0FF;   // azul claro por defecto
     a.lifeRainbow = false;
-    a.lifeStepMs  = 150;
+    a.lifeStepMs       = 150;
+    a.fireUseDefault   = true;
+    a.fireColor        = 0xFF6000;
+    a.demosceneEffect  = 0;
     a.wifiUseDhcp          = true;
     a.wifiStaticIp         = "";
     a.wifiStaticGateway    = "";
@@ -181,7 +184,10 @@ static void buildJson(JsonDocument& doc) {
     doc["startup_mode"] = cfg.startupMode;
     doc["life_color"]   = cfg.lifeColor;
     doc["life_rainbow"] = cfg.lifeRainbow;
-    doc["life_step_ms"] = cfg.lifeStepMs;
+    doc["life_step_ms"]    = cfg.lifeStepMs;
+    doc["fire_use_default"] = cfg.fireUseDefault;
+    doc["fire_color"]       = cfg.fireColor;
+    doc["demoscene_effect"] = cfg.demosceneEffect;
     JsonArray schedArr = doc["schedule"].to<JsonArray>();
     for (int i = 0; i < SCHEDULE_MAX; i++) {
         const auto& s = cfg.schedule[i];
@@ -365,7 +371,7 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["startup_mode"].is<int>()) {
         int m = doc["startup_mode"];
         if (m < 0) m = 0;
-        if (m > 4) m = 4;
+        if (m > 5) m = 5;
         cfg.startupMode = (uint8_t)m;
     }
     applyColor("life_color", cfg.lifeColor);
@@ -375,6 +381,14 @@ static bool applyJson(JsonDocument& doc) {
         if (v < 50)   v = 50;
         if (v > 1000) v = 1000;
         cfg.lifeStepMs = (uint16_t)v;
+    }
+    if (doc["fire_use_default"].is<bool>()) cfg.fireUseDefault = doc["fire_use_default"];
+    applyColor("fire_color", cfg.fireColor);
+    if (doc["demoscene_effect"].is<int>()) {
+        int e = doc["demoscene_effect"];
+        if (e < 0) e = 0;
+        if (e > 3) e = 3;
+        cfg.demosceneEffect = (uint8_t)e;
     }
     JsonArrayConst schedArr = doc["schedule"].as<JsonArrayConst>();
     if (!schedArr.isNull()) {
@@ -391,7 +405,7 @@ static bool applyJson(JsonDocument& doc) {
             int md = o["mode"] | 0;
             if (h < 0)  h = 0;  if (h > 23) h = 23;
             if (m < 0)  m = 0;  if (m > 59) m = 59;
-            if (md < 0) md = 0; if (md > 4) md = 4;
+            if (md < 0) md = 0; if (md > 5) md = 5;
             s.hour = (uint8_t)h;
             s.minute = (uint8_t)m;
             s.mode = (uint8_t)md;

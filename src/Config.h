@@ -123,6 +123,12 @@ struct All {
     bool      lifeRainbow;
     // Tiempo entre steps de la simulacion (ms). Range 50..1000.
     uint16_t  lifeStepMs;
+    // Modo Demoscene (modo 6): paleta clasica (naranja Doom) o custom por
+    // color. fireUseDefault/fireColor se aplican a los 3 efectos (llama,
+    // plasma, moire). demosceneEffect: 0=Llama, 1=Plasma, 2=Moire.
+    bool      fireUseDefault;
+    uint32_t  fireColor;
+    uint8_t   demosceneEffect;
     bool     wifiUseDhcp;
     String   wifiStaticIp;
     String   wifiStaticGateway;

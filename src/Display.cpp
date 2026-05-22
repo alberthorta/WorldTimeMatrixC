@@ -1876,4 +1876,497 @@ void renderImage(const Row& wRow, float secondOfMinuteF) {
     dma->flipDMABuffer();
 }
 
+// ── Modo Llama (Doom fire) ─────────────────────────────────────────────
+// Buffer 64x23 con indices a paleta 0..36. Row 22 = "fuel line" con max
+// intensidad; rows 0..21 se calculan propagando hacia arriba con shift
+// horizontal y decay aleatorios, dando flickering de llamas.
+static constexpr int FIRE_W = 64;
+static constexpr int FIRE_H = 23;
+static uint8_t  s_fireBuf[FIRE_W * FIRE_H];
+static bool     s_fireInited = false;
+static constexpr int FIRE_PAL = 37;
+static uint16_t s_firePal565[FIRE_PAL];
+
+// Genera una paleta de fuego para un color base arbitrario. Pasa por:
+// idx 0 (negro) → idx ~mid (color base, brillo medio) → tono cada vez mas
+// claro → blanco. Mantiene la sensacion de "llama" para colores no clasicos.
+static void buildFirePaletteFromColor(uint32_t baseRgb) {
+    int br = (baseRgb >> 16) & 0xFF;
+    int bg = (baseRgb >> 8)  & 0xFF;
+    int bb =  baseRgb        & 0xFF;
+    for (int i = 0; i < FIRE_PAL; i++) {
+        float t = (float)i / (float)(FIRE_PAL - 1);
+        int r, g, b;
+        if (t < 0.5f) {
+            // 0..50%: negro → color base (intensidad x2 para llegar al base
+            // saturado en mid).
+            float p = t * 2.0f;
+            r = (int)(br * p);
+            g = (int)(bg * p);
+            b = (int)(bb * p);
+        } else {
+            // 50..100%: color base → blanco (desatura subiendo los canales
+            // bajos hacia 255).
+            float p = (t - 0.5f) * 2.0f;
+            r = br + (int)((255 - br) * p);
+            g = bg + (int)((255 - bg) * p);
+            b = bb + (int)((255 - bb) * p);
+        }
+        if (r < 0) r = 0; if (r > 255) r = 255;
+        if (g < 0) g = 0; if (g > 255) g = 255;
+        if (b < 0) b = 0; if (b > 255) b = 255;
+        uint32_t rgb = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+        s_firePal565[i] = rgb888to565(rgb);
+    }
+}
+
+static void initFirePalette() {
+    // Paleta clasica Lode Vandevenne / Doom: black → red → orange → yellow → white.
+    static const uint8_t pal[FIRE_PAL][3] = {
+        {0x07,0x07,0x07},{0x1F,0x07,0x07},{0x2F,0x0F,0x07},{0x47,0x0F,0x07},
+        {0x57,0x17,0x07},{0x67,0x1F,0x07},{0x77,0x1F,0x07},{0x8F,0x27,0x07},
+        {0x9F,0x2F,0x07},{0xAF,0x3F,0x07},{0xBF,0x47,0x07},{0xC7,0x47,0x07},
+        {0xDF,0x4F,0x07},{0xDF,0x57,0x07},{0xDF,0x57,0x07},{0xD7,0x5F,0x07},
+        {0xD7,0x5F,0x07},{0xD7,0x67,0x0F},{0xCF,0x6F,0x0F},{0xCF,0x77,0x0F},
+        {0xCF,0x7F,0x0F},{0xCF,0x87,0x17},{0xC7,0x87,0x17},{0xC7,0x8F,0x17},
+        {0xC7,0x97,0x1F},{0xBF,0x9F,0x1F},{0xBF,0x9F,0x1F},{0xBF,0xA7,0x27},
+        {0xBF,0xA7,0x27},{0xBF,0xAF,0x2F},{0xB7,0xAF,0x2F},{0xB7,0xB7,0x2F},
+        {0xB7,0xB7,0x37},{0xCF,0xCF,0x6F},{0xDF,0xDF,0x9F},{0xEF,0xEF,0xC7},
+        {0xFF,0xFF,0xFF},
+    };
+    for (int i = 0; i < FIRE_PAL; i++) {
+        uint32_t rgb = ((uint32_t)pal[i][0] << 16) | ((uint32_t)pal[i][1] << 8) | pal[i][2];
+        s_firePal565[i] = rgb888to565(rgb);
+    }
+}
+
+static void fireInit() {
+    memset(s_fireBuf, 0, sizeof(s_fireBuf));
+    for (int x = 0; x < FIRE_W; x++) {
+        s_fireBuf[(FIRE_H - 1) * FIRE_W + x] = FIRE_PAL - 1;
+    }
+    initFirePalette();
+    s_fireInited = true;
+}
+
+static void fireStep() {
+    // Bottom row siempre al maximo (sin flicker, asi no se ven columnas
+    // negras subiendo). Para que la parte superior quede oscura, usamos un
+    // decay mas agresivo (0..3 en lugar de 0..1) — la mayoria de llamas
+    // mueren antes de llegar arriba, dejando fondo negro.
+    for (int x = 0; x < FIRE_W; x++) {
+        s_fireBuf[(FIRE_H - 1) * FIRE_W + x] = FIRE_PAL - 1;
+    }
+    for (int x = 0; x < FIRE_W; x++) {
+        for (int y = 1; y < FIRE_H; y++) {
+            int src = y * FIRE_W + x;
+            uint8_t pixel = s_fireBuf[src];
+            if (pixel == 0) {
+                s_fireBuf[src - FIRE_W] = 0;
+            } else {
+                int rnd  = (int)(esp_random() & 3);   // 0..3 → shift horizontal
+                int rnd2 = (int)((esp_random() & 3) + (esp_random() & 1));   // 0..4 → decay (avg 2.0)
+                int dstX = x + 1 - rnd;
+                if (dstX < 0) dstX = 0;
+                if (dstX >= FIRE_W) dstX = FIRE_W - 1;
+                int dst = (y - 1) * FIRE_W + dstX;
+                s_fireBuf[dst] = (pixel > rnd2) ? (pixel - rnd2) : 0;
+            }
+        }
+    }
+}
+
+// Tabla precomputada de sin (256 entradas, -127..127). Inicializada en el
+// primer uso. Mucho mas rapida que sinf() para plasma y moire.
+static int8_t s_sinTable[256];
+static bool   s_sinTableInited = false;
+static void initSinTable() {
+    if (s_sinTableInited) return;
+    for (int i = 0; i < 256; i++) {
+        float a = (float)i * 2.0f * 3.14159265f / 256.0f;
+        s_sinTable[i] = (int8_t)(sinf(a) * 127.0f);
+    }
+    s_sinTableInited = true;
+}
+static inline int sin8(int a) { return s_sinTable[a & 0xFF]; }
+
+// Plasma: superposicion de 4 ondas sinusoidales con offsets temporales.
+// Llena s_fireBuf con indices a paleta 0..FIRE_PAL-1.
+static void plasmaStep(uint32_t t) {
+    int tt = (int)(t / 30);
+    for (int y = 0; y < FIRE_H; y++) {
+        for (int x = 0; x < FIRE_W; x++) {
+            int v = sin8(x * 8 + tt)
+                  + sin8(y * 8 + tt * 2)
+                  + sin8((x + y) * 4 + tt)
+                  + sin8(((x - FIRE_W / 2) * (x - FIRE_W / 2) +
+                          (y - FIRE_H / 2) * (y - FIRE_H / 2)) / 4 + tt);
+            // v en -508..508. Mapear a 0..FIRE_PAL-1.
+            int idx = ((v + 512) * FIRE_PAL) / 1024;
+            if (idx < 0) idx = 0;
+            if (idx >= FIRE_PAL) idx = FIRE_PAL - 1;
+            s_fireBuf[y * FIRE_W + x] = (uint8_t)idx;
+        }
+    }
+}
+
+// Moire: interferencia de dos series de ondas concentricas con centros
+// moviendose. Clasico efecto de los 80s.
+static void moireStep(uint32_t t) {
+    int tt = (int)(t / 30);
+    int cx1 = FIRE_W / 2 + (sin8(tt)       * FIRE_W) / 256;
+    int cy1 = FIRE_H / 2 + (sin8(tt + 64)  * FIRE_H) / 256;
+    int cx2 = FIRE_W / 2 + (sin8(tt + 96)  * FIRE_W) / 256;
+    int cy2 = FIRE_H / 2 + (sin8(tt + 160) * FIRE_H) / 256;
+    for (int y = 0; y < FIRE_H; y++) {
+        for (int x = 0; x < FIRE_W; x++) {
+            int dx1 = x - cx1, dy1 = y - cy1;
+            int dx2 = x - cx2, dy2 = y - cy2;
+            int d1 = (dx1 * dx1 + dy1 * dy1) / 4;
+            int d2 = (dx2 * dx2 + dy2 * dy2) / 4;
+            int v = sin8(d1) + sin8(d2);   // -254..254
+            int idx = ((v + 256) * FIRE_PAL) / 512;
+            if (idx < 0) idx = 0;
+            if (idx >= FIRE_PAL) idx = FIRE_PAL - 1;
+            s_fireBuf[y * FIRE_W + x] = (uint8_t)idx;
+        }
+    }
+}
+
+void renderDemoscene(const Row& wRow, float secondOfMinuteF) {
+    renderFire(wRow, secondOfMinuteF);
+}
+
+void renderFire(const Row& wRow, float secondOfMinuteF) {
+    if (!dma) return;
+    // Nyan es un efecto totalmente distinto (sprite + arcoiris, no usa el
+    // buffer de paleta). Si esta seleccionado, delegamos.
+    if (Config::cfg.demosceneEffect == 3) {
+        renderNyan(wRow, secondOfMinuteF);
+        return;
+    }
+    if (!s_fireInited) fireInit();
+    initSinTable();
+    // Re-genera la paleta si cambia la config (toggle clasica / color).
+    static bool     s_lastUseDefault = true;
+    static uint32_t s_lastColor      = 0xFF6000;
+    if (Config::cfg.fireUseDefault != s_lastUseDefault ||
+        (!Config::cfg.fireUseDefault && Config::cfg.fireColor != s_lastColor)) {
+        if (Config::cfg.fireUseDefault) initFirePalette();
+        else                            buildFirePaletteFromColor(Config::cfg.fireColor);
+        s_lastUseDefault = Config::cfg.fireUseDefault;
+        s_lastColor      = Config::cfg.fireColor;
+    }
+    uint8_t eff = Config::cfg.demosceneEffect;
+    if (eff == 1)      plasmaStep(millis());
+    else if (eff == 2) moireStep(millis());
+    else               fireStep();
+    dma->clearScreen();
+    for (int y = 0; y < FIRE_H; y++) {
+        for (int x = 0; x < FIRE_W; x++) {
+            uint8_t idx = s_fireBuf[y * FIRE_W + x];
+            if (idx == 0) continue;
+            dma->drawPixel(x, y, s_firePal565[idx]);
+        }
+    }
+    drawCommonBottomRow(wRow, secondOfMinuteF);
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
+}
+
+// ── Modo Nyan Cat ──────────────────────────────────────────────────────
+// Sprite 14x9 con cabeza, pop-tart y patitas. Bob vertical de 1 px.
+// Estela arcoiris de 6 bandas detras del gato con efecto step (la trail
+// se desplaza dando sensacion de movimiento).
+//
+// Indices del sprite:
+//   0 = transparente, 1 = pink, 2 = sprinkle amarillo, 3 = gris, 4 = negro
+// Sprite 12x12 fiel al GIF original: cabeza gris arriba-derecha con orejas,
+// ojos y cheeks rosas, pop-tart con outline negro + borde peach + interior
+// pink con sprinkles, 4 patitas.
+//   1 = pink body fill #FFB8DC
+//   2 = peach outline #FFC080
+//   3 = sprinkle pink oscuro #E84A7A
+//   4 = gray cat fur #C8C8C8
+//   5 = black outline / ojo #000000
+//   6 = pink cheek #FFA0C8
+// Sprite del gato Nyan: 6 frames de 21 filas x 34 columnas, traducidos del
+// GIF original (nyansmall.gif, 12 frames con ciclo de 6 unicos).
+//
+// Paleta (colores extraidos del GIF):
+//   0 = transparente (skip)
+//   1 = pink body fill   #FF99FF
+//   2 = peach outline    #FFCC99
+//   3 = sprinkle dark    #FF3399
+//   4 = gray cat fur     #999999
+//   5 = black            #000000
+//   6 = cheek pink       #FF9999
+//   7 = white            #FFFFFF
+#define NYAN_NFRAMES 6
+#define NYAN_H 21
+#define NYAN_W 34
+static const uint8_t NYAN_FRAMES[NYAN_NFRAMES][NYAN_H][NYAN_W] = {
+    // F0
+    {
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 5,1,1,3,1,1,2,5,0,5, 5,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,5,1,1,1,1,2,5,5,4, 4,5,0,0},
+        {0,5,5,5,5,0,0,5,2,1, 1,1,1,1,1,3,1,1,5,4, 4,4,5,1,1,1,2,5,4,4, 4,5,0,0},
+        {0,5,4,4,5,5,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,4,5,5,5,5,4,4,4, 4,5,0,0},
+        {0,5,5,4,4,5,5,5,2,1, 1,1,3,1,1,1,1,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {0,0,5,5,4,4,5,5,2,1, 1,1,1,1,1,1,3,5,4,4, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,0,0,5,5,4,4,5,2,1, 3,1,1,1,1,1,1,5,4,4, 4,7,5,4,4,4,4,4,7,5, 4,4,5,0},
+        {0,0,0,0,5,5,5,5,2,1, 1,1,1,1,1,1,1,5,4,4, 4,5,5,4,4,4,5,4,5,5, 4,4,5,0},
+        {0,0,0,0,0,0,5,5,2,1, 1,1,1,1,3,1,1,5,4,6, 6,4,4,4,4,4,4,4,4,4, 6,6,5,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,3,1,1,1,1,1,5,4,6, 6,4,5,4,4,5,4,4,5,4, 6,6,5,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,5,4, 4,4,5,5,5,5,5,5,5,4, 4,5,0,0},
+        {0,0,0,0,0,0,5,5,5,2, 2,2,2,2,2,2,2,2,2,5, 4,4,4,4,4,4,4,4,4,4, 5,0,0,0},
+        {0,0,0,0,0,5,4,4,4,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,5,5, 0,0,0,0},
+        {0,0,0,0,0,5,4,4,5,5, 0,5,4,4,5,0,0,0,0,0, 5,4,4,5,0,5,4,4,5,0, 0,0,0,0},
+        {0,0,0,0,0,5,5,5,5,0, 0,5,5,5,0,0,0,0,0,0, 0,5,5,5,0,0,5,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+    },
+    // F1
+    {
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,1, 5,5,1,3,1,1,2,5,0,0, 5,5,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,5,1,1,1,2,5,0,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,3,1,1,1,5, 4,4,4,5,1,1,2,5,5,4, 4,4,5,0},
+        {0,0,5,5,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,4,4,5,5,5,5,4,4, 4,4,5,0},
+        {0,5,4,4,5,0,0,5,2,1, 1,1,3,1,1,1,1,1,1,5, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,5,4,4,5,5,5,5,2,1, 1,1,1,1,1,1,3,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,4,4,5},
+        {0,0,5,4,4,4,4,5,2,1, 3,1,1,1,1,1,1,1,5,4, 4,4,7,5,4,4,4,4,4,7, 5,4,4,5},
+        {0,0,0,5,5,4,4,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,5,5,4,4,4,5,4,5, 5,4,4,5},
+        {0,0,0,0,0,5,5,5,2,1, 1,1,1,1,3,1,1,1,5,4, 6,6,4,4,4,4,4,4,4,4, 4,6,6,5},
+        {0,0,0,0,0,0,0,5,2,2, 1,3,1,1,1,1,1,1,5,4, 6,6,4,5,4,4,5,4,4,5, 4,6,6,5},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,5, 4,4,4,5,5,5,5,5,5,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,5,2, 2,2,2,2,2,2,2,2,2,2, 5,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {0,0,0,0,0,0,5,4,4,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,5,5, 5,0,0,0},
+        {0,0,0,0,0,0,5,4,4,5, 0,5,4,4,5,0,0,0,0,0, 0,5,4,4,5,0,5,4,4,5, 0,0,0,0},
+        {0,0,0,0,0,0,5,5,5,0, 0,0,5,5,5,0,0,0,0,0, 0,0,5,5,5,0,0,5,5,5, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+    },
+    // F2
+    {
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,1, 5,5,1,3,1,1,2,5,0,0, 5,5,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,5,1,1,1,2,5,0,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,3,1,1,1,5, 4,4,4,5,1,1,2,5,5,4, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,4,4,5,5,5,5,4,4, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,3,1,1,1,1,1,1,5, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,0,0,0,0,0,5,5,2,1, 1,1,1,1,1,1,3,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,4,4,5},
+        {0,0,0,5,5,5,5,5,2,1, 3,1,1,1,1,1,1,1,5,4, 4,4,7,5,4,4,4,4,4,7, 5,4,4,5},
+        {0,5,5,4,4,4,4,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,5,5,4,4,4,5,4,5, 5,4,4,5},
+        {0,5,4,4,4,5,5,5,2,1, 1,1,1,1,3,1,1,1,5,4, 6,6,4,4,4,4,4,4,4,4, 4,6,6,5},
+        {0,0,5,5,5,5,0,5,2,2, 1,3,1,1,1,1,1,1,5,4, 6,6,4,5,4,4,5,4,4,5, 4,6,6,5},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,5, 4,4,4,5,5,5,5,5,5,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,5,2, 2,2,2,2,2,2,2,2,2,2, 5,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {0,0,0,0,0,0,0,5,4,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,5,5, 5,0,0,0},
+        {0,0,0,0,0,0,0,5,4,4, 5,0,5,4,4,5,0,0,0,0, 0,0,5,4,4,5,0,5,4,4, 5,0,0,0},
+        {0,0,0,0,0,0,0,5,5,5, 0,0,0,5,5,5,0,0,0,0, 0,0,0,5,5,5,0,0,5,5, 5,0,0,0},
+    },
+    // F3
+    {
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,1, 5,5,1,3,1,1,2,5,0,0, 5,5,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,5,1,1,1,2,5,0,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,3,1,1,1,5, 4,4,4,5,1,1,2,5,5,4, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 4,4,4,4,5,5,5,5,4,4, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,3,1,1,1,1,1,1,5, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,0,0,0,0,5,5,5,2,1, 1,1,1,1,1,1,3,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,4,4,5},
+        {0,0,0,5,5,4,4,5,2,1, 3,1,1,1,1,1,1,1,5,4, 4,4,7,5,4,4,4,4,4,7, 5,4,4,5},
+        {0,0,5,4,4,4,4,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,5,5,4,4,4,5,4,5, 5,4,4,5},
+        {0,5,4,4,5,5,5,5,2,1, 1,1,1,1,3,1,1,1,5,4, 6,6,4,4,4,4,4,4,4,4, 4,6,6,5},
+        {0,5,4,4,5,0,0,5,2,2, 1,3,1,1,1,1,1,1,5,4, 6,6,4,5,4,4,5,4,4,5, 4,6,6,5},
+        {0,0,5,5,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,5, 4,4,4,5,5,5,5,5,5,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,5,2, 2,2,2,2,2,2,2,2,2,2, 5,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {0,0,0,0,0,0,5,4,4,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,5,5, 5,0,0,0},
+        {0,0,0,0,0,0,5,4,4,5, 0,5,4,4,5,0,0,0,0,0, 0,5,4,4,5,0,5,4,4,5, 0,0,0,0},
+        {0,0,0,0,0,0,5,5,5,0, 0,0,5,5,5,0,0,0,0,0, 0,0,5,5,5,0,0,5,5,5, 0,0,0,0},
+    },
+    // F4
+    {
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,1,5, 5,1,1,3,1,1,2,5,0,5, 5,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,5,1,1,1,1,2,5,5,4, 4,5,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,3,1,1,5,4, 4,4,5,1,1,1,2,5,4,4, 4,5,0,0},
+        {0,5,5,5,5,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,4,5,5,5,5,4,4,4, 4,5,0,0},
+        {5,4,4,4,5,5,5,5,2,1, 1,1,3,1,1,1,1,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {5,5,4,4,4,4,5,5,2,1, 1,1,1,1,1,1,3,5,4,4, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,0,5,5,5,5,4,5,2,1, 3,1,1,1,1,1,1,5,4,4, 4,7,5,4,4,4,4,4,7,5, 4,4,5,0},
+        {0,0,0,0,0,5,5,5,2,1, 1,1,1,1,1,1,1,5,4,4, 4,5,5,4,4,4,5,4,5,5, 4,4,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,3,1,1,5,4,6, 6,4,4,4,4,4,4,4,4,4, 6,6,5,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,3,1,1,1,1,1,5,4,6, 6,4,5,4,4,5,4,4,5,4, 6,6,5,0},
+        {0,0,0,0,0,0,5,5,2,2, 2,1,1,1,1,1,1,1,5,4, 4,4,5,5,5,5,5,5,5,4, 4,5,0,0},
+        {0,0,0,0,0,5,5,5,5,2, 2,2,2,2,2,2,2,2,2,5, 4,4,4,4,4,4,4,4,4,4, 5,0,0,0},
+        {0,0,0,0,5,4,4,4,5,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,5,5, 0,0,0,0},
+        {0,0,0,0,5,4,4,5,0,5, 4,4,5,0,0,0,0,0,0,5, 4,4,5,0,5,4,4,5,0,0, 0,0,0,0},
+        {0,0,0,0,5,5,5,0,0,0, 5,5,5,0,0,0,0,0,0,0, 5,5,5,0,0,5,5,5,0,0, 0,0,0,0},
+    },
+    // F5
+    {
+        {0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,0,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,0,5,2, 2,2,2,2,2,2,2,2,2,2, 2,2,2,2,2,2,5,0,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 2,1,1,1,1,1,1,1,1,1, 1,1,1,1,2,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,1,1,1,1,1,3,1,1,3, 1,1,1,1,1,2,2,5,0,0, 0,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,3,1,1,1,1,1,1,1,5, 5,1,1,1,1,1,2,5,0,5, 5,0,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,5,1,3,1,1,2,5,5,4, 4,5,0,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,5,1,1,1,2,5,4,4, 4,5,0,0},
+        {0,0,5,5,0,0,0,5,2,1, 1,1,1,1,1,3,1,1,5,4, 4,4,4,5,5,5,5,4,4,4, 4,5,0,0},
+        {0,5,4,4,5,0,0,5,2,1, 1,1,1,1,1,1,1,1,5,4, 4,4,4,4,4,4,4,4,4,4, 4,5,0,0},
+        {0,5,4,4,5,5,5,5,2,1, 1,1,3,1,1,1,1,5,4,4, 4,4,4,4,4,4,4,4,4,4, 4,4,5,0},
+        {0,0,5,4,4,4,4,5,2,1, 1,1,1,1,1,1,3,5,4,4, 4,7,5,4,4,4,4,4,7,5, 4,4,5,0},
+        {0,0,0,5,5,4,4,5,2,1, 3,1,1,1,1,1,1,5,4,4, 4,5,5,4,4,4,5,4,5,5, 4,4,5,0},
+        {0,0,0,0,0,5,5,5,2,1, 1,1,1,1,1,1,1,5,4,6, 6,4,4,4,4,4,4,4,4,4, 6,6,5,0},
+        {0,0,0,0,0,0,0,5,2,1, 1,1,1,1,3,1,1,5,4,6, 6,4,5,4,4,5,4,4,5,4, 6,6,5,0},
+        {0,0,0,0,0,0,0,5,2,2, 1,3,1,1,1,1,1,1,5,4, 4,4,5,5,5,5,5,5,5,4, 4,5,0,0},
+        {0,0,0,0,0,0,5,5,2,2, 2,1,1,1,1,1,1,1,1,5, 4,4,4,4,4,4,4,4,4,4, 5,0,0,0},
+        {0,0,0,0,0,5,4,5,5,2, 2,2,2,2,2,2,2,2,2,2, 5,5,5,5,5,5,5,5,5,5, 0,0,0,0},
+        {0,0,0,0,5,4,4,4,5,5, 5,5,5,5,5,5,5,5,5,5, 5,5,5,5,5,5,4,5,0,0, 0,0,0,0},
+        {0,0,0,0,5,4,4,5,0,5, 4,4,5,0,0,0,0,0,0,5, 4,4,5,0,5,4,4,5,0,0, 0,0,0,0},
+        {0,0,0,0,5,5,5,0,0,5, 5,5,0,0,0,0,0,0,0,5, 5,5,0,0,0,5,5,5,0,0, 0,0,0,0},
+    },
+};
+
+static uint16_t s_nyanPal[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+static uint16_t s_nyanRainbow[6] = {0, 0, 0, 0, 0, 0};
+static bool s_nyanInited = false;
+
+// Starfield con parallax: 10 estrellas distribuidas en 3 niveles de
+// profundidad (0=lejos/lento/oscuro, 2=cerca/rapido/claro). Y, depth y
+// offset inicial precomputados para que parezca aleatorio pero sea estable.
+static const int8_t  STAR_Y[10]      = { 2, 17,  9, 21,  5, 13, 19,  1, 11,  7};
+static const uint8_t STAR_DEPTH[10]  = { 0,  2,  1,  0,  2,  1,  0,  1,  2,  0};
+static const int8_t  STAR_OFFSET[10] = { 0, 32, 13, 47, 23, 51,  7, 38, 18, 56};
+// ms por pixel — mas alto = mas lento (mas lejos)
+static const uint16_t STAR_SPEED_MS[3] = {280, 150, 80};
+static uint16_t s_starColor[3] = {0, 0, 0};
+
+static void initNyanPal() {
+    s_nyanPal[0] = 0;
+    s_nyanPal[1] = rgb888to565(0xFF99FF);   // pink body fill (del GIF)
+    s_nyanPal[2] = rgb888to565(0xFFCC99);   // peach outline (del GIF)
+    s_nyanPal[3] = rgb888to565(0xFF3399);   // sprinkle dark pink (del GIF)
+    s_nyanPal[4] = rgb888to565(0x999999);   // gray cat fur (del GIF)
+    s_nyanPal[5] = rgb888to565(0x000000);   // black
+    s_nyanPal[6] = rgb888to565(0xFF9999);   // cheek pink (del GIF)
+    s_nyanPal[7] = rgb888to565(0xFFFFFF);   // white (highlights ojos)
+    s_nyanRainbow[0] = rgb888to565(0xFF0000);
+    s_nyanRainbow[1] = rgb888to565(0xFF8800);
+    s_nyanRainbow[2] = rgb888to565(0xFFE600);
+    s_nyanRainbow[3] = rgb888to565(0x00C800);
+    s_nyanRainbow[4] = rgb888to565(0x00A0FF);
+    s_nyanRainbow[5] = rgb888to565(0xC800FF);
+    // Colores del starfield: tonos azulados, mas brillantes cuanto mas cerca,
+    // sin saturar para no destacar excesivamente sobre el fondo #000033.
+    s_starColor[0] = rgb888to565(0x1F1F70);   // lejos: azul oscuro
+    s_starColor[1] = rgb888to565(0x4040A0);   // mid:   azul medio
+    s_starColor[2] = rgb888to565(0x80A0E0);   // cerca: azul claro
+    s_nyanInited = true;
+}
+
+void renderNyan(const Row& wRow, float secondOfMinuteF) {
+    if (!dma) return;
+    if (!s_nyanInited) initNyanPal();
+    uint32_t now = millis();
+
+    // Limpia toda la pantalla (incluido el area inferior del reloj) — si no,
+    // los pixels del ripple del boton dejan rastro en y>=FIRE_H entre frames.
+    dma->clearScreen();
+
+    // Fondo azul oscuro estilo "espacio" en la zona superior (encima de la
+    // fila inferior, que se redibuja con drawCommonBottomRow).
+    static const uint16_t BG_COLOR = rgb888to565(0x000033);
+    for (int y = 0; y < (int)FIRE_H; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            dma->drawPixel(x, y, BG_COLOR);
+        }
+    }
+
+    // Starfield con parallax: 10 estrellas en 3 capas de profundidad
+    // moviendose de derecha a izquierda. Se pinta ANTES del arcoiris y el
+    // gato para que ambos queden por delante.
+    for (int i = 0; i < 10; i++) {
+        uint8_t depth = STAR_DEPTH[i];
+        int shift = (int)(now / STAR_SPEED_MS[depth]);
+        int sx = ((int)STAR_OFFSET[i] - shift) % WIDTH;
+        if (sx < 0) sx += WIDTH;
+        int sy = STAR_Y[i];
+        if (sy >= 0 && sy < (int)FIRE_H) {
+            dma->drawPixel(sx, sy, s_starColor[depth]);
+        }
+    }
+
+    // Sprite 34x21, 6 frames de animacion. Anclado a la derecha del panel.
+    // El bouncing vertical ya esta incluido dentro de los frames del GIF.
+    const int catW = NYAN_W;                  // 34
+    const int catH = NYAN_H;                  // 21
+    const int catXpos = WIDTH - catW - 1;     // x=29
+    int catY = (FIRE_H - catH) / 2;           // centrado vertical fijo
+
+    // Frame de animacion: 6 frames a 70ms (timing del GIF original) = 420ms ciclo.
+    int frameIdx = (now / 70) % NYAN_NFRAMES;
+
+    // Estela arcoiris: 6 bandas, 2 px de alto cada una = 12 px total.
+    // Se dibuja hasta dentro del cuerpo del gato (hasta catXpos + 26, que es
+    // el borde derecho del pop-tart) y luego el sprite del gato la tapa por
+    // encima. Asi el arcoiris parece salir desde detras del gato.
+    const int trailOffset = catH / 2 - 6;     // ~6 px sobre el centro vertical
+    int trailY = catY + trailOffset;
+    int tShift = (int)(now / 60);
+    const int trailXmax = catXpos + 26;       // hasta el borde derecho del body
+    for (int x = 0; x < trailXmax && x < WIDTH; x++) {
+        int step = (((x + tShift) / 4) & 1);
+        for (int b = 0; b < 6; b++) {
+            int py0 = trailY + (b * 2) + step;
+            int py1 = py0 + 1;
+            if (py0 >= 0 && py0 < (int)FIRE_H) dma->drawPixel(x, py0, s_nyanRainbow[b]);
+            if (py1 >= 0 && py1 < (int)FIRE_H) dma->drawPixel(x, py1, s_nyanRainbow[b]);
+        }
+    }
+
+    // Sprite del gato (frame actual) encima del fondo y la estela.
+    for (int sy = 0; sy < catH; sy++) {
+        for (int sx = 0; sx < catW; sx++) {
+            uint8_t idx = NYAN_FRAMES[frameIdx][sy][sx];
+            if (idx == 0) continue;
+            int px = catXpos + sx;
+            int py = catY + sy;
+            if (px >= 0 && px < WIDTH && py >= 0 && py < (int)FIRE_H) {
+                dma->drawPixel(px, py, s_nyanPal[idx]);
+            }
+        }
+    }
+
+    drawCommonBottomRow(wRow, secondOfMinuteF);
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
+}
+
 }  // namespace Display
