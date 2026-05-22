@@ -21,7 +21,7 @@ volatile bool g_pendingReset = false;
 //   FOUR_ROWS: render normal con las 4 ciudades.
 //   FOCUS:     una sola ciudad (cities[0]) ocupando los 64x32 con HH:MM
 //              grande, temp grande, icono x2 y barra de segundera.
-enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2 };
+enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3 };
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
@@ -45,12 +45,21 @@ static const int16_t BTN_RIPPLE_X[3] = {16, Display::WIDTH / 2, Display::WIDTH -
 // `source` es texto para los logs ("ttp" / "web").
 static void handleButtonAction(int idx, const char* source) {
     if (idx < 0 || idx >= 3) return;
+    // El flag ttpEnabled solo silencia el TTP fisico. Los botones de la web
+    // funcionan siempre: el flag esta pensado para "tapar" un sensor fisico
+    // que se dispara solo por ruido, sin perder el control remoto.
+    bool fromTtp = (source && strcmp(source, "ttp") == 0);
+    if (fromTtp && !Config::cfg.ttpEnabled[idx]) {
+        Serial.printf("[ttp] button %d disabled, ignoring physical press\n", idx);
+        return;
+    }
     Display::triggerRipple(idx, BTN_RIPPLE_X[idx], 0);
     if (idx == 1) {
         g_displayMode = nextDisplayMode(g_displayMode);
         const char* name =
             (g_displayMode == DisplayMode::FOCUS)  ? "FOCUS" :
             (g_displayMode == DisplayMode::CLAUDE) ? "CLAUDE" :
+            (g_displayMode == DisplayMode::LIFE)   ? "LIFE"   :
                                                      "FOUR_ROWS";
         Serial.printf("[%s] displayMode -> %s\n", source, name);
         if (g_displayMode == DisplayMode::CLAUDE) {
@@ -98,17 +107,17 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
         case DisplayMode::FOUR_ROWS: return DisplayMode::FOCUS;
         case DisplayMode::FOCUS:
             return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
-                                                : DisplayMode::FOUR_ROWS;
-        case DisplayMode::CLAUDE:    return DisplayMode::FOUR_ROWS;
+                                                : DisplayMode::LIFE;
+        case DisplayMode::CLAUDE:    return DisplayMode::LIFE;
+        case DisplayMode::LIFE:      return DisplayMode::FOUR_ROWS;
     }
     return DisplayMode::FOUR_ROWS;
 }
 
-// Sensores tactiles TTP223 externos. Salida push-pull activa-HIGH, sin pull
-// interno necesario. Tres botones en linea: izquierda / centro / derecha.
-static constexpr uint8_t PIN_TTP1 = A2;  // GPIO 9   - izquierda
-static constexpr uint8_t PIN_TTP2 = A3;  // GPIO 10  - centro
-static constexpr uint8_t PIN_TTP3 = A4;  // GPIO 11  - derecha
+// Los 3 botones tienen su GPIO y modo (pullup/no) configurables desde la
+// web. Defaults: A2/A3/A4 con pull-up interno (pulsador a GND, activo LOW).
+// Para sensores tipo TTP223 con salida push-pull activa-HIGH: desmarcar
+// pullup desde la UI; entonces se usa INPUT plano y se lee activo en HIGH.
 
 // Estado del check periodico de auto-update. Se inicializa a "hace mucho"
 // para que el primer check se dispare al boot (lo hace setup() explicitamente
@@ -198,11 +207,26 @@ void setup() {
     Serial.println("[boot] WorldTime fw starting (build OTA test)");
 
     pinMode(PIN_BUTTON_UP, INPUT_PULLUP);
-    pinMode(PIN_TTP1, INPUT);
-    pinMode(PIN_TTP2, INPUT);
-    pinMode(PIN_TTP3, INPUT);
+    // Pinmode inicial segun Config (0=INPUT, 1=INPUT_PULLUP, 2=INPUT_PULLDOWN).
+    // Se reaplica en el loop si la config cambia desde la web.
+    for (int i = 0; i < 3; i++) {
+        uint8_t mode = Config::cfg.ttpPinMode[i];
+        pinMode(Config::cfg.ttpPin[i],
+                mode == 1 ? INPUT_PULLUP :
+                mode == 2 ? INPUT_PULLDOWN : INPUT);
+    }
     Icons::begin();          // Defaults (nombres + frame inicial); Config los sobrescribe.
     Config::begin();
+    // Modo inicial: respeta cfg.startupMode. Si pide CLAUDE pero no hay
+    // sessionKey configurada, fallback a FOUR_ROWS para no quedarnos en
+    // un modo sin contenido.
+    {
+        DisplayMode want = (DisplayMode)Config::cfg.startupMode;
+        if (want == DisplayMode::CLAUDE && !ClaudeStats::isConfigured()) {
+            want = DisplayMode::FOUR_ROWS;
+        }
+        g_displayMode = want;
+    }
     Weather::loadCache();   // muestra ultima meteo conocida mientras NTP/fetch arrancan
     Display::begin();
     Display::setBrightness((uint8_t)(Config::cfg.brightness * 255));
@@ -306,11 +330,24 @@ void loop() {
     constexpr uint32_t PRESS_HOLD_MS    = 80;
     constexpr uint32_t RELEASE_HOLD_MS  = 40;
     constexpr uint32_t POST_PRESS_LOCK  = 350;
-    bool ttpRaw[3] = {
-        digitalRead(PIN_TTP1) == HIGH,
-        digitalRead(PIN_TTP2) == HIGH,
-        digitalRead(PIN_TTP3) == HIGH
-    };
+    // Re-aplica pinMode si el GPIO o el modo cambian desde la web. La
+    // polaridad sigue al modo: PULLUP (1) → activo LOW. INPUT (0) y
+    // PULLDOWN (2) → activo HIGH (TTP223 push-pull o pulsador a 3V3).
+    static uint8_t s_lastPin[3]  = {0xFF, 0xFF, 0xFF};
+    static uint8_t s_lastMode[3] = {0xFF, 0xFF, 0xFF};
+    bool ttpRaw[3];
+    for (int i = 0; i < 3; i++) {
+        uint8_t pin  = Config::cfg.ttpPin[i];
+        uint8_t mode = Config::cfg.ttpPinMode[i];
+        if (pin != s_lastPin[i] || mode != s_lastMode[i]) {
+            pinMode(pin, mode == 1 ? INPUT_PULLUP :
+                         mode == 2 ? INPUT_PULLDOWN : INPUT);
+            s_lastPin[i]  = pin;
+            s_lastMode[i] = mode;
+        }
+        bool activeLow = (mode == 1);
+        ttpRaw[i] = digitalRead(pin) == (activeLow ? LOW : HIGH);
+    }
     uint32_t now = millis();
     for (int i = 0; i < 3; i++) {
         if (ttpRaw[i] != ttpRawPrev[i]) {
@@ -330,8 +367,8 @@ void loop() {
             ttp[i] = false;
         }
     }
-    const uint8_t ttpPin[3] = {PIN_TTP1, PIN_TTP2, PIN_TTP3};
-    const char* const ttpLabel[3] = {"A2/izq", "A3/cen", "A4/der"};
+    const uint8_t ttpPin[3] = {Config::cfg.ttpPin[0], Config::cfg.ttpPin[1], Config::cfg.ttpPin[2]};
+    const char* const ttpLabel[3] = {"izq", "cen", "der"};
     const int16_t ttpRippleX[3] = {16, Display::WIDTH / 2, Display::WIDTH - 16};
     // Atender requests del web (simulacion de pulsacion desde la UI). Se
     // procesan antes del edge detect del TTP para que los logs salgan en
@@ -419,6 +456,37 @@ void loop() {
     // Brillo: usa la primera ciudad como timezone de referencia para la ventana
     // de modo noche (igual que la version Python).
     int refOffset = Weather::data[0].hasData ? Weather::data[0].offsetSec : 0;
+
+    // Programaciones de cambio de modo. Comprobamos en la transicion de
+    // minuto local (referencia de cities[0]). lastScheduleMin guarda el
+    // ultimo minuto procesado para no disparar varias veces dentro del
+    // mismo minuto.
+    if (timeOk) {
+        static int lastScheduleMin = -1;
+        time_t local = utc + refOffset;
+        struct tm tm;
+        gmtime_r(&local, &tm);
+        int curMin = tm.tm_hour * 60 + tm.tm_min;
+        if (curMin != lastScheduleMin) {
+            lastScheduleMin = curMin;
+            for (int i = 0; i < Config::SCHEDULE_MAX; i++) {
+                const auto& s = Config::cfg.schedule[i];
+                if (!s.enabled) continue;
+                if ((int)(s.hour * 60 + s.minute) != curMin) continue;
+                DisplayMode want = (DisplayMode)s.mode;
+                if (want == DisplayMode::CLAUDE && !ClaudeStats::isConfigured()) {
+                    Serial.printf("[sched] %02u:%02u CLAUDE skipped (no sessionKey)\n",
+                                  s.hour, s.minute);
+                    continue;
+                }
+                Serial.printf("[sched] %02u:%02u -> mode %u\n",
+                              s.hour, s.minute, s.mode);
+                g_displayMode = want;
+                if (want == DisplayMode::CLAUDE) ClaudeStats::requestRefresh();
+            }
+        }
+    }
+
     float effBright = effectiveBrightness(utc, refOffset);
     uint8_t targetBright = (uint8_t)(effBright * 255);
     if (targetBright != lastBrightness) {
@@ -554,6 +622,8 @@ void loop() {
             cv.sevenLabel      = p7.label;
             Display::renderClaude(rows[0], cv, secondOfMinuteF);
         }
+    } else if (g_displayMode == DisplayMode::LIFE) {
+        Display::renderLife(rows[0], secondOfMinuteF);
     } else {
         Display::renderRows(rows, secondOfMinuteF);
     }

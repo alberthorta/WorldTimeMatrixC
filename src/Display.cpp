@@ -1405,7 +1405,7 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         uint16_t tc = tempColor(weatherRow.tempC);
         int16_t x1, y1; uint16_t w, h;
         dma->getTextBounds(tnum, 0, 0, &x1, &y1, &w, &h);
-        const int ICON_GAP = 1;
+        const int ICON_GAP = 2;
         const int DEG_W = 2, DEG_GAP = 1;
         int tempW = (int)w + DEG_GAP + DEG_W;
         bool hasIcon = (weatherRow.icon != IconType::NONE);
@@ -1606,6 +1606,222 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
     }
 
     // ── Barra de segundos full width en y=30..31, sub-pixel smooth.
+    drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
+
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
+}
+
+// ── Modo Game of Life ───────────────────────────────────────────────────
+// Conway en una grid 64x24 (parte superior) + fila inferior con hora,
+// fecha, icono y temperatura. Toroidal (los bordes envuelven). Si el
+// patron queda estatico o entra en un ciclo de periodo <=4 durante 10s,
+// reseed con un seed aleatorio nuevo.
+static constexpr int LIFE_W = 64;
+// 23 rows (y=0..22) deja un 1 px de gap negro en y=23, entre el grid y la
+// fila inferior con hora/fecha/temp (que empieza en y=24 segun glyph).
+static constexpr int LIFE_H = 23;
+static uint64_t s_lifeGrid[LIFE_H] = {0};
+static uint64_t s_lifeNext[LIFE_H] = {0};
+static uint32_t s_lifeHistHash[4] = {0, 0, 0, 0};
+static uint32_t s_lifeStuckSinceMs = 0;
+static uint32_t s_lifeLastStepMs = 0;
+static uint16_t s_lifeHue = 0;     // 0..359, avanza cada step en modo rainbow
+static bool     s_lifeInited = false;
+static constexpr uint32_t LIFE_STEP_MS = 150;
+static constexpr uint32_t LIFE_STUCK_MS = 10000;
+static constexpr int      LIFE_HUE_STEP = 3;   // grados de variacion por step
+
+// HSV (S=V=full) -> RGB565. h en grados 0..359.
+static uint16_t hueToRgb565(int h) {
+    if (h < 0) h = (h % 360 + 360) % 360;
+    if (h >= 360) h %= 360;
+    int region = h / 60;
+    int rem = (h - region * 60) * 255 / 60;
+    int r, g, b;
+    switch (region) {
+        case 0: r = 255; g = rem; b = 0; break;
+        case 1: r = 255 - rem; g = 255; b = 0; break;
+        case 2: r = 0; g = 255; b = rem; break;
+        case 3: r = 0; g = 255 - rem; b = 255; break;
+        case 4: r = rem; g = 0; b = 255; break;
+        default: r = 255; g = 0; b = 255 - rem; break;
+    }
+    return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
+static uint32_t lifeHash() {
+    // FNV-1a 32 bits sobre las 24 rows de 64 bits.
+    uint32_t h = 2166136261u;
+    for (int y = 0; y < LIFE_H; y++) {
+        uint64_t r = s_lifeGrid[y];
+        h ^= (uint32_t)(r & 0xFFFFFFFFu); h *= 16777619u;
+        h ^= (uint32_t)(r >> 32);         h *= 16777619u;
+    }
+    return h;
+}
+
+static void lifeReseed() {
+    for (int y = 0; y < LIFE_H; y++) {
+        uint64_t row = 0;
+        for (int x = 0; x < LIFE_W; x++) {
+            if ((esp_random() & 0xFF) < 80) row |= (1ULL << x);   // ~31% alive
+        }
+        s_lifeGrid[y] = row;
+    }
+    s_lifeHistHash[0] = lifeHash();
+    s_lifeHistHash[1] = 0;
+    s_lifeHistHash[2] = 0;
+    s_lifeHistHash[3] = 0;
+    s_lifeStuckSinceMs = 0;
+}
+
+static inline bool lifeAlive(int x, int y) {
+    if (x < 0) x += LIFE_W;
+    if (x >= LIFE_W) x -= LIFE_W;
+    if (y < 0) y += LIFE_H;
+    if (y >= LIFE_H) y -= LIFE_H;
+    return (s_lifeGrid[y] >> x) & 1ULL;
+}
+
+static void lifeStep() {
+    for (int y = 0; y < LIFE_H; y++) {
+        uint64_t row = 0;
+        for (int x = 0; x < LIFE_W; x++) {
+            int n = (int)lifeAlive(x-1, y-1) + (int)lifeAlive(x, y-1) + (int)lifeAlive(x+1, y-1)
+                  + (int)lifeAlive(x-1, y)                            + (int)lifeAlive(x+1, y)
+                  + (int)lifeAlive(x-1, y+1) + (int)lifeAlive(x, y+1) + (int)lifeAlive(x+1, y+1);
+            bool alive = (s_lifeGrid[y] >> x) & 1ULL;
+            if ((alive && (n == 2 || n == 3)) || (!alive && n == 3)) row |= (1ULL << x);
+        }
+        s_lifeNext[y] = row;
+    }
+    for (int y = 0; y < LIFE_H; y++) s_lifeGrid[y] = s_lifeNext[y];
+}
+
+void renderLife(const Row& wRow, float secondOfMinuteF) {
+    if (!dma) return;
+    if (!s_lifeInited) {
+        lifeReseed();
+        s_lifeInited = true;
+        s_lifeLastStepMs = millis();
+    }
+
+    uint32_t now = millis();
+    if (now - s_lifeLastStepMs >= Config::cfg.lifeStepMs) {
+        s_lifeLastStepMs = now;
+        lifeStep();
+        s_lifeHue = (s_lifeHue + LIFE_HUE_STEP) % 360;
+        uint32_t newHash = lifeHash();
+        // Detectamos ciclo si el nuevo hash coincide con alguno de los 4
+        // anteriores (cubre periodos 1..4 — incluye estatico, blinkers,
+        // toads y la mayoria de oscilladores comunes).
+        bool stuck = false;
+        for (int i = 0; i < 4; i++) {
+            if (s_lifeHistHash[i] != 0 && s_lifeHistHash[i] == newHash) {
+                stuck = true; break;
+            }
+        }
+        if (stuck) {
+            if (s_lifeStuckSinceMs == 0) s_lifeStuckSinceMs = now;
+            if (now - s_lifeStuckSinceMs >= LIFE_STUCK_MS) {
+                lifeReseed();
+                return;
+            }
+        } else {
+            s_lifeStuckSinceMs = 0;
+        }
+        // Shift de la historia.
+        s_lifeHistHash[3] = s_lifeHistHash[2];
+        s_lifeHistHash[2] = s_lifeHistHash[1];
+        s_lifeHistHash[1] = s_lifeHistHash[0];
+        s_lifeHistHash[0] = newHash;
+    }
+
+    dma->clearScreen();
+
+    // Pintar celulas vivas. Color configurable desde la web; en modo
+    // "rainbow" el hue avanza 3 grados en cada step.
+    uint16_t cellColor = Config::cfg.lifeRainbow
+                           ? hueToRgb565(s_lifeHue)
+                           : rgb888to565(Config::cfg.lifeColor);
+    for (int y = 0; y < LIFE_H; y++) {
+        uint64_t row = s_lifeGrid[y];
+        if (!row) continue;
+        for (int x = 0; x < LIFE_W; x++) {
+            if ((row >> x) & 1ULL) dma->drawPixel(x, y, cellColor);
+        }
+    }
+
+    // Fila inferior (y=25..29 baseline 29): hora | fecha | icono | temp.
+    dma->setFont(&TomThumb);
+    dma->setTextSize(1);
+    uint16_t hourCol = rgb888to565(Config::cfg.focusHourColor);
+    uint16_t dateCol = rgb888to565(Config::cfg.focusDateColor);
+
+    int baseline = 29;
+    int cursorX = 0;
+    if (wRow.hasTime) {
+        char hh[4], mm[4], full[8];
+        bool lz = Config::cfg.hourLeadingZero || wRow.hour >= 10;
+        if (lz) snprintf(hh, sizeof(hh), "%02u", wRow.hour);
+        else    snprintf(hh, sizeof(hh), "%u",  wRow.hour);
+        snprintf(mm, sizeof(mm), "%02u", wRow.minute);
+        snprintf(full, sizeof(full), "%s:%s", hh, mm);
+        float colonAlpha = computeColonAlpha(secondOfMinuteF);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(full, 0, 0, &x1, &y1, &w, &h);
+        dma->setCursor(0, baseline);
+        dma->setTextColor(hourCol);
+        dma->print(hh);
+        dma->setTextColor(scale565(hourCol, colonAlpha));
+        dma->print(":");
+        dma->setTextColor(hourCol);
+        dma->print(mm);
+        cursorX = (int)w + 2;
+    }
+    if (wRow.hasTime && wRow.day > 0 && wRow.month > 0) {
+        char d[8];
+        snprintf(d, sizeof(d), "%02u/%02u", wRow.day, wRow.month);
+        // Fecha centrada en todo el ancho de la pantalla.
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(d, 0, 0, &x1, &y1, &w, &h);
+        int x = (WIDTH - (int)w) / 2 - (int)x1;
+        dma->setTextColor(dateCol);
+        dma->setCursor(x, baseline);
+        dma->print(d);
+        (void)cursorX;
+    }
+
+    // Temp right-aligned + icono justo a su izquierda.
+    if (wRow.hasWeather) {
+        char tnum[6];
+        snprintf(tnum, sizeof(tnum), "%d", wRow.tempC);
+        uint16_t tc = tempColor(wRow.tempC);
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(tnum, 0, 0, &x1, &y1, &w, &h);
+        const int DEG_W = 2, DEG_GAP = 1;
+        int totalW = (int)w + DEG_GAP + DEG_W;
+        int xStart = WIDTH - totalW;
+        dma->setTextColor(tc);
+        dma->setCursor(xStart, baseline);
+        dma->print(tnum);
+        int degX = xStart + (int)w + DEG_GAP;
+        int degTopY = baseline - 5;
+        for (int yy = 0; yy < 2; yy++)
+            for (int xx = 0; xx < 2; xx++)
+                dma->drawPixel(degX + xx, degTopY + yy, tc);
+        // Icono a la izquierda de la temp.
+        if (wRow.icon != IconType::NONE) {
+            const Icons::Frame* frame = nullptr;
+            if (g_previewActive) frame = tickPreviewAnim();
+            else                 frame = tickRowAnim(0, wRow.icon);
+            if (frame) drawFrame(xStart - Icons::ICON_W - 2, 24, *frame);
+        }
+    }
+
+    // Segundera abajo del todo (y=30..31, full width, sub-pixel).
     drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
 
     drawActiveRipples();

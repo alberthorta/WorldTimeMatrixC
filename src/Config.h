@@ -22,6 +22,17 @@ struct City {
     uint32_t colorRgb;  // 0xRRGGBB
 };
 
+// Programacion: a HH:MM se cambia al `mode` indicado (0=4 filas, 1=focus,
+// 2=claude). Repite cada dia. La hora es local — se calcula con el offset
+// de cities[0], mismo criterio que el modo noche.
+struct ScheduleEntry {
+    bool    enabled;
+    uint8_t hour;     // 0..23
+    uint8_t minute;   // 0..59
+    uint8_t mode;     // 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE
+};
+static constexpr int SCHEDULE_MAX = 10;
+
 struct NightMode {
     bool enabled;
     uint16_t startMins;     // minutos desde medianoche
@@ -89,6 +100,29 @@ struct All {
     // Configuracion IP: DHCP por defecto. Si wifiUseDhcp=false aplicamos IP
     // estatica con los 5 campos antes de WiFi.begin. Strings vacias = no
     // setear ese campo (asi DNS secundario es opcional).
+    // Activacion individual de los 3 sensores tactiles. Si desactivas alguno,
+    // el handler de pulsacion (fisico y web) sale antes de cualquier accion,
+    // incluido el ripple visual. Default: los tres activos.
+    bool     ttpEnabled[3];
+    // GPIO al que esta cableado cada boton fisico. Default: A2/A3/A4
+    // (GPIO 9/10/11). Permite A1 (GPIO 3) aunque sea strapping pin del
+    // ESP32-S3 — si causa cuelgues al boot, cambiar a otro pad.
+    uint8_t  ttpPin[3];
+    // Modo del pin: 0 = INPUT (push-pull TTP223, activo HIGH), 1 = PULLUP
+    // (pulsador a GND, activo LOW), 2 = PULLDOWN (pulsador a 3V3, activo
+    // HIGH). Default 1.
+    uint8_t  ttpPinMode[3];
+    ScheduleEntry schedule[SCHEDULE_MAX];
+    // Modo al arrancar: 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE, 3=LIFE. Si CLAUDE
+    // pero sessionKey vacia, fallback a FOUR_ROWS.
+    uint8_t   startupMode;
+    // Color de las celulas vivas en modo Game of Life (RGB 0xRRGGBB).
+    uint32_t  lifeColor;
+    // Si true, ignora lifeColor y aplica un hue que avanza unos grados en
+    // cada step de la simulacion (efecto arcoiris suave).
+    bool      lifeRainbow;
+    // Tiempo entre steps de la simulacion (ms). Range 50..1000.
+    uint16_t  lifeStepMs;
     bool     wifiUseDhcp;
     String   wifiStaticIp;
     String   wifiStaticGateway;

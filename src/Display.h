@@ -84,6 +84,11 @@ struct ClaudeView {
     const char* sevenLabel;
 };
 void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF = -1.0f);
+// Modo Game of Life: simulacion de Conway en la parte superior (y=0..23) +
+// fila inferior con hora HH:MM, fecha DD/MM, icono animado y temperatura.
+// El estado del juego es interno; si el patron se mantiene estatico o
+// entra en ciclo durante 10 s, se reseed con nuevos pixels aleatorios.
+void renderLife(const Row& weatherRow, float secondOfMinuteF = -1.0f);
 void clear();
 // Pinta toda la pantalla del color RGB565 indicado (con flip de buffer).
 void fillScreen(uint16_t color565);

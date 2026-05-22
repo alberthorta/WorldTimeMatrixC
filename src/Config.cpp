@@ -112,6 +112,22 @@ static All defaults() {
     a.claudeRefreshSec     = 180;
     a.autoUpdateEnabled    = true;
     a.autoUpdateCheckIntervalH = 24;
+    a.ttpEnabled[0]        = true;
+    a.ttpEnabled[1]        = true;
+    a.ttpEnabled[2]        = true;
+    a.ttpPin[0]            = 9;   // A2
+    a.ttpPin[1]            = 10;  // A3
+    a.ttpPin[2]            = 11;  // A4
+    a.ttpPinMode[0]        = 1;   // PULLUP
+    a.ttpPinMode[1]        = 1;
+    a.ttpPinMode[2]        = 1;
+    for (int i = 0; i < SCHEDULE_MAX; i++) {
+        a.schedule[i] = {false, 0, 0, 0};
+    }
+    a.startupMode = 0;
+    a.lifeColor   = 0x80C0FF;   // azul claro por defecto
+    a.lifeRainbow = false;
+    a.lifeStepMs  = 150;
     a.wifiUseDhcp          = true;
     a.wifiStaticIp         = "";
     a.wifiStaticGateway    = "";
@@ -156,6 +172,25 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_refresh_sec"]     = cfg.claudeRefreshSec;
     doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
     doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
+    JsonArray ttpArr = doc["ttp_enabled"].to<JsonArray>();
+    for (int i = 0; i < 3; i++) ttpArr.add(cfg.ttpEnabled[i]);
+    JsonArray ttpPinArr = doc["ttp_pin"].to<JsonArray>();
+    for (int i = 0; i < 3; i++) ttpPinArr.add(cfg.ttpPin[i]);
+    JsonArray ttpPmArr = doc["ttp_pinmode"].to<JsonArray>();
+    for (int i = 0; i < 3; i++) ttpPmArr.add(cfg.ttpPinMode[i]);
+    doc["startup_mode"] = cfg.startupMode;
+    doc["life_color"]   = cfg.lifeColor;
+    doc["life_rainbow"] = cfg.lifeRainbow;
+    doc["life_step_ms"] = cfg.lifeStepMs;
+    JsonArray schedArr = doc["schedule"].to<JsonArray>();
+    for (int i = 0; i < SCHEDULE_MAX; i++) {
+        const auto& s = cfg.schedule[i];
+        JsonObject o = schedArr.add<JsonObject>();
+        o["enabled"] = s.enabled;
+        o["hour"]    = s.hour;
+        o["minute"]  = s.minute;
+        o["mode"]    = s.mode;
+    }
     doc["wifi_use_dhcp"]                = cfg.wifiUseDhcp;
     doc["wifi_static_ip"]               = cfg.wifiStaticIp;
     doc["wifi_static_gateway"]          = cfg.wifiStaticGateway;
@@ -290,6 +325,77 @@ static bool applyJson(JsonDocument& doc) {
         if (h < 1)   h = 1;
         if (h > 720) h = 720;
         cfg.autoUpdateCheckIntervalH = h;
+    }
+    JsonArrayConst ttpArr = doc["ttp_enabled"].as<JsonArrayConst>();
+    if (!ttpArr.isNull()) {
+        for (int i = 0; i < 3 && i < (int)ttpArr.size(); i++) {
+            cfg.ttpEnabled[i] = ttpArr[i].as<bool>();
+        }
+    }
+    JsonArrayConst ttpPinArr = doc["ttp_pin"].as<JsonArrayConst>();
+    if (!ttpPinArr.isNull()) {
+        for (int i = 0; i < 3 && i < (int)ttpPinArr.size(); i++) {
+            int p = ttpPinArr[i].as<int>();
+            // Valores aceptados: A1=3, A2=9, A3=10, A4=11. Otros se ignoran
+            // por seguridad (evitar pisar pines del HUB75).
+            if (p == 3 || p == 9 || p == 10 || p == 11) {
+                cfg.ttpPin[i] = (uint8_t)p;
+            }
+        }
+    }
+    // Modo del pin nuevo (preferente). Si no esta presente, intentamos
+    // migrar del campo legacy ttp_pullup (bool) para preservar la config
+    // de devices que actualizan desde antes de v0.7.
+    JsonArrayConst ttpPmArr = doc["ttp_pinmode"].as<JsonArrayConst>();
+    if (!ttpPmArr.isNull()) {
+        for (int i = 0; i < 3 && i < (int)ttpPmArr.size(); i++) {
+            int m = ttpPmArr[i].as<int>();
+            if (m < 0) m = 0;
+            if (m > 2) m = 2;
+            cfg.ttpPinMode[i] = (uint8_t)m;
+        }
+    } else {
+        JsonArrayConst legacy = doc["ttp_pullup"].as<JsonArrayConst>();
+        if (!legacy.isNull()) {
+            for (int i = 0; i < 3 && i < (int)legacy.size(); i++) {
+                cfg.ttpPinMode[i] = legacy[i].as<bool>() ? 1 : 0;
+            }
+        }
+    }
+    if (doc["startup_mode"].is<int>()) {
+        int m = doc["startup_mode"];
+        if (m < 0) m = 0;
+        if (m > 3) m = 3;
+        cfg.startupMode = (uint8_t)m;
+    }
+    applyColor("life_color", cfg.lifeColor);
+    if (doc["life_rainbow"].is<bool>()) cfg.lifeRainbow = doc["life_rainbow"];
+    if (doc["life_step_ms"].is<int>()) {
+        int v = doc["life_step_ms"];
+        if (v < 50)   v = 50;
+        if (v > 1000) v = 1000;
+        cfg.lifeStepMs = (uint16_t)v;
+    }
+    JsonArrayConst schedArr = doc["schedule"].as<JsonArrayConst>();
+    if (!schedArr.isNull()) {
+        // Reset todo a deshabilitado primero (asi un patch parcial limpia las
+        // entradas anteriores). Luego sobrescribimos con lo que viene.
+        for (int i = 0; i < SCHEDULE_MAX; i++) cfg.schedule[i] = {false, 0, 0, 0};
+        for (int i = 0; i < SCHEDULE_MAX && i < (int)schedArr.size(); i++) {
+            JsonObjectConst o = schedArr[i].as<JsonObjectConst>();
+            if (o.isNull()) continue;
+            ScheduleEntry& s = cfg.schedule[i];
+            s.enabled = o["enabled"] | false;
+            int h = o["hour"] | 0;
+            int m = o["minute"] | 0;
+            int md = o["mode"] | 0;
+            if (h < 0)  h = 0;  if (h > 23) h = 23;
+            if (m < 0)  m = 0;  if (m > 59) m = 59;
+            if (md < 0) md = 0; if (md > 3) md = 3;
+            s.hour = (uint8_t)h;
+            s.minute = (uint8_t)m;
+            s.mode = (uint8_t)md;
+        }
     }
     if (doc["wifi_use_dhcp"].is<bool>())
         cfg.wifiUseDhcp = doc["wifi_use_dhcp"];

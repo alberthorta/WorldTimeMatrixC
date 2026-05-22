@@ -355,6 +355,8 @@ code{
     <button id="btn-sim-center" type="button" class="btn">Modo</button>
     <button id="btn-sim-right"  type="button" class="btn">Brillo + &rarr;</button>
   </div>
+  <span class="note" style="margin-top:.75rem;display:block">Configuracion del sensor fisico. PULLUP = pulsador a GND (activo LOW). INPUT = sensor push-pull tipo TTP223 (activo HIGH). Si el sensor de un lado dispara solo, desactivalo: los botones de arriba siguen funcionando. Aviso: A1 es strapping pin del ESP32-S3 — usarlo puede impedir el boot si el pin esta en HIGH al encender.</span>
+  <div id="ttp-config" style="margin-top:.5rem"></div>
 </section>
 
 <section class="card">
@@ -518,6 +520,36 @@ code{
       <input id="trend-color-stable" type="color" value="#666666"/>
     </label>
   </div>
+  <h3 style="margin-top:1rem">Modo Game of Life (modo 4)</h3>
+  <label class="toggle-row" style="margin-top:.25rem">
+    <span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span>
+    <span style="font-size:.9rem">Rainbow (el color avanza unos grados en cada step)</span>
+  </label>
+  <label id="life-color-row" style="display:block;margin-top:.25rem">
+    <span class="label">Color de las celulas vivas</span>
+    <input id="life-color" type="color" value="#80C0FF"/>
+  </label>
+  <label style="display:block;margin-top:.25rem">
+    <span class="label">Velocidad (ms por step) <span id="life-step-val">150</span></span>
+    <input id="life-step" type="range" min="50" max="1000" step="10" value="150"/>
+  </label>
+
+  <h3 style="margin-top:1rem">Modo al arrancar</h3>
+  <label style="display:block;margin-top:.25rem">
+    <span class="label">Modo activo al boot</span>
+    <select id="startup-mode">
+      <option value="0">1 - 4 filas</option>
+      <option value="1">2 - Focus</option>
+      <option value="2">3 - Claude</option>
+      <option value="3">4 - Life</option>
+    </select>
+  </label>
+  <span class="note">Si seleccionas Claude pero no hay sessionKey configurada, arrancara en 4 filas.</span>
+
+  <h3 style="margin-top:1rem">Programaciones (cambio de modo)</h3>
+  <span class="note">Hasta 10 programaciones. A la hora local indicada se cambia automaticamente al modo elegido (1 = 4 filas, 2 = focus, 3 = Claude). La hora local usa el timezone de la primera ciudad.</span>
+  <div id="schedule-list" style="margin-top:.5rem"></div>
+
   <h3 style="margin-top:1rem">Colores hora y fecha (modos focus + Claude)</h3>
   <span class="note">Se aplica al modo focus (modo 2) y al modo Claude (modo 3). Independientes del color de cada ciudad.</span>
   <div class="grid-2">
@@ -775,6 +807,74 @@ async function loadConfig(){
     $('#claude-refresh').value = cfg.claude_refresh_sec || 180;
     $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
     $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
+    $('#startup-mode').value = (cfg.startup_mode != null ? cfg.startup_mode : 0);
+    $('#life-color').value   = intToHex(cfg.life_color != null ? cfg.life_color : 0x80C0FF);
+    $('#life-rainbow').checked = !!cfg.life_rainbow;
+    $('#life-color-row').style.display = cfg.life_rainbow ? 'none' : '';
+    const lifeStep = cfg.life_step_ms || 150;
+    $('#life-step').value = lifeStep;
+    $('#life-step-val').textContent = lifeStep;
+    // Programaciones (lista de hasta 10). Renderizamos siempre 10 filas:
+    // las activas con sus valores, las vacias con defaults.
+    const sched = Array.isArray(cfg.schedule) ? cfg.schedule : [];
+    const SCHED_MAX = 10;
+    const schedList = $('#schedule-list');
+    schedList.innerHTML = '';
+    for (let i = 0; i < SCHED_MAX; i++) {
+      const s = sched[i] || {enabled:false, hour:0, minute:0, mode:0};
+      const hhmm = String(s.hour).padStart(2,'0') + ':' + String(s.minute).padStart(2,'0');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:.5rem;align-items:center;margin-bottom:.25rem';
+      row.innerHTML = `
+        <input type="checkbox" data-sched="${i}" data-k="enabled" ${s.enabled?'checked':''}/>
+        <input type="time" data-sched="${i}" data-k="time" value="${hhmm}" style="flex:0 0 auto"/>
+        <select data-sched="${i}" data-k="mode" style="flex:1">
+          <option value="0" ${s.mode==0?'selected':''}>1 - 4 filas</option>
+          <option value="1" ${s.mode==1?'selected':''}>2 - Focus</option>
+          <option value="2" ${s.mode==2?'selected':''}>3 - Claude</option>
+          <option value="3" ${s.mode==3?'selected':''}>4 - Life</option>
+        </select>
+      `;
+      schedList.appendChild(row);
+    }
+    // Configuracion de los 3 botones tactiles (enabled + pin + pullup).
+    const ttpEn  = Array.isArray(cfg.ttp_enabled) ? cfg.ttp_enabled : [true,true,true];
+    const ttpPin = Array.isArray(cfg.ttp_pin)     ? cfg.ttp_pin     : [9,10,11];
+    // Modo nuevo (0=INPUT, 1=PULLUP, 2=PULLDOWN). Migra del legacy bool si falta.
+    const ttpPm = Array.isArray(cfg.ttp_pinmode) ? cfg.ttp_pinmode
+                : Array.isArray(cfg.ttp_pullup)  ? cfg.ttp_pullup.map(b => b ? 1 : 0)
+                : [1,1,1];
+    const ttpLabels = ['Izquierda', 'Centro', 'Derecha'];
+    const pinOpts = [
+      {v: 3,  t: 'A1 (GPIO 3) ⚠️ strapping'},
+      {v: 9,  t: 'A2 (GPIO 9)'},
+      {v: 10, t: 'A3 (GPIO 10)'},
+      {v: 11, t: 'A4 (GPIO 11)'},
+    ];
+    const wrap = $('#ttp-config');
+    wrap.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const en  = ttpEn[i]  !== false;
+      const pin = ttpPin[i] || [9,10,11][i];
+      const pm  = (typeof ttpPm[i] === 'number') ? ttpPm[i] : 1;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem;flex-wrap:wrap';
+      row.innerHTML = `
+        <label class="toggle-row" style="min-width:120px">
+          <span class="toggle"><input type="checkbox" data-ttp="${i}" data-k="en" ${en?'checked':''}/><span class="toggle-slider"></span></span>
+          <span style="font-size:.9rem">${ttpLabels[i]}</span>
+        </label>
+        <select data-ttp="${i}" data-k="pin">
+          ${pinOpts.map(o => `<option value="${o.v}" ${pin==o.v?'selected':''}>${o.t}</option>`).join('')}
+        </select>
+        <select data-ttp="${i}" data-k="pm">
+          <option value="1" ${pm==1?'selected':''}>PULLUP (pulsador a GND)</option>
+          <option value="2" ${pm==2?'selected':''}>PULLDOWN (pulsador a 3V3)</option>
+          <option value="0" ${pm==0?'selected':''}>INPUT (TTP223 push-pull)</option>
+        </select>
+      `;
+      wrap.appendChild(row);
+    }
     // WiFi DHCP / static
     const useDhcp = cfg.wifi_use_dhcp !== false;
     $('#wifi-dhcp').checked = useDhcp;
@@ -1177,6 +1277,31 @@ $('#save').onclick = async () => {
     claude_refresh_sec:     parseInt($('#claude-refresh').value, 10) || 180,
     auto_update_enabled:    $('#autoupd-en').checked,
     auto_update_check_interval_h: Math.max(1, Math.min(720, parseInt($('#autoupd-interval').value, 10) || 24)),
+    ttp_enabled: (function() {
+      return [0,1,2].map(i => document.querySelector(`[data-ttp="${i}"][data-k="en"]`).checked);
+    })(),
+    ttp_pin: (function() {
+      return [0,1,2].map(i => parseInt(document.querySelector(`[data-ttp="${i}"][data-k="pin"]`).value, 10));
+    })(),
+    ttp_pinmode: (function() {
+      return [0,1,2].map(i => parseInt(document.querySelector(`[data-ttp="${i}"][data-k="pm"]`).value, 10));
+    })(),
+    startup_mode: parseInt($('#startup-mode').value, 10) || 0,
+    life_color:   hexToInt($('#life-color').value),
+    life_rainbow: $('#life-rainbow').checked,
+    life_step_ms: parseInt($('#life-step').value, 10) || 150,
+    schedule: (function() {
+      const rows = document.querySelectorAll('#schedule-list > div');
+      const out = [];
+      rows.forEach((row, i) => {
+        const en = row.querySelector('[data-k="enabled"]').checked;
+        const t  = row.querySelector('[data-k="time"]').value || '00:00';
+        const md = parseInt(row.querySelector('[data-k="mode"]').value, 10) || 0;
+        const [hh, mm] = t.split(':').map(x => parseInt(x, 10) || 0);
+        out.push({enabled: en, hour: hh, minute: mm, mode: md});
+      });
+      return out;
+    })(),
     wifi_use_dhcp:          $('#wifi-dhcp').checked,
     wifi_static_ip:         $('#wifi-ip').value.trim(),
     wifi_static_gateway:    $('#wifi-gw').value.trim(),
@@ -1219,6 +1344,14 @@ $('#save').onclick = async () => {
 // Toggle DHCP/static
 $('#wifi-dhcp').onchange = () => {
   $('#wifi-static-fields').style.display = $('#wifi-dhcp').checked ? 'none' : '';
+};
+// Toggle rainbow (oculta el color picker cuando esta activo)
+$('#life-rainbow').onchange = () => {
+  $('#life-color-row').style.display = $('#life-rainbow').checked ? 'none' : '';
+};
+// Live label del slider de velocidad
+$('#life-step').oninput = () => {
+  $('#life-step-val').textContent = $('#life-step').value;
 };
 
 // Botones simulados: POST /api/button?b=left|center|right
