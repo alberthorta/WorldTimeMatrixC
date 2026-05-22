@@ -365,7 +365,7 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["startup_mode"].is<int>()) {
         int m = doc["startup_mode"];
         if (m < 0) m = 0;
-        if (m > 3) m = 3;
+        if (m > 4) m = 4;
         cfg.startupMode = (uint8_t)m;
     }
     applyColor("life_color", cfg.lifeColor);
@@ -391,7 +391,7 @@ static bool applyJson(JsonDocument& doc) {
             int md = o["mode"] | 0;
             if (h < 0)  h = 0;  if (h > 23) h = 23;
             if (m < 0)  m = 0;  if (m > 59) m = 59;
-            if (md < 0) md = 0; if (md > 3) md = 3;
+            if (md < 0) md = 0; if (md > 4) md = 4;
             s.hour = (uint8_t)h;
             s.minute = (uint8_t)m;
             s.mode = (uint8_t)md;

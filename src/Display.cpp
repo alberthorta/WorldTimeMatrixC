@@ -3,6 +3,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Fonts/TomThumb.h>
 #include <Fonts/FreeSans12pt7b.h>
+#include <LittleFS.h>
 #include <math.h>
 
 #include "Config.h"
@@ -322,6 +323,7 @@ void triggerRipple(int slot, int16_t cx, int16_t cy) {
 }
 
 static uint16_t blendColor(uint16_t cOld, float aOld, uint16_t cNew, float aNew);   // fwd
+static void drawCommonBottomRow(const Row& wRow, float secondOfMinuteF);            // fwd
 
 // Dibuja una barra de segundos "smooth" con la cabeza renderizada sub-pixel:
 // los pixeles ya recorridos se pintan en color dim; la cabeza se reparte
@@ -1754,14 +1756,22 @@ void renderLife(const Row& wRow, float secondOfMinuteF) {
         }
     }
 
-    // Fila inferior (y=25..29 baseline 29): hora | fecha | icono | temp.
+    // Fila inferior compartida con renderImage.
+    drawCommonBottomRow(wRow, secondOfMinuteF);
+
+    drawActiveRipples();
+    drawBrightnessOverlay();
+    dma->flipDMABuffer();
+}
+
+// ── Helper compartido: fila inferior con hora / fecha / icono / temp +
+// segundera. Usado por renderLife y renderImage.
+static void drawCommonBottomRow(const Row& wRow, float secondOfMinuteF) {
     dma->setFont(&TomThumb);
     dma->setTextSize(1);
     uint16_t hourCol = rgb888to565(Config::cfg.focusHourColor);
     uint16_t dateCol = rgb888to565(Config::cfg.focusDateColor);
-
     int baseline = 29;
-    int cursorX = 0;
     if (wRow.hasTime) {
         char hh[4], mm[4], full[8];
         bool lz = Config::cfg.hourLeadingZero || wRow.hour >= 10;
@@ -1779,22 +1789,17 @@ void renderLife(const Row& wRow, float secondOfMinuteF) {
         dma->print(":");
         dma->setTextColor(hourCol);
         dma->print(mm);
-        cursorX = (int)w + 2;
     }
     if (wRow.hasTime && wRow.day > 0 && wRow.month > 0) {
         char d[8];
         snprintf(d, sizeof(d), "%02u/%02u", wRow.day, wRow.month);
-        // Fecha centrada en todo el ancho de la pantalla.
         int16_t x1, y1; uint16_t w, h;
         dma->getTextBounds(d, 0, 0, &x1, &y1, &w, &h);
         int x = (WIDTH - (int)w) / 2 - (int)x1;
         dma->setTextColor(dateCol);
         dma->setCursor(x, baseline);
         dma->print(d);
-        (void)cursorX;
     }
-
-    // Temp right-aligned + icono justo a su izquierda.
     if (wRow.hasWeather) {
         char tnum[6];
         snprintf(tnum, sizeof(tnum), "%d", wRow.tempC);
@@ -1812,7 +1817,6 @@ void renderLife(const Row& wRow, float secondOfMinuteF) {
         for (int yy = 0; yy < 2; yy++)
             for (int xx = 0; xx < 2; xx++)
                 dma->drawPixel(degX + xx, degTopY + yy, tc);
-        // Icono a la izquierda de la temp.
         if (wRow.icon != IconType::NONE) {
             const Icons::Frame* frame = nullptr;
             if (g_previewActive) frame = tickPreviewAnim();
@@ -1820,10 +1824,53 @@ void renderLife(const Row& wRow, float secondOfMinuteF) {
             if (frame) drawFrame(xStart - Icons::ICON_W - 2, 24, *frame);
         }
     }
-
-    // Segundera abajo del todo (y=30..31, full width, sub-pixel).
     drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
+}
 
+// ── Modo IMAGE ─────────────────────────────────────────────────────────
+// La imagen es 64x23 RGB565 little-endian, persistida en /userimg.bin
+// (2944 bytes). Se carga al boot y se recarga tras cada upload. Si no
+// hay imagen valida, muestra un placeholder.
+static constexpr int USERIMG_W = 64;
+static constexpr int USERIMG_H = 23;
+static uint16_t s_userImg[USERIMG_W * USERIMG_H] = {0};
+static bool     s_userImgLoaded = false;
+
+void reloadUserImage() {
+    if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+        s_userImgLoaded = false; return;
+    }
+    File f = LittleFS.open("/userimg.bin", "r");
+    if (!f) { s_userImgLoaded = false; return; }
+    size_t want = sizeof(s_userImg);
+    size_t got  = f.read((uint8_t*)s_userImg, want);
+    f.close();
+    s_userImgLoaded = (got == want);
+    Serial.printf("[userimg] reload: got=%u want=%u ok=%d\n",
+                  (unsigned)got, (unsigned)want, (int)s_userImgLoaded);
+}
+
+void renderImage(const Row& wRow, float secondOfMinuteF) {
+    if (!dma) return;
+    dma->clearScreen();
+    if (s_userImgLoaded) {
+        for (int y = 0; y < USERIMG_H; y++) {
+            for (int x = 0; x < USERIMG_W; x++) {
+                uint16_t c = s_userImg[y * USERIMG_W + x];
+                if (c) dma->drawPixel(x, y, c);
+            }
+        }
+    } else {
+        dma->setFont(&TomThumb);
+        dma->setTextSize(1);
+        dma->setTextColor(rgb888to565(0x808080));
+        const char* msg = "upload an image";
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(msg, 0, 0, &x1, &y1, &w, &h);
+        dma->setCursor((WIDTH - (int)w) / 2 - (int)x1, 14);
+        dma->print(msg);
+    }
+    drawCommonBottomRow(wRow, secondOfMinuteF);
     drawActiveRipples();
     drawBrightnessOverlay();
     dma->flipDMABuffer();

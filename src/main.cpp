@@ -21,7 +21,7 @@ volatile bool g_pendingReset = false;
 //   FOUR_ROWS: render normal con las 4 ciudades.
 //   FOCUS:     una sola ciudad (cities[0]) ocupando los 64x32 con HH:MM
 //              grande, temp grande, icono x2 y barra de segundera.
-enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3 };
+enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4 };
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
@@ -60,6 +60,7 @@ static void handleButtonAction(int idx, const char* source) {
             (g_displayMode == DisplayMode::FOCUS)  ? "FOCUS" :
             (g_displayMode == DisplayMode::CLAUDE) ? "CLAUDE" :
             (g_displayMode == DisplayMode::LIFE)   ? "LIFE"   :
+            (g_displayMode == DisplayMode::IMAGE)  ? "IMAGE"  :
                                                      "FOUR_ROWS";
         Serial.printf("[%s] displayMode -> %s\n", source, name);
         if (g_displayMode == DisplayMode::CLAUDE) {
@@ -109,7 +110,8 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
             return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
                                                 : DisplayMode::LIFE;
         case DisplayMode::CLAUDE:    return DisplayMode::LIFE;
-        case DisplayMode::LIFE:      return DisplayMode::FOUR_ROWS;
+        case DisplayMode::LIFE:      return DisplayMode::IMAGE;
+        case DisplayMode::IMAGE:     return DisplayMode::FOUR_ROWS;
     }
     return DisplayMode::FOUR_ROWS;
 }
@@ -228,6 +230,7 @@ void setup() {
         g_displayMode = want;
     }
     Weather::loadCache();   // muestra ultima meteo conocida mientras NTP/fetch arrancan
+    Display::reloadUserImage();   // carga /userimg.bin si existe (modo IMAGE)
     Display::begin();
     Display::setBrightness((uint8_t)(Config::cfg.brightness * 255));
     {
@@ -624,6 +627,8 @@ void loop() {
         }
     } else if (g_displayMode == DisplayMode::LIFE) {
         Display::renderLife(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::IMAGE) {
+        Display::renderImage(rows[0], secondOfMinuteF);
     } else {
         Display::renderRows(rows, secondOfMinuteF);
     }

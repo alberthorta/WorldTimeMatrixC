@@ -540,6 +540,36 @@ void begin() {
         req->send(res);
     });
 
+    // ---------- POST /api/userimg: subida de la imagen del modo IMAGE
+    // 64x23 = 1472 pixels * 2 bytes RGB565 = 2944 bytes exactos. La UI
+    // convierte la imagen del usuario a ese formato antes de subirla.
+    server.on("/api/userimg", HTTP_POST,
+        [](AsyncWebServerRequest* req) {
+            req->send(200, "application/json", "{\"ok\":true}");
+        },
+        [](AsyncWebServerRequest* req, const String& filename, size_t index,
+           uint8_t* data, size_t len, bool final) {
+            static File f;
+            if (index == 0) {
+                LittleFS.begin(true, "/littlefs", 10, "littlefs");
+                f = LittleFS.open("/userimg.bin", "w");
+                if (!f) {
+                    Serial.println("[userimg] open /userimg.bin for write failed");
+                    return;
+                }
+                Serial.printf("[userimg] upload start: %s\n", filename.c_str());
+            }
+            if (f && len > 0) f.write(data, len);
+            if (final) {
+                if (f) {
+                    f.close();
+                    Serial.printf("[userimg] done, total=%u bytes\n",
+                                  (unsigned)(index + len));
+                }
+                Display::reloadUserImage();
+            }
+        });
+
     // ---------- POST /api/firmware: OTA via subida multipart (form-data) ----------
     // El navegador envia un POST multipart con el .bin como campo de fichero;
     // AsyncWebServer expone los chunks por callback de "upload", lo que da

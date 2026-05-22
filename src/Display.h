@@ -89,6 +89,12 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
 // El estado del juego es interno; si el patron se mantiene estatico o
 // entra en ciclo durante 10 s, se reseed con nuevos pixels aleatorios.
 void renderLife(const Row& weatherRow, float secondOfMinuteF = -1.0f);
+// Modo Imagen: muestra una imagen 64x23 cargada por el usuario (RGB565
+// raw en /userimg.bin) en la parte superior. La fila inferior con hora,
+// fecha, icono y temperatura es la misma que en el modo LIFE.
+void renderImage(const Row& weatherRow, float secondOfMinuteF = -1.0f);
+// Recarga la imagen de usuario desde LittleFS (llamar tras subir una nueva).
+void reloadUserImage();
 void clear();
 // Pinta toda la pantalla del color RGB565 indicado (con flip de buffer).
 void fillScreen(uint16_t color565);

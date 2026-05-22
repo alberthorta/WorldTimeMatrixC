@@ -65,6 +65,22 @@ body{
 .status-line{font-size:.75rem;font-family:ui-monospace,monospace;color:var(--muted)}
 
 /* Cards */
+.tabs-nav{
+  display:flex; gap:.35rem; flex-wrap:wrap;
+  margin-bottom:.9rem; padding-bottom:.5rem;
+  border-bottom:1px solid var(--border);
+}
+.tabs-nav button{
+  background:rgba(255,255,255,.04); color:var(--muted);
+  border:1px solid var(--border); padding:.45rem .9rem;
+  border-radius:.6rem; cursor:pointer; font-size:.92rem;
+  transition:background .15s, color .15s;
+}
+.tabs-nav button:hover{ background:rgba(255,255,255,.08); color:var(--text); }
+.tabs-nav button.active{
+  background:var(--accent); color:#000; border-color:var(--accent); font-weight:600;
+}
+section.card[data-tab].hidden-tab{ display:none; }
 .card{
   background:var(--card);
   backdrop-filter:blur(8px);
@@ -347,7 +363,16 @@ code{
   <div id="status" class="status-line">cargando…</div>
 </header>
 
-<section class="card">
+<nav class="tabs-nav">
+  <button type="button" data-tab-btn="system" class="active">Sistema</button>
+  <button type="button" data-tab-btn="display">Pantalla</button>
+  <button type="button" data-tab-btn="modes">Modos</button>
+  <button type="button" data-tab-btn="weather">Meteo</button>
+  <button type="button" data-tab-btn="icons">Iconos</button>
+  <button type="button" data-tab-btn="home">Botones</button>
+</nav>
+
+<section class="card" data-tab="home">
   <h2 class="h-section mb-3">Botones (simulacion)</h2>
   <span class="note">Disparan la misma accion que los TTP223 fisicos: izquierda = brillo -, centro = cambiar de modo, derecha = brillo +.</span>
   <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
@@ -359,7 +384,7 @@ code{
   <div id="ttp-config" style="margin-top:.5rem"></div>
 </section>
 
-<section class="card">
+<section class="card" data-tab="system">
   <div class="card-head">
     <h2 class="h-section">WiFi</h2>
     <button id="scan" class="btn btn-sm">Buscar redes</button>
@@ -389,7 +414,7 @@ code{
   <button id="connect" class="btn btn-primary">Conectar y reiniciar</button>
 </section>
 
-<section class="card">
+<section class="card" data-tab="display">
   <div class="card-head">
     <h2 class="h-section">Brillo (día)</h2>
     <span id="bright-val" class="bright-val">50%</span>
@@ -398,7 +423,7 @@ code{
   <div class="range-marks"><span>5%</span><span>100%</span></div>
 </section>
 
-<section class="card">
+<section class="card" data-tab="display">
   <div class="card-head">
     <h2 class="h-section">Modo noche</h2>
     <label class="toggle"><input id="nm-en" type="checkbox"/><span class="toggle-slider"></span></label>
@@ -414,12 +439,12 @@ code{
   <input id="nm-bright" type="range" min="5" max="100" step="5"/>
 </section>
 
-<section class="card">
+<section class="card" data-tab="weather">
   <h2 class="h-section mb-3">Ciudades</h2>
   <div id="cities"></div>
 </section>
 
-<section class="card">
+<section class="card" data-tab="icons">
   <h2 class="h-section mb-3">Iconos</h2>
   <div class="row-end mb-3">
     <label><span class="label">Editar</span><select id="icon-pick" style="min-width:8rem"></select></label>
@@ -444,7 +469,7 @@ code{
   </div>
 </section>
 
-<section class="card">
+<section class="card" data-tab="display">
   <h2 class="h-section mb-3">Otros</h2>
   <label class="toggle-row">
     <span class="toggle"><input id="blink" type="checkbox"/><span class="toggle-slider"></span></span>
@@ -520,7 +545,37 @@ code{
       <input id="trend-color-stable" type="color" value="#666666"/>
     </label>
   </div>
-  <h3 style="margin-top:1rem">Modo Game of Life (modo 4)</h3>
+</section>
+
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Modo Imagen (modo 5)</h2>
+  <span class="note">Sube cualquier imagen y ajusta el recorte. El rectangulo naranja (proporcion 64:23) es la zona que se va a usar; arrastralo para moverlo y usa el slider para ajustar el zoom.</span>
+  <div style="margin-top:.5rem">
+    <input id="userimg-file" type="file" accept="image/*"/>
+  </div>
+  <div style="display:flex;gap:.75rem;align-items:flex-start;margin-top:.5rem;flex-wrap:wrap">
+    <div>
+      <div class="note">Original (arrastra el rectangulo):</div>
+      <canvas id="userimg-src" width="320" height="200" style="border:1px solid #444;background:#222;cursor:move;touch-action:none"></canvas>
+    </div>
+    <div>
+      <div class="note">Preview (x4):</div>
+      <canvas id="userimg-preview" width="256" height="92" style="image-rendering:pixelated;border:1px solid #444;background:#000"></canvas>
+    </div>
+  </div>
+  <label style="display:block;margin-top:.5rem">
+    <span class="label">Zoom <span id="userimg-zoom-val">100%</span></span>
+    <input id="userimg-zoom" type="range" min="20" max="100" step="1" value="100"/>
+  </label>
+  <div style="margin-top:.5rem">
+    <button id="userimg-upload" type="button" class="btn">Subir imagen al device</button>
+    <span id="userimg-status" class="note"></span>
+  </div>
+
+</section>
+
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Modo Game of Life (modo 4)</h2>
   <label class="toggle-row" style="margin-top:.25rem">
     <span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span>
     <span style="font-size:.9rem">Rainbow (el color avanza unos grados en cada step)</span>
@@ -534,7 +589,10 @@ code{
     <input id="life-step" type="range" min="50" max="1000" step="10" value="150"/>
   </label>
 
-  <h3 style="margin-top:1rem">Modo al arrancar</h3>
+</section>
+
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Modo al arrancar</h2>
   <label style="display:block;margin-top:.25rem">
     <span class="label">Modo activo al boot</span>
     <select id="startup-mode">
@@ -542,15 +600,22 @@ code{
       <option value="1">2 - Focus</option>
       <option value="2">3 - Claude</option>
       <option value="3">4 - Life</option>
+      <option value="4">5 - Imagen</option>
     </select>
   </label>
   <span class="note">Si seleccionas Claude pero no hay sessionKey configurada, arrancara en 4 filas.</span>
 
-  <h3 style="margin-top:1rem">Programaciones (cambio de modo)</h3>
+</section>
+
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Programaciones (cambio de modo)</h2>
   <span class="note">Hasta 10 programaciones. A la hora local indicada se cambia automaticamente al modo elegido (1 = 4 filas, 2 = focus, 3 = Claude). La hora local usa el timezone de la primera ciudad.</span>
   <div id="schedule-list" style="margin-top:.5rem"></div>
 
-  <h3 style="margin-top:1rem">Colores hora y fecha (modos focus + Claude)</h3>
+</section>
+
+<section class="card" data-tab="display">
+  <h2 class="h-section mb-3">Colores hora y fecha (focus + Claude)</h2>
   <span class="note">Se aplica al modo focus (modo 2) y al modo Claude (modo 3). Independientes del color de cada ciudad.</span>
   <div class="grid-2">
     <label>
@@ -562,7 +627,10 @@ code{
       <input id="focus-date-color" type="color" value="#AAAAAA"/>
     </label>
   </div>
-  <h3 style="margin-top:1rem">Auto-update</h3>
+</section>
+
+<section class="card" data-tab="system">
+  <h2 class="h-section mb-3">Auto-update</h2>
   <span class="note">El firmware se comprueba con la ultima release publica en GitHub. Si hay una nueva, se descarga y flashea sobre la marcha (con splash en pantalla). El check al boot y los periodicos respetan estos ajustes.</span>
   <div class="grid-2">
     <label>
@@ -578,7 +646,10 @@ code{
     <button id="autoupd-now" type="button" class="secondary">Buscar update ahora</button>
     <span id="autoupd-status" class="note"></span>
   </div>
-  <h3 style="margin-top:1rem">Claude stats (modo 3)</h3>
+</section>
+
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Claude stats (modo 3)</h2>
   <span class="note">Pegar el valor de la cookie <code>sessionKey</code> de <code>claude.ai</code> (DevTools &rarr; Application &rarr; Cookies). Si esta vacio, el modo Claude no aparece en el ciclo del boton central. El <code>orgId</code> se descubre automaticamente al primer fetch exitoso.</span>
   <div class="grid-2">
     <label>
@@ -590,6 +661,10 @@ code{
       <input id="claude-refresh" type="number" min="60" max="3600" step="30" value="180"/>
     </label>
   </div>
+</section>
+
+<section class="card" data-tab="system">
+  <h2 class="h-section mb-3">Otros ajustes</h2>
   <div class="grid-2">
     <label>
       <span class="label">Refresco meteo (segundos)</span>
@@ -605,7 +680,7 @@ code{
   </div>
 </section>
 
-<section class="card">
+<section class="card" data-tab="weather">
   <h2 class="h-section mb-3">Proveedor meteo</h2>
   <p class="note" style="margin-top:0">
     Open-Meteo (default, sin clave) siempre da hora local y día/noche. Si seleccionas
@@ -645,7 +720,7 @@ code{
   <button id="prov-save" class="btn btn-primary">Guardar provider</button>
 </section>
 
-<section class="card">
+<section class="card" data-tab="weather">
   <h2 class="h-section mb-3">Logs meteo</h2>
   <div class="tbl-wrap">
     <table id="weather" class="weather-tbl">
@@ -679,7 +754,7 @@ code{
   </div>
 </div>
 
-<section class="card">
+<section class="card" data-tab="system">
   <h2 class="h-section mb-3">Actualizar firmware (OTA)</h2>
   <div class="row mb-3">
     <input id="ota-file" type="file" accept=".bin" class="flex-1 min-w-200"/>
@@ -692,7 +767,7 @@ code{
   </p>
 </section>
 
-<section class="card">
+<section class="card" data-tab="system">
   <h2 class="h-section mb-3">Backup / Restaurar</h2>
   <div class="row">
     <button id="cfg-export" class="btn">Descargar config</button>
@@ -716,6 +791,27 @@ code{
 
 <script>
 const $ = s => document.querySelector(s);
+
+// ── Pestañas: mostramos solo las sections con data-tab que coincide. La
+// elegida persiste en localStorage para que el reload no resetee.
+function activateTab(t) {
+  document.querySelectorAll('section.card[data-tab]').forEach(s => {
+    s.classList.toggle('hidden-tab', s.dataset.tab !== t);
+  });
+  document.querySelectorAll('.tabs-nav button[data-tab-btn]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tabBtn === t);
+  });
+  try { localStorage.setItem('activeTab', t); } catch (e) {}
+}
+document.querySelectorAll('.tabs-nav button[data-tab-btn]').forEach(b => {
+  b.onclick = () => activateTab(b.dataset.tabBtn);
+});
+{
+  let initial = 'system';
+  try { initial = localStorage.getItem('activeTab') || 'system'; } catch (e) {}
+  activateTab(initial);
+}
+
 let cfg = null, curIcon = 'SUN', curFrame = 0, curColor = 1;
 let playTimer = null;
 let initialRgbOrder = null;   // baseline para detectar cambio en el selector RGB/RBG
@@ -833,6 +929,7 @@ async function loadConfig(){
           <option value="1" ${s.mode==1?'selected':''}>2 - Focus</option>
           <option value="2" ${s.mode==2?'selected':''}>3 - Claude</option>
           <option value="3" ${s.mode==3?'selected':''}>4 - Life</option>
+          <option value="4" ${s.mode==4?'selected':''}>5 - Imagen</option>
         </select>
       `;
       schedList.appendChild(row);
@@ -1345,6 +1442,168 @@ $('#save').onclick = async () => {
 $('#wifi-dhcp').onchange = () => {
   $('#wifi-static-fields').style.display = $('#wifi-dhcp').checked ? 'none' : '';
 };
+// Modo imagen: editor con crop ajustable + upload a 64x23.
+// State: srcImg, srcDrawW/H/X/Y (la imagen escalada para caber en el src
+// canvas), y cropX/Y/W/H en COORDENADAS DE LA IMAGEN ORIGINAL.
+let userImgBuffer = null;
+let srcImg = null;
+let srcDrawX = 0, srcDrawY = 0, srcDrawW = 0, srcDrawH = 0;
+let cropX = 0, cropY = 0, cropW = 0, cropH = 0;
+const TGT_W = 64, TGT_H = 23;
+const TGT_AR = TGT_W / TGT_H;
+
+function maxCropDims() {
+  // Maximo rect 64:23 que cabe dentro de la imagen original.
+  const imgAR = srcImg.width / srcImg.height;
+  let mw, mh;
+  if (imgAR > TGT_AR) { mh = srcImg.height; mw = mh * TGT_AR; }
+  else                { mw = srcImg.width;  mh = mw / TGT_AR; }
+  return {mw, mh};
+}
+
+function clampCrop() {
+  if (cropW > srcImg.width)  cropW = srcImg.width;
+  if (cropH > srcImg.height) cropH = srcImg.height;
+  if (cropX < 0) cropX = 0;
+  if (cropY < 0) cropY = 0;
+  if (cropX + cropW > srcImg.width)  cropX = srcImg.width  - cropW;
+  if (cropY + cropH > srcImg.height) cropY = srcImg.height - cropH;
+}
+
+function applyZoomPercent(p) {
+  // p=100 → crop ocupa el max posible (= cover). p=20 → crop pequeño = zoom.
+  const {mw, mh} = maxCropDims();
+  const centerX = cropX + cropW / 2;
+  const centerY = cropY + cropH / 2;
+  cropW = mw * (p / 100);
+  cropH = mh * (p / 100);
+  cropX = centerX - cropW / 2;
+  cropY = centerY - cropH / 2;
+  clampCrop();
+}
+
+function redrawUserImg() {
+  if (!srcImg) return;
+  const sc = $('#userimg-src');
+  const sctx = sc.getContext('2d');
+  sctx.fillStyle = '#222';
+  sctx.fillRect(0, 0, sc.width, sc.height);
+  sctx.imageSmoothingEnabled = true;
+  sctx.drawImage(srcImg, srcDrawX, srcDrawY, srcDrawW, srcDrawH);
+  // Rectangulo de crop en coords del canvas
+  const r = srcDrawW / srcImg.width;
+  const dx = srcDrawX + cropX * r;
+  const dy = srcDrawY + cropY * r;
+  const dw = cropW * r;
+  const dh = cropH * r;
+  // Oscurecer fuera del crop
+  sctx.fillStyle = 'rgba(0,0,0,0.55)';
+  sctx.fillRect(0, 0, sc.width, dy);                                    // top
+  sctx.fillRect(0, dy + dh, sc.width, sc.height - (dy + dh));           // bottom
+  sctx.fillRect(0, dy, dx, dh);                                          // left
+  sctx.fillRect(dx + dw, dy, sc.width - (dx + dw), dh);                  // right
+  sctx.strokeStyle = '#fb923c';
+  sctx.lineWidth = 2;
+  sctx.strokeRect(dx, dy, dw, dh);
+
+  // Renderizar a 64x23 a partir del crop y construir el buffer.
+  const off = document.createElement('canvas');
+  off.width = TGT_W; off.height = TGT_H;
+  const octx = off.getContext('2d');
+  octx.imageSmoothingEnabled = true;
+  octx.drawImage(srcImg, cropX, cropY, cropW, cropH, 0, 0, TGT_W, TGT_H);
+  const px = octx.getImageData(0, 0, TGT_W, TGT_H).data;
+  const buf = new Uint8Array(TGT_W * TGT_H * 2);
+  for (let i = 0, j = 0; i < px.length; i += 4) {
+    const v = ((px[i] & 0xF8) << 8) | ((px[i+1] & 0xFC) << 3) | (px[i+2] >> 3);
+    buf[j++] = v & 0xFF;
+    buf[j++] = (v >> 8) & 0xFF;
+  }
+  userImgBuffer = buf;
+
+  // Preview x4
+  const pv = $('#userimg-preview');
+  const pctx = pv.getContext('2d');
+  pctx.imageSmoothingEnabled = false;
+  pctx.fillStyle = '#000';
+  pctx.fillRect(0, 0, pv.width, pv.height);
+  pctx.drawImage(off, 0, 0, pv.width, pv.height);
+}
+
+function loadUserImage(img) {
+  srcImg = img;
+  const sc = $('#userimg-src');
+  const r = Math.min(sc.width / img.width, sc.height / img.height);
+  srcDrawW = img.width  * r;
+  srcDrawH = img.height * r;
+  srcDrawX = (sc.width  - srcDrawW) / 2;
+  srcDrawY = (sc.height - srcDrawH) / 2;
+  const {mw, mh} = maxCropDims();
+  cropW = mw; cropH = mh;
+  cropX = (img.width  - cropW) / 2;
+  cropY = (img.height - cropH) / 2;
+  $('#userimg-zoom').value = 100;
+  $('#userimg-zoom-val').textContent = '100%';
+  redrawUserImg();
+}
+
+$('#userimg-file').onchange = e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => { loadUserImage(img); URL.revokeObjectURL(img.src); };
+  img.src = URL.createObjectURL(f);
+};
+
+// Drag para mover el rectangulo de crop dentro de la imagen.
+(() => {
+  const sc = $('#userimg-src');
+  let dragging = false, lastX = 0, lastY = 0;
+  sc.addEventListener('pointerdown', e => {
+    if (!srcImg) return;
+    dragging = true; lastX = e.offsetX; lastY = e.offsetY;
+    sc.setPointerCapture(e.pointerId);
+  });
+  sc.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const dx = e.offsetX - lastX;
+    const dy = e.offsetY - lastY;
+    lastX = e.offsetX; lastY = e.offsetY;
+    const r = srcImg.width / srcDrawW;     // canvas-px → image-px
+    cropX += dx * r;
+    cropY += dy * r;
+    clampCrop();
+    redrawUserImg();
+  });
+  const end = () => { dragging = false; };
+  sc.addEventListener('pointerup', end);
+  sc.addEventListener('pointercancel', end);
+  sc.addEventListener('pointerleave', end);
+})();
+
+$('#userimg-zoom').oninput = e => {
+  if (!srcImg) return;
+  const p = parseInt(e.target.value, 10) || 100;
+  $('#userimg-zoom-val').textContent = p + '%';
+  applyZoomPercent(p);
+  redrawUserImg();
+};
+
+$('#userimg-upload').onclick = async () => {
+  const s = $('#userimg-status');
+  if (!userImgBuffer) { s.textContent = 'selecciona una imagen primero'; return; }
+  s.textContent = 'subiendo...';
+  try {
+    const fd = new FormData();
+    fd.append('image', new Blob([userImgBuffer]), 'img.bin');
+    const r = await fetch('/api/userimg', {method: 'POST', body: fd});
+    const d = await r.json();
+    s.textContent = d.ok ? 'subida ok. Modo imagen ya la usa.' : ('error: ' + (d.error || 'desconocido'));
+  } catch (e) {
+    s.textContent = 'error: ' + e.message;
+  }
+};
+
 // Toggle rainbow (oculta el color picker cuando esta activo)
 $('#life-rainbow').onchange = () => {
   $('#life-color-row').style.display = $('#life-rainbow').checked ? 'none' : '';
