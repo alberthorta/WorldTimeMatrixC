@@ -172,6 +172,18 @@ El icono lo genera `mac/scripts/make-icon.py` (necesita Pillow): un cursor en pi
 
 Soporta varios dispositivos compatibles a la vez (el WorldTime Matrix y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
 
+#### Instalación
+
+```bash
+cd mac && ./build.sh
+cp -R WorldTimeJitter.app /Applications/
+open /Applications/WorldTimeJitter.app
+```
+
+**Instálala en `/Applications`**, no la ejecutes desde el directorio de build: el arranque automático lo exige (macOS suele rechazar registrar como login item una app fuera de ahí), y la auto-actualización sustituye el bundle en su ubicación actual — si vive dentro de `mac/`, una actualización te machacaría el directorio de trabajo.
+
+> Si tienes por ahí una copia construida **antes** de julio de 2026, su `Info.plist` dice `CFBundleShortVersionString = 1.0`. Como `1.0 > 0.12.0`, esa copia se cree más nueva que cualquier release y **nunca se actualizará**. Sustitúyela a mano por una recién construida y a partir de ahí se encadena sola.
+
 #### Arranque automático
 
 Opción **"Abrir al iniciar sesión"** en el menú. Usa `SMAppService.mainApp` (sin helper bundle separado). Requiere **macOS 13+**: en macOS 12 la opción no aparece. Si macOS rechaza el registro suele ser porque la app no está en `/Applications`.
@@ -189,6 +201,36 @@ La app comprueba las releases de GitHub del propio repo y se actualiza sola:
 > Tras actualizar, **macOS vuelve a pedir permiso de Bluetooth una vez**: la app va firmada ad-hoc y el permiso está atado al cdhash del bundle, que cambia al sustituirlo.
 
 Portado de [ClaudeStats](https://github.com/alberthorta/ClaudeStats) (`Core/LaunchAtLogin.swift`, `Core/UpdateChecker.swift`, `Core/UpdateInstaller.swift`).
+
+##### Probar el mecanismo
+
+Como el chequeo compara contra la última release, para probarlo hay que hacer creer a la app instalada que es más vieja. Bájale la versión del plist y **re-fírmala** (parchear el `Info.plist` invalida la firma ad-hoc, y sin re-firmar la app no arranca):
+
+```bash
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.10.0" \
+    /Applications/WorldTimeJitter.app/Contents/Info.plist
+codesign --force --deep --sign - /Applications/WorldTimeJitter.app
+open /Applications/WorldTimeJitter.app
+```
+
+A los 3 s debería salir el diálogo ofreciendo la versión real. Al aceptar, el test se auto-repara: el bundle vuelve a quedar en la versión de la release.
+
+La traza de la instalación queda en `~/Library/Caches/WorldTimeJitter/update.log`:
+
+```
+esperando a que salga el PID 71880
+sustituyendo /Applications/WorldTimeJitter.app
+/Applications/WorldTimeJitter.app: replacing existing signature
+relanzando
+```
+
+Verificado en macOS con las dos vías: el chequeo automático del arranque (`0.10.0` → `0.11.0`) y el manual desde *"Buscar actualizaciones ahora"* (`0.11.0` → `0.12.0`).
+
+Lo que sí conviene comprobar a mano al preparar una release, porque es donde falla en silencio:
+
+- Que el `.zip` lleva el `.app` en la **raíz** del archivo (`ditto -x -k` sobre él debe dejarlo al primer nivel). `UpdateInstaller.findAppBundle` mira ahí y un nivel más abajo, nada más.
+- Que el selector de asset coge el `.zip` y no el `firmware.bin` — cada release lleva los dos.
+- Que el binario publicado tiene la versión del tag y no `-dirty`: `git describe` se evalúa **en tiempo de build**, así que hay que taggear antes de compilar.
 
 ## Auto «hola» y keep-awake
 
@@ -303,9 +345,18 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 │   ├── IndexHtml.h/.cpp    # UI completa embebida en flash
 │   └── Version.h           # FW_VERSION (autogenerado por version.py)
 ├── mac/                    # app de barra de menú macOS para el jitter (Swift)
+│   ├── build.sh            # compila, empaqueta el .app e inyecta la versión
+│   ├── Info.plist
 │   ├── Package.swift
-│   ├── build.sh
-│   └── Sources/WorldTimeJitter/main.swift
+│   ├── Resources/
+│   │   └── AppIcon.icns    # commiteado; build.sh no depende de Pillow
+│   ├── scripts/
+│   │   └── make-icon.py    # regenera el icono (necesita Pillow)
+│   └── Sources/WorldTimeJitter/
+│       ├── main.swift          # BLE + menú de la barra
+│       ├── LaunchAtLogin.swift # SMAppService (macOS 13+)
+│       ├── UpdateChecker.swift # releases de GitHub
+│       └── UpdateInstaller.swift # descarga, swap del bundle y relanzado
 └── README.md
 ```
 
