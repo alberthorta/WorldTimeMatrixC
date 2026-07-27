@@ -556,6 +556,20 @@ void begin() {
         doc["status"]     = st;
         doc["error"]      = ClaudeStats::data.holaError;
         doc["configured"] = ClaudeStats::isConfigured();
+        // Estado de la ventana de 5h: es lo que mira el keep-awake para decidir
+        // si dispara. Sin esto no habia forma de diagnosticar por que no
+        // renovaba sin conectar el serial.
+        doc["keep_awake"] = Config::cfg.claudeKeepAwakeEnabled;
+        const auto& w = ClaudeStats::data.fiveHour;
+        time_t now = time(nullptr);
+        JsonObject five = doc["five_hour"].to<JsonObject>();
+        five["valid"]       = w.valid;
+        five["resets_at"]   = (uint32_t)w.resetsAt;
+        five["utilization"] = w.utilization;
+        five["now"]         = (uint32_t)now;
+        // Misma expresion que checkKeepAwake(): si es false, el keep-awake
+        // considera que no hay ventana y manda un hola.
+        five["alive"] = w.valid && w.resetsAt > 0 && now > 0 && now < w.resetsAt;
         sendJson(req, doc);
     });
     // /api/wifi/scan ANTES que /api/wifi: el matcher de ESPAsyncWebServer hace

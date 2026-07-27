@@ -363,31 +363,48 @@ static void checkAutoHola() {
 }
 
 // Keep-awake: mantiene viva la sesion de Claude re-abriendo la ventana de 5h
-// cada vez que expira. Usa el resetsAt de la ventana de 5h que ya trae
-// ClaudeStats; cuando ese instante pasa, lanza un "hola". Tras un openWindow
-// exitoso, la task refresca usage y resetsAt salta ~5h al futuro, con lo que el
-// guardado por-resetsAt evita re-disparos hasta la siguiente expiracion.
+// en cuanto deja de haber una activa.
+//
+// Ojo con la condicion de disparo, que es donde estaba el bug original: la
+// primera version exigia ver un resets_at PASADO ("ventana expirada"). Pero
+// claude.ai deja de mandar resets_at en cuanto la ventana se cierra, asi que
+// resets_at pasaba a 0 y el guard `resetsAt <= 0` salia sin disparar. La unica
+// forma de ver un resets_at pasado era pillar los pocos segundos entre que
+// vence y que el servidor lo retira, con un polling de 60s: en la practica no
+// disparaba nunca.
+//
+// Ahora la unica condicion POSITIVA es "ventana viva" = hay resets_at y esta en
+// el futuro. Cualquier otra cosa (sin five_hour, sin resets_at, o resets_at ya
+// pasado) cuenta como que no hay ventana y toca abrir una.
+static constexpr uint32_t KEEPAWAKE_RETRY_MS = 5 * 60 * 1000;   // reintento si no abre
+static uint32_t g_keepAwakeNextTryMs = 0;   // 0 = armado, dispara en cuanto toque
+
 static void checkKeepAwake() {
     if (!Config::cfg.claudeKeepAwakeEnabled) return;
     if (!ClaudeStats::isConfigured()) return;
-    if (!ClaudeStats::data.fiveHour.valid) return;          // sin datos aun
-    time_t now = time(nullptr);
-    if (now <= TIME_VALID_THRESHOLD) return;
-    time_t resetsAt = ClaudeStats::data.fiveHour.resetsAt;
-    if (resetsAt <= 0 || now < resetsAt) return;            // ventana aun viva
     if (ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::PENDING) return;
+    time_t now = time(nullptr);
+    if (now <= TIME_VALID_THRESHOLD) return;                // NTP aun no listo
+    // Sin ningun dato (ni fetch ni cache) no sabemos si hay ventana; no
+    // disparamos a ciegas, que si no un arranque con claude.ai caido mandaria
+    // un hola por cada reboot.
+    if (!ClaudeStats::data.hasData) return;
 
-    static time_t   s_lastReset = 0;     // resetsAt para el que ya disparamos
-    static uint32_t s_retryMs   = 0;     // backoff si el openWindow falla
-    bool newWindow   = (resetsAt != s_lastReset);
-    bool retryFailed = (ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::FAIL
-                        && (int32_t)(millis() - s_retryMs) >= 0);
-    if (newWindow || retryFailed) {
-        Serial.printf("[keepawake] ventana 5h expirada (reset=%ld) -> hola\n", (long)resetsAt);
-        ClaudeStats::requestOpenWindow();
-        s_lastReset = resetsAt;
-        s_retryMs   = millis() + 60000;   // si falla, reintenta en ~60s
+    const auto& w = ClaudeStats::data.fiveHour;
+    if (w.valid && w.resetsAt > 0 && now < w.resetsAt) {
+        g_keepAwakeNextTryMs = 0;      // ventana viva: rearmar para la proxima
+        return;
     }
+
+    // Cooldown: si el hola no consigue abrir ventana (o falla), reintentamos
+    // cada KEEPAWAKE_RETRY_MS en vez de en cada vuelta del loop.
+    if (g_keepAwakeNextTryMs != 0 &&
+        (int32_t)(millis() - g_keepAwakeNextTryMs) < 0) return;
+
+    Serial.printf("[keepawake] sin ventana 5h activa (valid=%d reset=%ld) -> hola\n",
+                  (int)w.valid, (long)w.resetsAt);
+    ClaudeStats::requestOpenWindow();
+    g_keepAwakeNextTryMs = millis() + KEEPAWAKE_RETRY_MS;
 }
 
 static float effectiveBrightness(time_t utc, int referenceOffsetSec) {
