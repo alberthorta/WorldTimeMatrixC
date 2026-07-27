@@ -25,9 +25,17 @@ swift build -c release
 
 echo "==> Empaquetando $APP (version $SHORT_VERSION, build $DESCRIBE)…"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/WorldTimeJitter"
 cp Info.plist "$APP/Contents/Info.plist"
+
+# Icono. Se regenera con scripts/make-icon.py (necesita Pillow); el .icns va
+# commiteado para poder construir sin esa dependencia.
+if [[ -f Resources/AppIcon.icns ]]; then
+    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+else
+    echo "   aviso: falta Resources/AppIcon.icns — la app saldra sin icono"
+fi
 
 # Sobrescribimos la version en la COPIA del bundle, no en el Info.plist fuente:
 # asi el repo no acumula churn de version en cada build.

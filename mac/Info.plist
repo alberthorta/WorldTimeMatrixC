@@ -10,6 +10,9 @@
     <string>name.horta.worldtimejitter</string>
     <key>CFBundleExecutable</key>
     <string>WorldTimeJitter</string>
+    <!-- Resources/AppIcon.icns, generado por scripts/make-icon.py -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

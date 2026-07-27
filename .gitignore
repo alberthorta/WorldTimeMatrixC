@@ -7,4 +7,6 @@
 mac/.build
 mac/WorldTimeJitter.app
 mac/WorldTimeJitter.zip
+# Intermedio de iconutil; el .icns final si va commiteado.
+mac/Resources/AppIcon.iconset
 

@@ -168,6 +168,8 @@ cd mac && ./build.sh          # genera WorldTimeJitter.app
 cd mac && ./build.sh --zip    # además, WorldTimeJitter.zip para la release
 ```
 
+El icono lo genera `mac/scripts/make-icon.py` (necesita Pillow): un cursor en pixel art sobre una retícula de LEDs, con la estela del jitter en el mismo cian del menú del panel. El `.icns` resultante va commiteado, así que `build.sh` no depende de Pillow — solo hay que reejecutar el script si se cambia el diseño.
+
 Soporta varios dispositivos compatibles a la vez (el WorldTime Matrix y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
 
 #### Arranque automático
