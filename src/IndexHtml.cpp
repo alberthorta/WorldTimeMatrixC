@@ -370,18 +370,56 @@ code{
   <button type="button" data-tab-btn="weather">Meteo</button>
   <button type="button" data-tab-btn="icons">Iconos</button>
   <button type="button" data-tab-btn="home">Botones</button>
+  <button type="button" data-tab-btn="jitter">Jitter</button>
 </nav>
 
 <section class="card" data-tab="home">
   <h2 class="h-section mb-3">Botones (simulacion)</h2>
-  <span class="note">Disparan la misma accion que los TTP223 fisicos: izquierda = brillo -, centro = cambiar de modo, derecha = brillo +.</span>
+  <span class="note">Disparan la misma accion que los TTP223 fisicos y son contextuales. En el reloj: izquierda = modo anterior, centro = abrir menu, derecha = modo siguiente. Dentro del menu: izquierda/derecha navegan o ajustan, centro ejecuta / vuelve.</span>
   <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
-    <button id="btn-sim-left"   type="button" class="btn">&larr; Brillo -</button>
-    <button id="btn-sim-center" type="button" class="btn">Modo</button>
-    <button id="btn-sim-right"  type="button" class="btn">Brillo + &rarr;</button>
+    <button id="btn-sim-left"   type="button" class="btn">&larr; Izquierda</button>
+    <button id="btn-sim-center" type="button" class="btn">Centro (menu/OK)</button>
+    <button id="btn-sim-right"  type="button" class="btn">Derecha &rarr;</button>
   </div>
   <span class="note" style="margin-top:.75rem;display:block">Configuracion del sensor fisico. PULLUP = pulsador a GND (activo LOW). INPUT = sensor push-pull tipo TTP223 (activo HIGH). Si el sensor de un lado dispara solo, desactivalo: los botones de arriba siguen funcionando. Aviso: A1 es strapping pin del ESP32-S3 — usarlo puede impedir el boot si el pin esta en HIGH al encender.</span>
   <div id="ttp-config" style="margin-top:.5rem"></div>
+</section>
+
+<section class="card" data-tab="jitter">
+  <h2 class="h-section mb-3">Jitter — raton BLE anti-inactividad</h2>
+  <span class="note">El device se anuncia por Bluetooth como raton ("WorldTime Jitter"). Emparejalo desde macOS (Ajustes &rarr; Bluetooth). Con el jitter activo mueve el cursor unos pixeles cada intervalo para que el equipo no entre en reposo. Tambien se controla desde la app de barra de menu (carpeta <code>mac/</code>).</span>
+  <div style="margin-top:.75rem;padding:.5rem .7rem;border:1px solid var(--border-2);border-radius:.4rem;background:var(--bg)">
+    <span class="text-muted">Estado BLE:</span> <span id="jitter-ble-status">—</span>
+  </div>
+  <label class="row-flex" style="margin-top:.9rem">
+    <input type="checkbox" id="jitter-en">
+    <span>Jitter activo</span>
+  </label>
+  <div style="margin-top:.75rem">
+    <span class="label">Intervalo entre movimientos</span>
+    <select id="jitter-interval" class="inp">
+      <option value="250">250 ms</option>
+      <option value="500">500 ms</option>
+      <option value="1000">1 s</option>
+      <option value="2000">2 s</option>
+      <option value="5000">5 s</option>
+      <option value="10000">10 s</option>
+      <option value="30000">30 s</option>
+      <option value="60000">60 s</option>
+    </select>
+  </div>
+  <div style="margin-top:.75rem">
+    <span class="label">Distancia maxima por movimiento</span>
+    <select id="jitter-step" class="inp">
+      <option value="2">2 px</option>
+      <option value="3">3 px</option>
+      <option value="4">4 px</option>
+      <option value="6">6 px</option>
+      <option value="10">10 px</option>
+    </select>
+  </div>
+  <button id="jitter-apply" class="btn btn-primary" style="margin-top:1rem">Aplicar</button>
+  <span class="note" style="margin-top:.75rem;display:block">El estado se recuerda tras un reboot: si el jitter queda activo y el Mac sigue emparejado, el cursor vuelve a moverse solo al arrancar.</span>
 </section>
 
 <section class="card" data-tab="system">
@@ -686,6 +724,33 @@ code{
   </div>
 </section>
 
+<section class="card" data-tab="modes">
+  <h2 class="h-section mb-3">Auto &laquo;hola&raquo; (abrir sesion 5h)</h2>
+  <span class="note">A la hora local indicada manda un &laquo;hola&raquo; a claude.ai que abre/renueva la ventana de 5 horas (crea una conversacion, envia el mensaje y la borra). Una vez al dia. La hora local usa el timezone de la primera ciudad. Requiere sessionKey configurada arriba.</span>
+  <label class="row-flex" style="margin-top:.6rem">
+    <input type="checkbox" id="hola-en">
+    <span>Activar auto &laquo;hola&raquo; diario</span>
+  </label>
+  <div class="grid-2" style="margin-top:.6rem">
+    <label>
+      <span class="label">Hora local del disparo</span>
+      <input id="hola-time" type="time"/>
+    </label>
+    <label>
+      <span class="label">&nbsp;</span>
+      <button id="hola-now" type="button" class="btn">Enviar &laquo;hola&raquo; ahora</button>
+    </label>
+  </div>
+  <div style="margin-top:.5rem;padding:.4rem .6rem;border:1px solid var(--border-2);border-radius:.4rem;background:var(--bg)">
+    <span class="text-muted">Ultimo envio:</span> <span id="hola-status">&mdash;</span>
+  </div>
+  <label class="row-flex" style="margin-top:.9rem">
+    <input type="checkbox" id="keepawake-en">
+    <span>Keep awake &mdash; renovar la ventana de 5h en cuanto expire</span>
+  </label>
+  <span class="note">Mientras este activo, cada vez que la ventana de 5h se agota se manda otro &laquo;hola&raquo; para abrir una nueva, manteniendo la sesion viva de forma continua.</span>
+</section>
+
 <section class="card" data-tab="system">
   <h2 class="h-section mb-3">Otros ajustes</h2>
   <div class="grid-2">
@@ -847,13 +912,19 @@ function abortPolls() { pollAborter.abort(); pollAborter = new AbortController()
 // Timers de polling: durante OTA o reset los pausamos para no martillar al
 // device mientras escribe flash. Se reinician al recargar la pagina.
 let statusTimer = null, weatherTimer = null;
+let jitterTimer = null;
+let holaTimer = null;
 function startPolls() {
   if (!statusTimer) statusTimer = setInterval(loadStatus, 5000);
   if (!weatherTimer) weatherTimer = setInterval(loadWeather, 10000);
+  if (!jitterTimer) jitterTimer = setInterval(loadJitter, 4000);
+  if (!holaTimer) holaTimer = setInterval(loadHola, 5000);
 }
 function stopPolls() {
   if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
   if (weatherTimer) { clearInterval(weatherTimer); weatherTimer = null; }
+  if (jitterTimer) { clearInterval(jitterTimer); jitterTimer = null; }
+  if (holaTimer) { clearInterval(holaTimer); holaTimer = null; }
   abortPolls();
 }
 
@@ -924,6 +995,13 @@ async function loadConfig(){
     // en el campo para que el usuario pueda verla / editarla.
     $('#claude-session-key').value = cfg.claude_session_key || '';
     $('#claude-refresh').value = cfg.claude_refresh_sec || 180;
+    $('#hola-en').checked = !!cfg.claude_auto_hola_enabled;
+    {
+      const hh = String(cfg.claude_auto_hola_hour || 0).padStart(2, '0');
+      const mm = String(cfg.claude_auto_hola_minute || 0).padStart(2, '0');
+      $('#hola-time').value = hh + ':' + mm;
+    }
+    $('#keepawake-en').checked = !!cfg.claude_keep_awake_enabled;
     $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
     $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
     $('#startup-mode').value = (cfg.startup_mode != null ? cfg.startup_mode : 0);
@@ -1402,6 +1480,10 @@ $('#save').onclick = async () => {
     focus_hour_color:       hexToInt($('#focus-hour-color').value),
     focus_date_color:       hexToInt($('#focus-date-color').value),
     claude_refresh_sec:     parseInt($('#claude-refresh').value, 10) || 180,
+    claude_auto_hola_enabled: $('#hola-en').checked,
+    claude_auto_hola_hour:    parseInt(($('#hola-time').value || '09:00').split(':')[0], 10) || 0,
+    claude_auto_hola_minute:  parseInt(($('#hola-time').value || '09:00').split(':')[1], 10) || 0,
+    claude_keep_awake_enabled: $('#keepawake-en').checked,
     auto_update_enabled:    $('#autoupd-en').checked,
     auto_update_check_interval_h: Math.max(1, Math.min(720, parseInt($('#autoupd-interval').value, 10) || 24)),
     ttp_enabled: (function() {
@@ -1824,7 +1906,72 @@ $('#prov-save').onclick = async () => {
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
-loadStatus(); loadWifi(); loadConfig(); loadWeather(); loadProvider();
+// --- Jitter (raton BLE) ---------------------------------------------------
+// jitterDirty: si el usuario toca un control y aun no ha pulsado "Aplicar", el
+// poll de /api/jitter no le pisa la seleccion.
+let jitterDirty = false;
+['jitter-en','jitter-interval','jitter-step'].forEach(id => {
+  const el = $('#'+id);
+  if (el) el.addEventListener('change', () => { jitterDirty = true; });
+});
+async function loadJitter(){
+  try{
+    const r = await fetch('/api/jitter', {signal: pollSignal()}); const d = await r.json();
+    const s = $('#jitter-ble-status');
+    if (s) s.innerHTML = d.ble_connected
+      ? '<span class="msg-ok">Mac conectado</span>'
+      : '<span class="text-muted">esperando emparejamiento…</span>';
+    if (!jitterDirty){
+      $('#jitter-en').checked = !!d.enabled;
+      if ([...$('#jitter-interval').options].some(o => +o.value === d.interval_ms)) $('#jitter-interval').value = d.interval_ms;
+      if ([...$('#jitter-step').options].some(o => +o.value === d.max_step)) $('#jitter-step').value = d.max_step;
+    }
+  }catch(e){}
+}
+$('#jitter-apply').onclick = async () => {
+  const patch = {
+    jitter_enabled: $('#jitter-en').checked,
+    jitter_interval_ms: parseInt($('#jitter-interval').value, 10) || 1000,
+    jitter_max_step: parseInt($('#jitter-step').value, 10) || 4,
+  };
+  try{
+    const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(patch)});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    jitterDirty = false;
+    setMsg('Jitter ' + (patch.jitter_enabled ? 'activado' : 'desactivado') + '.', 'ok');
+    loadJitter();
+  }catch(e){ setMsg('Error: '+e.message, 'err'); }
+};
+
+// --- Auto "hola" (abrir sesion 5h) ----------------------------------------
+async function loadHola(){
+  try{
+    const r = await fetch('/api/claude/hola', {signal: pollSignal()}); const d = await r.json();
+    const s = $('#hola-status');
+    if (!s) return;
+    if (!d.configured){ s.innerHTML = '<span class="text-muted">sin sessionKey</span>'; return; }
+    const map = {
+      none:    '<span class="text-muted">sin envios aun</span>',
+      pending: '<span class="msg-warn">enviando…</span>',
+      ok:      '<span class="msg-ok">OK — ventana abierta</span>',
+      fail:    '<span class="msg-err">error: ' + (d.error || 'desconocido') + '</span>',
+    };
+    s.innerHTML = map[d.status] || '&mdash;';
+  }catch(e){}
+}
+$('#hola-now').onclick = async () => {
+  try{
+    const r = await fetch('/api/claude/hola', {method:'POST'});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    setMsg('Enviando «hola»…', 'ok');
+    setTimeout(loadHola, 800);
+  }catch(e){ setMsg('Error: '+e.message, 'err'); }
+};
+
+loadStatus(); loadWifi(); loadConfig(); loadWeather(); loadProvider(); loadJitter(); loadHola();
 startPolls();
 </script>
 </body></html>

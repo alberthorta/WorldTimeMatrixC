@@ -110,6 +110,11 @@ static All defaults() {
     a.claudeSessionKey     = "";
     a.claudeOrgId          = "";
     a.claudeRefreshSec     = 180;
+    a.claudeAutoHolaEnabled  = false;
+    a.claudeAutoHolaHour     = 9;
+    a.claudeAutoHolaMinute   = 0;
+    a.claudeAutoHolaLastDate = 0;
+    a.claudeKeepAwakeEnabled = false;
     a.autoUpdateEnabled    = true;
     a.autoUpdateCheckIntervalH = 24;
     a.ttpEnabled[0]        = true;
@@ -131,6 +136,9 @@ static All defaults() {
     a.fireUseDefault   = true;
     a.fireColor        = 0xFF6000;
     a.demosceneEffect  = 0;
+    a.jitterEnabled    = false;
+    a.jitterIntervalMs = 1000;
+    a.jitterMaxStep    = 4;
     a.wifiUseDhcp          = true;
     a.wifiStaticIp         = "";
     a.wifiStaticGateway    = "";
@@ -173,6 +181,11 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_session_key"]     = cfg.claudeSessionKey;
     doc["claude_org_id"]          = cfg.claudeOrgId;
     doc["claude_refresh_sec"]     = cfg.claudeRefreshSec;
+    doc["claude_auto_hola_enabled"] = cfg.claudeAutoHolaEnabled;
+    doc["claude_auto_hola_hour"]    = cfg.claudeAutoHolaHour;
+    doc["claude_auto_hola_minute"]  = cfg.claudeAutoHolaMinute;
+    doc["claude_auto_hola_last_date"] = cfg.claudeAutoHolaLastDate;
+    doc["claude_keep_awake_enabled"]  = cfg.claudeKeepAwakeEnabled;
     doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
     doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
     JsonArray ttpArr = doc["ttp_enabled"].to<JsonArray>();
@@ -188,6 +201,9 @@ static void buildJson(JsonDocument& doc) {
     doc["fire_use_default"] = cfg.fireUseDefault;
     doc["fire_color"]       = cfg.fireColor;
     doc["demoscene_effect"] = cfg.demosceneEffect;
+    doc["jitter_enabled"]     = cfg.jitterEnabled;
+    doc["jitter_interval_ms"] = cfg.jitterIntervalMs;
+    doc["jitter_max_step"]    = cfg.jitterMaxStep;
     JsonArray schedArr = doc["schedule"].to<JsonArray>();
     for (int i = 0; i < SCHEDULE_MAX; i++) {
         const auto& s = cfg.schedule[i];
@@ -323,6 +339,24 @@ static bool applyJson(JsonDocument& doc) {
         if (s > 3600) s = 3600;
         cfg.claudeRefreshSec = s;
     }
+    if (doc["claude_auto_hola_enabled"].is<bool>()) {
+        cfg.claudeAutoHolaEnabled = doc["claude_auto_hola_enabled"];
+    }
+    if (doc["claude_auto_hola_hour"].is<int>()) {
+        int h = doc["claude_auto_hola_hour"];
+        cfg.claudeAutoHolaHour = (uint8_t)(h < 0 ? 0 : (h > 23 ? 23 : h));
+    }
+    if (doc["claude_auto_hola_minute"].is<int>()) {
+        int m = doc["claude_auto_hola_minute"];
+        cfg.claudeAutoHolaMinute = (uint8_t)(m < 0 ? 0 : (m > 59 ? 59 : m));
+    }
+    if (doc["claude_auto_hola_last_date"].is<uint32_t>() ||
+        doc["claude_auto_hola_last_date"].is<int>()) {
+        cfg.claudeAutoHolaLastDate = doc["claude_auto_hola_last_date"].as<uint32_t>();
+    }
+    if (doc["claude_keep_awake_enabled"].is<bool>()) {
+        cfg.claudeKeepAwakeEnabled = doc["claude_keep_awake_enabled"];
+    }
     if (doc["auto_update_enabled"].is<bool>()) {
         cfg.autoUpdateEnabled = doc["auto_update_enabled"];
     }
@@ -389,6 +423,19 @@ static bool applyJson(JsonDocument& doc) {
         if (e < 0) e = 0;
         if (e > 3) e = 3;
         cfg.demosceneEffect = (uint8_t)e;
+    }
+    if (doc["jitter_enabled"].is<bool>()) cfg.jitterEnabled = doc["jitter_enabled"];
+    if (doc["jitter_interval_ms"].is<int>() || doc["jitter_interval_ms"].is<unsigned>()) {
+        long v = doc["jitter_interval_ms"].as<long>();
+        if (v < 50)     v = 50;
+        if (v > 600000) v = 600000;
+        cfg.jitterIntervalMs = (uint32_t)v;
+    }
+    if (doc["jitter_max_step"].is<int>()) {
+        int s = doc["jitter_max_step"];
+        if (s < 1)  s = 1;
+        if (s > 20) s = 20;
+        cfg.jitterMaxStep = (uint8_t)s;
     }
     JsonArrayConst schedArr = doc["schedule"].as<JsonArrayConst>();
     if (!schedArr.isNull()) {

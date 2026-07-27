@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>WorldTimeJitter</string>
+    <key>CFBundleDisplayName</key>
+    <string>WorldTime Jitter</string>
+    <key>CFBundleIdentifier</key>
+    <string>name.horta.worldtimejitter</string>
+    <key>CFBundleExecutable</key>
+    <string>WorldTimeJitter</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <!-- App de barra de menu: sin icono en el Dock -->
+    <key>LSUIElement</key>
+    <true/>
+    <!-- Obligatorio en macOS para usar CoreBluetooth -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>WorldTime Jitter controla el jitter de raton del WorldTime Matrix por Bluetooth.</string>
+</dict>
+</plist>

@@ -1313,43 +1313,51 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
 
     // Linea 5h: "5h NN%" izquierda + countdown right (XhYYm, gris oscuro).
     if (cv.fiveValid) {
-        char line[12];
-        snprintf(line, sizeof(line), "5h %d%%", (int)(cv.fiveUsed * 100.0 + 0.5));
+        char pct[8];
+        snprintf(pct, sizeof(pct), "%d%%", (int)(cv.fiveUsed * 100.0 + 0.5));
         dma->setTextColor(dim);
-        dma->setCursor(0, 6);
-        dma->print(line);
+        dma->setCursor(1, 6);
+        dma->print("5h ");
+        // Porcentaje 1 px a la izquierda de su posicion natural (aprieta el
+        // hueco entre "5h" y el numero sin mover la etiqueta).
+        dma->setCursor(dma->getCursorX() - 1, 6);
+        dma->print(pct);
         char cd[10];
         snprintf(cd, sizeof(cd), "%ldm", cv.fiveRemainingSec / 60);
         drawCountdownRight(cd, 6);
     } else {
         dma->setTextColor(dim2);
-        dma->setCursor(0, 6);
+        dma->setCursor(1, 6);
         dma->print(cv.hasData ? "5h -" : "5h ...");
     }
-    // Pace bar 5h: ancho LEFT_W-1 → deja 1 px de gap a la izquierda del
-    // separador. Bar termina en x=40 con LEFT_W=42 (separador en x=42).
+    // Pace bar 5h: arranca en x=1 (1 px de margen izquierdo) y termina en x=40,
+    // igual que antes (ancho LEFT_W-2 con LEFT_W=42; separador en x=42, deja 1 px
+    // de gap a su izquierda).
     if (cv.fiveValid) {
-        drawClaudePaceBar(0, 7, LEFT_W - 1, 4,
+        drawClaudePaceBar(1, 7, LEFT_W - 2, 4,
                           cv.fiveUsed, cv.fiveElapsed, cv.fiveColor);
     }
 
     // Linea 7d: "7d NN%" izquierda + countdown right (XdYYh si >=1d, sino XhYYm).
     if (cv.sevenValid) {
-        char line[12];
-        snprintf(line, sizeof(line), "7d %d%%", (int)(cv.sevenUsed * 100.0 + 0.5));
+        char pct[8];
+        snprintf(pct, sizeof(pct), "%d%%", (int)(cv.sevenUsed * 100.0 + 0.5));
         dma->setTextColor(dim);
-        dma->setCursor(0, 17);
-        dma->print(line);
+        dma->setCursor(1, 17);
+        dma->print("7d ");
+        // Porcentaje 1 px a la izquierda de su posicion natural (ver linea 5h).
+        dma->setCursor(dma->getCursorX() - 1, 17);
+        dma->print(pct);
         char cd[10];
         snprintf(cd, sizeof(cd), "%ldh", cv.sevenRemainingSec / 3600);
         drawCountdownRight(cd, 17);
     } else {
         dma->setTextColor(dim2);
-        dma->setCursor(0, 17);
+        dma->setCursor(1, 17);
         dma->print(cv.hasData ? "7d -" : "7d ...");
     }
     if (cv.sevenValid) {
-        drawClaudePaceBar(0, 18, LEFT_W - 1, 4,
+        drawClaudePaceBar(1, 18, LEFT_W - 2, 4,
                           cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
     }
 
@@ -1700,6 +1708,123 @@ static void lifeStep() {
         s_lifeNext[y] = row;
     }
     for (int y = 0; y < LIFE_H; y++) s_lifeGrid[y] = s_lifeNext[y];
+}
+
+// ── Menu de botones ────────────────────────────────────────────────────────
+// Overlay a pantalla completa. Objetivo: que de un vistazo se vea (1) en que
+// pantalla del menu estoy, (2) el estado actual (opcion resaltada / % de brillo
+// / ON-OFF del jitter) y (3) que la navegacion es izq/der + centro.
+void renderMenu(const MenuState& m) {
+    if (!dma) return;
+    dma->clearScreen();
+    dma->setFont(&TomThumb);
+    dma->setTextSize(1);
+
+    const uint16_t accent = rgb888to565(0x38BDF8);   // cian
+    const uint16_t white  = rgb888to565(0xFFFFFF);
+    const uint16_t dim    = rgb888to565(0x8A8A8A);
+    const uint16_t dark   = rgb888to565(0x001018);
+    const uint16_t green  = rgb888to565(0x22C55E);
+    const uint16_t offCol = rgb888to565(0x3A3A3A);
+
+    auto textW = [&](const char* s) -> int {
+        int16_t x1, y1; uint16_t w, h;
+        dma->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+        return (int)w;
+    };
+    auto centerText = [&](const char* s, int y, uint16_t col) {
+        int x = (WIDTH - textW(s)) / 2;
+        if (x < 0) x = 0;
+        dma->setTextColor(col);
+        dma->setCursor(x, y);
+        dma->print(s);
+    };
+    // Fila de opcion de submenu con 3 estados visuales:
+    //   navegada  (sel && !editing): barra rellena, texto oscuro  -> "pulsa OK para entrar"
+    //   editando  (sel &&  editing): recuadro + chevrons ‹ ›       -> "izq/der cambian, OK acepta"
+    //   inactiva  (!sel):            texto atenuado
+    auto drawRow = [&](int y, const char* txt, bool sel, bool editing) {
+        int w = textW(txt);
+        int x = (WIDTH - w) / 2;
+        if (sel && !editing) {
+            dma->fillRoundRect(2, y - 6, WIDTH - 4, 7, 2, accent);
+            dma->setTextColor(dark);
+        } else if (sel && editing) {
+            dma->drawRoundRect(2, y - 6, WIDTH - 4, 7, 2, accent);
+            dma->setTextColor(accent);
+            dma->setCursor(4, y);          dma->print("<");
+            dma->setCursor(WIDTH - 8, y);  dma->print(">");
+            dma->setTextColor(white);
+        } else {
+            dma->setTextColor(dim);
+        }
+        dma->setCursor(x, y);
+        dma->print(txt);
+    };
+
+    if (m.view == MenuView::MAIN) {
+        // 5 opciones sin titulo (el listado resaltado ya se lee como menu).
+        static const char* const OPTS[5] = {"Brightness", "Jitter", "Session", "Keep Awake", "Exit"};
+        const int by[5] = {7, 13, 19, 25, 31};
+        for (int i = 0; i < 5; i++) {
+            bool sel = (m.selected == i);
+            if (sel) {
+                // Barra de resaltado de la opcion activa.
+                dma->fillRoundRect(2, by[i] - 6, WIDTH - 4, 7, 2, accent);
+                // Chevrons que recuerdan que izq/der mueven la seleccion.
+                dma->setTextColor(dark);
+                dma->setCursor(3, by[i]);           dma->print("<");
+                dma->setCursor(WIDTH - 6, by[i]);   dma->print(">");
+            }
+            int x = (WIDTH - textW(OPTS[i])) / 2;
+            dma->setTextColor(sel ? dark : dim);
+            dma->setCursor(x, by[i]);
+            dma->print(OPTS[i]);
+        }
+    } else if (m.view == MenuView::BRIGHTNESS) {
+        // Campos: [0]=Brightness, [1]=Back.
+        centerText("BRIGHTNESS", 5, accent);
+        // Barra de progreso (feedback del valor; cambia en vivo al editar).
+        const int bx = 6, bw = WIDTH - 12, byTop = 11, bh = 6;
+        dma->drawRoundRect(bx, byTop, bw, bh, 2, dim);
+        int fillW = (int)(m.brightness * (bw - 2) + 0.5f);
+        if (fillW > 0) dma->fillRect(bx + 1, byTop + 1, fillW, bh - 2, accent);
+        char row0[12];
+        snprintf(row0, sizeof(row0), "Level %d%%", (int)(m.brightness * 100.0f + 0.5f));
+        drawRow(23, row0, m.selected == 0, m.editing && m.selected == 0);
+        drawRow(30, "Back", m.selected == 1, false);
+    } else if (m.view == MenuView::JITTER) {
+        // Campos: [0]=Jitter on/off, [1]=Back.
+        centerText("JITTER", 5, accent);
+        drawRow(14, m.jitterEnabled ? "Jitter ON" : "Jitter OFF",
+                m.selected == 0, m.editing && m.selected == 0);
+        // Estado del host BLE (solo relevante con el jitter activo).
+        if (m.jitterEnabled) {
+            centerText(m.jitterConnected ? "Mac linked" : "no Mac", 22,
+                       m.jitterConnected ? green : dim);
+        }
+        drawRow(30, "Back", m.selected == 1, false);
+    } else if (m.view == MenuView::KEEPAWAKE) {
+        // Campos: [0]=Keep awake on/off, [1]=Back.
+        centerText("KEEP AWAKE", 5, accent);
+        drawRow(14, m.keepAwakeEnabled ? "Awake ON" : "Awake OFF",
+                m.selected == 0, m.editing && m.selected == 0);
+        centerText(m.keepAwakeEnabled ? "renew on end" : "off", 22,
+                   m.keepAwakeEnabled ? green : dim);
+        drawRow(30, "Back", m.selected == 1, false);
+    } else {  // HOLA (Session): campos [0]=enabled, [1]=hour, [2]=minute, [3]=Back.
+        centerText("SESSION", 5, accent);
+        char rEn[12], rHora[10], rMin[10];
+        snprintf(rEn,   sizeof(rEn),   "Daily %s", m.holaEnabled ? "ON" : "OFF");
+        snprintf(rHora, sizeof(rHora), "Hour %02u", m.holaHour);
+        snprintf(rMin,  sizeof(rMin),  "Min %02u",  m.holaMinute);
+        drawRow(12, rEn,     m.selected == 0, m.editing && m.selected == 0);
+        drawRow(18, rHora,   m.selected == 1, m.editing && m.selected == 1);
+        drawRow(24, rMin,    m.selected == 2, m.editing && m.selected == 2);
+        drawRow(30, "Back",  m.selected == 3, false);
+    }
+
+    dma->flipDMABuffer();   // presenta el frame (doble buffer, como el resto)
 }
 
 void renderLife(const Row& wRow, float secondOfMinuteF) {

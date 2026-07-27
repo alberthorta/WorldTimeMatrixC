@@ -2,7 +2,7 @@
 
 Reescritura en C++ del firmware del reloj mundial WorldTime para Adafruit Matrix Portal S3, sustituyendo la versión CircuitPython (`firmware/`) por una basada en Arduino + ESP-IDF.
 
-> **Estado actual**: features completas. 3 modos de display, sensores táctiles, integración con Claude Code stats, auto-update via GitHub releases, IP estática, programaciones, mascot animado, etc. Última versión publicada: **v0.6.0** (ver [releases](https://github.com/alberthorta/WorldTimeMatrixC/releases)).
+> **Estado actual**: features completas. 6 modos de display, sensores táctiles con menú en pantalla, integración con Claude Code stats, jitter de ratón BLE, auto-update via GitHub releases, IP estática, programaciones, mascot animado, etc. Ver [releases](https://github.com/alberthorta/WorldTimeMatrixC/releases) para la última versión publicada.
 
 ## Por qué este rewrite
 
@@ -30,9 +30,9 @@ Tres sensores capacitivos cableados a los pads analógicos para control sin abri
 
 | Pad | GPIO | Función por defecto |
 |---|---|---|
-| A2 | 9  | Izquierda → brillo −5% |
-| A3 | 10 | Centro → cicla modo de display (1 → 2 → 3) |
-| A4 | 11 | Derecha → brillo +5% |
+| A2 | 9  | Izquierda → modo de display anterior / navegar el menú |
+| A3 | 10 | Centro → abre el menú en pantalla / acepta |
+| A4 | 11 | Derecha → modo de display siguiente / navegar el menú |
 
 - **NO usar A1 (GPIO 3)**: es strapping pin del ESP32-S3 (JTAG signal source). Conectar ahí un TTP en estado indefinido bloquea el boot del panel.
 - `pinMode(pin, INPUT)` sin pull interno — el TTP223 tiene salida push-pull activa-HIGH.
@@ -51,7 +51,11 @@ El switching del panel acopla EMI a los cables de output. Si el filtro SW no es 
 
 ## Modos de display
 
-Botón centro (TTP A3) o `POST /api/button?b=center` ciclan entre:
+Los botones **izquierda / derecha** (TTP A2 / A4) ciclan entre modos: derecha avanza, izquierda retrocede. El botón **centro** ya no cambia de modo — abre el [menú en pantalla](#menú-en-pantalla). También `POST /api/button?b=left|right`.
+
+Orden del ciclo: 4 filas → Focus → Claude → Life → Imagen → Demoscene → (vuelta a 4 filas). El modo Claude se salta automáticamente si no hay `claude_session_key` configurada.
+
+El modo activo vive solo en RAM: tras un reboot se vuelve al modo 1 (o al que indique una [programación](#programaciones-cambio-de-modo)).
 
 ### Modo 1 — 4 filas (FOUR_ROWS, default)
 
@@ -96,9 +100,94 @@ Pixel art 14×10 con cabeza, ojos rectangulares, bracitos y patitas:
 - **Feliz**: cada 8–20 s pone cara sonriente (^_^) durante 4–10 s. Patrón V invertida en la row inferior del ojo. Durante happy no parpadea ni mira a los lados.
 - **Saludo**: mientras está feliz, los 2 px de la punta de la mano derecha alternan posición cada 350 ms (waving).
 
+### Modo 4 — Game of Life
+
+Autómata celular de Conway corriendo a pantalla completa, con la fila inferior común (fecha + icono + temperatura + segundera).
+
+- Color de las células configurable (`life_color`), o modo **arcoíris** (`life_rainbow`): el hue avanza unos grados en cada step.
+- Velocidad de simulación configurable (`life_step_ms`, 50–1000 ms).
+
+### Modo 5 — Imagen
+
+Muestra una imagen del usuario de 64×23 px sobre la fila inferior común.
+
+- Se sube desde la web: `POST /api/userimg` con el binario ya convertido a RGB565 (2944 bytes exactos = 64×23×2). La UI hace la conversión en el navegador.
+- Se guarda en `/userimg.bin` (LittleFS), sobrevive reboots.
+
+### Modo 6 — Demoscene
+
+Cuatro efectos clásicos a pantalla completa, seleccionables con `demoscene_effect`:
+
+| Valor | Efecto |
+|---|---|
+| 0 | Llama (fuego por convección, paleta Doom) |
+| 1 | Plasma |
+| 2 | Moiré |
+| 3 | Nyan Cat (sprite animado + arcoíris) |
+
+Los tres primeros comparten paleta: `fire_use_default` usa la clásica naranja, o `fire_color` genera una paleta custom a partir de un color. Nyan Cat no usa paleta (sprite propio).
+
+## Menú en pantalla
+
+El botón **centro** abre un menú overlay que tapa el reloj. Navegación uniforme con los tres botones:
+
+- **izq / der** → mueven la selección (o cambian el valor, si estás editando un campo).
+- **centro** → entra en la opción / entra a editar el campo / acepta el valor.
+- La última fila de cada submenú es **Back**, que vuelve al menú principal.
+- **Auto-cierre a los 20 s** sin tocar ningún botón. Si te pilla editando, el valor en curso se persiste antes de cerrar.
+
+Opciones del menú principal:
+
+| Opción | Qué hace |
+|---|---|
+| Brightness | Barra de brillo con `Level NN%`. Ajusta el brillo **efectivo**: si estás dentro de la ventana de modo noche toca `night_brightness`, si no el brillo de día. |
+| Jitter | ON / OFF del [jitter BLE](#jitter--ratón-ble-anti-inactividad) + estado del host (`Mac linked` / `no Mac`). |
+| Session | Auto «hola» diario: activar, hora y minuto (ver [Auto «hola»](#auto-hola-y-keep-awake)). |
+| Keep Awake | ON / OFF de la renovación automática de la ventana de 5 h. |
+| Exit | Vuelve al reloj. |
+
+Las filas tienen tres estados visuales: **navegada** (barra rellena cian, texto oscuro), **en edición** (recuadro + chevrons `<` `>`), e **inactiva** (texto atenuado). Los cambios se aplican en vivo para dar feedback inmediato (el brillo dimea el panel, el jitter arranca/para) y se persisten al aceptar.
+
+## Jitter — ratón BLE anti-inactividad
+
+El device se anuncia por Bluetooth como ratón HID (`WorldTime Jitter`). Con el jitter activo mueve el cursor unos pocos píxeles cada intervalo (dirección y distancia aleatorias, con recentrado suave) para que el Mac no entre en reposo.
+
+- **Emparejar**: macOS → Ajustes → Bluetooth → `WorldTime Jitter`.
+- **Configuración** (`jitter_enabled`, `jitter_interval_ms` 50–600000, `jitter_max_step` 1–20 px): desde la pestaña *Jitter* de la web, desde el menú en pantalla, o por BLE.
+- **Estado persistente**: si queda activo y el Mac sigue emparejado, al reboot el cursor vuelve a moverse solo.
+- `GET /api/jitter` expone lo runtime que no persiste: si hay un host BLE conectado.
+
+Implementado con **NimBLE** (más ligero que Bluedroid, importante por la RAM que ya consumen HUB75-DMA + WiFi + AsyncWebServer). Portado de `../gizmo/tablet/main/jitter.c`.
+
+### App de barra de menú para macOS (`mac/`)
+
+App Swift mínima que controla el jitter por BLE desde la barra de menú, usando el mismo servicio de control `6B1D0001-7C9A-4F3E-9B2A-1F4D3C2B1A00` que expone el firmware:
+
+```bash
+cd mac && ./build.sh        # genera WorldTimeJitter.app
+```
+
+Soporta varios dispositivos compatibles a la vez (el WorldTime Matrix y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
+
+## Auto «hola» y keep-awake
+
+Dos mecanismos independientes (pueden estar ambos activos) para abrir o mantener viva la ventana de 5 h de Claude. Ambos hacen lo mismo por debajo: crean una conversación en claude.ai, mandan un completion mínimo («hola») y la borran.
+
+**Auto «hola» diario** (`claude_auto_hola_enabled`, `claude_auto_hola_hour`, `claude_auto_hola_minute`)
+- Dispara una vez al día a la hora local indicada (timezone de `cities[0]`, mismo criterio que modo noche y schedule).
+- `claude_auto_hola_last_date` guarda el día local ya disparado (`YYYYMMDD`), así un reboot no lo re-dispara.
+- El día se marca como hecho **pase lo que pase**: un fallo transitorio no debe spammear claude.ai. Un intento al día.
+
+**Keep-awake** (`claude_keep_awake_enabled`)
+- Vigila el `resetsAt` de la ventana de 5 h que ya trae ClaudeStats; cuando ese instante pasa, manda otro «hola» y abre una ventana nueva.
+- Tras un «hola» exitoso el `resetsAt` salta ~5 h al futuro, lo que evita re-disparos hasta la siguiente expiración.
+- Si el envío falla, reintenta a los ~60 s.
+
+Ambos requieren `claude_session_key` configurada. Estado y último resultado en `GET /api/claude/hola`; disparo manual con `POST /api/claude/hola` (o el botón "Enviar «hola» ahora" de la web).
+
 ## Web admin UI
 
-Navega a `http://<ip>/`. Secciones (orden actual):
+Navega a `http://<ip>/`. La UI está organizada en **pestañas**: *Botones*, *Pantalla*, *Modos*, *Iconos*, *Meteo* y *Jitter*. Secciones:
 
 - **Estado** — IP, uptime, heap libre, RSSI.
 - **Botones (simulación)** — Botones izq/centro/der que disparan la misma acción que los TTPs físicos (incluye ripple visual). Toggles individuales para activar/desactivar cada TTP físico (los botones de arriba siguen funcionando).
@@ -112,6 +201,12 @@ Navega a `http://<ip>/`. Secciones (orden actual):
 - **Colores hora y fecha (modos focus + Claude)** — Pickers para `focus_hour_color` y `focus_date_color`.
 - **Auto-update** — Checkbox para activar/desactivar + intervalo en horas (1–720) + botón "Buscar update ahora".
 - **Claude stats (modo 3)** — Campo `sessionKey` de claude.ai + intervalo de refresco.
+- **Auto «hola»** — Toggle + hora (`<input type="time">`) + botón "Enviar «hola» ahora" + estado del último envío (poll cada 5 s). Debajo, toggle de **Keep awake**.
+- **Jitter** (pestaña propia) — Estado BLE en vivo (poll cada 4 s), toggle `Jitter activo`, selector de intervalo y de paso máximo, botón "Aplicar". Los controles no se pisan por el poll mientras hay cambios sin aplicar.
+- **Game of Life (modo 4)** — Color de células o toggle arcoíris + velocidad de simulación.
+- **Imagen (modo 5)** — Selector de fichero; el navegador convierte a RGB565 64×23 y sube a `/api/userimg`.
+- **Demoscene (modo 6)** — Selector de efecto (Llama / Plasma / Moiré / Nyan Cat) + paleta clásica o color custom.
+- **Modo al arrancar** — Modo de display tras el boot.
 - **Refresco meteo (segundos)** + selector de proveedor + claves API si aplica.
 - **Logs meteo** — Tabla con offset/temp/code/day por ciudad + modal de debug por proveedor.
 - **Backup / Restaurar** — Descarga JSON completo (sin creds WiFi) o carga uno previo.
@@ -119,17 +214,20 @@ Navega a `http://<ip>/`. Secciones (orden actual):
 
 ## Botones (físicos y simulados)
 
-| Acción | Botón izq (A2) | Botón centro (A3) | Botón der (A4) |
+La acción depende de si el [menú](#menú-en-pantalla) está abierto o no:
+
+| Estado | Botón izq (A2) | Botón centro (A3) | Botón der (A4) |
 |---|---|---|---|
-| Toque corto | Brillo −5% | Cicla modo (1 → 2 → 3) | Brillo +5% |
-| Si en modo noche | Ajusta `night_brightness` | — | Ajusta `night_brightness` |
-| Overlay visual | Caja con barra y `%` (1.5 s) | Ripple desde el centro | Caja con barra y `%` (1.5 s) |
+| **Reloj** (menú cerrado) | Modo anterior | Abre el menú | Modo siguiente |
+| **Menú principal** | Opción anterior | Entra en la opción | Opción siguiente |
+| **Submenú, navegando** | Fila anterior | Entra a editar (o *Back* → sale) | Fila siguiente |
+| **Submenú, editando** | Baja el valor | Acepta y persiste | Sube el valor |
 
-**Ripple**: cada pulsación dispara una onda blanca expandiéndose desde la posición del botón (~700 ms). Visible en cualquier modo.
+> El brillo ya no está en izq/der directo: ahora vive en el submenú *Brightness*, que además muestra la barra con el `Level NN%`.
 
-**Brillo overlay**: caja centrada con label `BRIGHTNESS`, barra y porcentaje, se renueva con cada cambio.
+**Ripple**: en el reloj, cada pulsación dispara una onda blanca expandiéndose desde la posición del botón (~700 ms). Dentro del menú no hay ripple — el propio resaltado de la fila es la respuesta visual.
 
-**Botones web**: `POST /api/button?b=left|center|right` o desde la sección "Botones (simulación)" de la admin. Misma acción que los físicos. **No** se ven afectados por la desactivación individual de cada TTP.
+**Botones web**: `POST /api/button?b=left|center|right` o desde la pestaña "Botones" de la admin. Misma acción que los físicos, incluida la navegación del menú. **No** se ven afectados por la desactivación individual de cada TTP.
 
 **Botón UP físico del board** (GPIO 6, mantener 3 s) → fuerza modo AP para reconfigurar WiFi sin tener que esperar a que falle STA.
 
@@ -155,7 +253,7 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 }
 ```
 
-- `mode`: 0 = 4 filas, 1 = focus, 2 = Claude.
+- `mode`: 0 = 4 filas, 1 = focus, 2 = Claude, 3 = Life, 4 = Imagen, 5 = Demoscene.
 - Hora local (timezone de cities[0]).
 - Dispara una vez por minuto en la transición — si el device estaba apagado a la hora exacta, no hay catchup hasta el día siguiente.
 - Si la programación apunta a Claude pero no hay sessionKey, se salta.
@@ -170,18 +268,23 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 ├── scripts/
 │   └── version.py          # inyecta FW_VERSION desde git describe
 ├── src/
-│   ├── main.cpp            # setup + loop con render @20fps
+│   ├── main.cpp            # setup + loop con render @20fps + máquina de estados del menú
 │   ├── Config.h/.cpp       # persistencia (LittleFS para cfg, NVS para wifi)
 │   ├── WifiSetup.h/.cpp    # STA con fallback AP "WorldTime-Setup" + IP estática
-│   ├── Display.h/.cpp      # HUB75-DMA + renderRows/renderFocus/renderClaude
+│   ├── Display.h/.cpp      # HUB75-DMA + los 6 renders de modo + renderMenu
 │   ├── Icons.h/.cpp        # 9 iconos × N frames, paleta 16 colores
 │   ├── Weather.h/.cpp      # Open-Meteo + Tomorrow.io + WeatherAPI clients
 │   ├── MoonPhase.h/.cpp    # cálculo de fase lunar
-│   ├── ClaudeStats.h/.cpp  # client claude.ai/api/.../usage (modo 3)
+│   ├── ClaudeStats.h/.cpp  # client claude.ai/api/.../usage + openWindow ("hola")
+│   ├── Jitter.h/.cpp       # ratón BLE HID (NimBLE) + servicio de control
 │   ├── AutoUpdate.h/.cpp   # client GitHub releases + flash OTA
 │   ├── WebApi.h/.cpp       # AsyncWebServer + todos los endpoints
 │   ├── IndexHtml.h/.cpp    # UI completa embebida en flash
 │   └── Version.h           # FW_VERSION (autogenerado por version.py)
+├── mac/                    # app de barra de menú macOS para el jitter (Swift)
+│   ├── Package.swift
+│   ├── build.sh
+│   └── Sources/WorldTimeJitter/main.swift
 └── README.md
 ```
 
@@ -203,6 +306,12 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 | `/api/weather/debug?idx=N&provider=...` | GET | — | URL + body raw del último fetch |
 | `/api/firmware` | POST multipart | binario | OTA web (campo `firmware`) |
 | `/api/button` | POST | `?b=left|center|right` | Simula pulsación del TTP correspondiente |
+| `/api/jitter` | GET | — | Estado runtime del ratón BLE (`ble_connected`) + config actual |
+| `/api/claude/hola` | GET | — | Estado del auto «hola»: `enabled`, hora, `last_date`, `status`, `error` |
+| `/api/claude/hola` | POST | — | Dispara un «hola» ahora (400 si no hay sessionKey) |
+| `/api/userimg` | POST multipart | binario | Imagen del modo 5: 2944 bytes RGB565 (64×23) |
+| `/api/weather_provider` | GET / POST | `{provider, api_key}` | Proveedor meteo activo y sus claves |
+| `/api/icons/preview/stop` | POST | — | Cancela el preview de icono en el panel |
 | `/api/autoupdate/check` | POST | — | Dispara check ad-hoc de auto-update |
 | `/api/rgb_order` | POST | `{rgb_order: "RGB"\|"RBG"}` | Cambia orden RGB y reinicia |
 | `/api/reset` | POST | — | Reinicia el device |
@@ -218,9 +327,10 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 - `rgb_order` — `RGB` o `RBG`. Identidad del panel, no portable entre devices.
 
 **LittleFS (partition `littlefs`, 1.4 MB)** — JSON grandes y escrituras frecuentes:
-- `/cfg.json` — toda la config: cities, brightness, palette, icons, modo noche, modo focus colors, claude config, auto-update, IP estática, schedule, etc.
+- `/cfg.json` — toda la config: cities, brightness, palette, icons, modo noche, modo focus colors, claude config, auto «hola» + keep-awake, jitter, Life, Demoscene, auto-update, IP estática, schedule, etc.
 - `/wxcache.json` — última meteo conocida.
 - `/claudecache.json` — última stats de Claude conocida.
+- `/userimg.bin` — imagen del modo 5 en RGB565 crudo (2944 bytes).
 - `/index.html` — UI servida; sembrado al boot desde `IndexHtml.cpp` si falta.
 
 **Por qué LittleFS en vez de NVS para los blobs grandes**: NVS fragmenta con saves frecuentes de blobs (cada `putBytes` deja entries marcadas deleted, el GC solo reclama páginas full-deleted). Tras decenas de saves la partición se satura, `putBytes` falla silente y los reboots cargan defaults — bug histórico de "OTA reseta config". LittleFS aguanta KBs y miles de re-escrituras sin degradación.
@@ -291,6 +401,15 @@ curl -X POST -F "firmware=@.pio/build/matrixportal_s3/firmware.bin" \
 
 Más robusto que ArduinoOTA. La conexión puede fallar con RSSI < −78; reintentar suele funcionar. En tres devices conocidos: latencia y fiabilidad escalan con la cobertura WiFi.
 
+**Si el upload se corta a mitad** (`curl` exit 55/56 a los ~50-60 s), reinicia el device *antes* de reintentar:
+
+```bash
+curl -X POST http://<ip>/api/reset && sleep 25
+curl -F "firmware=@.pio/build/ota/firmware.bin" http://<ip>/api/firmware
+```
+
+Cada OTA abortado deja estado colgado y el heap libre va cayendo (~84 KB en boot limpio → ~75 KB tras dos intentos fallidos). Reintentar sin reset tiende a fallar otra vez; con el heap recién arrancado suele entrar a la primera.
+
 ### 4. Auto-update via release de GitHub (producción)
 
 ```bash
@@ -322,6 +441,8 @@ curl -X POST -H "Content-Type: application/json" \
 4. **Iconos hardcoded por nombre**: las 9 categorías (`SUN`, `PARTLY`, `CLOUD`, `RAIN`, `SNOW`, `STORM`, `FOG`, `MOON`, `PARTLY_NIGHT`) están fijadas. Para añadir/eliminar tipos hay que tocar `Icons.cpp` + `Display::IconType` + `Weather::iconForCode`.
 5. **Schedule sin catchup**: si el device estaba apagado a la hora programada, no se dispara hasta el siguiente día.
 6. **Claude sessionKey**: es la cookie de claude.ai, no una API key oficial. Caduca cada cierto tiempo y hay que renovarla.
+7. **Jitter BLE solo en modo STA**: el controlador BT del ESP32-S3 time-sharea la radio con la WiFi vía modem-sleep. El proyecto arranca con `WiFi.setSleep(false)` para bajar la latencia HTTP, pero con el modem-sleep desactivado el coex **aborta en `coex_enable` y deja el device en boot-loop**. `Jitter::begin()` lo evita: solo levanta BLE si el modo es STA, y hace `WiFi.setSleep(true)` antes de `NimBLEDevice::init`. En modo AP el jitter queda en pausa (tampoco hace falta durante el setup de WiFi). Si tocas esto y provocas un boot-loop, la única salida es reflashear por USB.
+8. **Modo de display no persiste**: `g_displayMode` vive solo en RAM. Tras un reboot se vuelve a `startup_mode`.
 
 ## Recuperación de emergencia
 
@@ -339,7 +460,7 @@ curl -X POST -H "Content-Type: application/json" \
 | Animaciones bajo carga HTTP | Pausa visible | Smooth (DMA + tasks) |
 | Brillo | Reescalado de paletas (CPU) | `setBrightness8()` (hardware PWM) |
 | Color depth | 4-bit | 12-bit |
-| Modos display | 1 (4 filas) | 3 (4 filas / focus / Claude stats) |
+| Modos display | 1 (4 filas) | 6 (4 filas / focus / Claude / Life / imagen / demoscene) |
 | REPL | `/cp/serial/` WS | No (Serial USB CDC, flaky) |
 | Edición remota config | `/api/config` POST | `/api/config` POST |
 | Edición remota código | `PUT /fs/code.py` | Auto-update via GitHub Release |
@@ -347,6 +468,8 @@ curl -X POST -H "Content-Type: application/json" \
 | Mascot animado | No | Clawd con look / blink / happy / waving |
 | Schedule | No | Hasta 10 programaciones HH:MM → modo |
 | IP estática | No | Configurable desde web |
+| Menú en pantalla | No | Overlay navegable con los 3 botones |
+| Ratón BLE (jitter) | No | NimBLE HID + app de barra de menú macOS |
 
 ## Convenciones
 

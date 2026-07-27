@@ -7,9 +7,11 @@
 #include <WiFi.h>
 
 #include "AutoUpdate.h"
+#include "ClaudeStats.h"
 #include "Config.h"
 #include "Display.h"
 #include "IndexHtml.h"
+#include "Jitter.h"
 #include "MoonPhase.h"
 
 // Definida en main.cpp (sin namespace). Forward decl global.
@@ -510,6 +512,51 @@ void begin() {
     server.on("/api/autoupdate/check", HTTP_POST, [](AsyncWebServerRequest* req) {
         AutoUpdate::requestCheck();
         req->send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // GET /api/jitter: estado en vivo del raton BLE del jitter. La config
+    // (enabled/interval/step) se lee/escribe por /api/config; esto solo expone
+    // lo runtime que no persiste: si hay un host BLE (Mac) conectado. La UI lo
+    // usa para mostrar "conectado / esperando emparejamiento".
+    server.on("/api/jitter", HTTP_GET, [](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        doc["ble_connected"] = Jitter::hostConnected();
+        doc["enabled"]       = Config::cfg.jitterEnabled;
+        doc["interval_ms"]   = Config::cfg.jitterIntervalMs;
+        doc["max_step"]      = Config::cfg.jitterMaxStep;
+        sendJson(req, doc);
+    });
+
+    // POST /api/claude/hola: dispara un "hola" (openWindow) ahora mismo. No
+    // bloquea: encola el trabajo en la task de ClaudeStats. Util para probar.
+    server.on("/api/claude/hola", HTTP_POST, [](AsyncWebServerRequest* req) {
+        if (!ClaudeStats::isConfigured()) {
+            req->send(400, "application/json",
+                      "{\"error\":\"sin sessionKey de Claude\"}");
+            return;
+        }
+        ClaudeStats::requestOpenWindow();
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // GET /api/claude/hola: estado del auto-hola + resultado del ultimo envio.
+    server.on("/api/claude/hola", HTTP_GET, [](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        doc["enabled"]   = Config::cfg.claudeAutoHolaEnabled;
+        doc["hour"]      = Config::cfg.claudeAutoHolaHour;
+        doc["minute"]    = Config::cfg.claudeAutoHolaMinute;
+        doc["last_date"] = Config::cfg.claudeAutoHolaLastDate;
+        const char* st = "none";
+        switch (ClaudeStats::data.holaStatus) {
+            case ClaudeStats::HolaStatus::PENDING: st = "pending"; break;
+            case ClaudeStats::HolaStatus::OK:      st = "ok";      break;
+            case ClaudeStats::HolaStatus::FAIL:    st = "fail";    break;
+            default: break;
+        }
+        doc["status"]     = st;
+        doc["error"]      = ClaudeStats::data.holaError;
+        doc["configured"] = ClaudeStats::isConfigured();
+        sendJson(req, doc);
     });
     // /api/wifi/scan ANTES que /api/wifi: el matcher de ESPAsyncWebServer hace
     // startsWith con barra, asi que /api/wifi atraparia /api/wifi/scan.

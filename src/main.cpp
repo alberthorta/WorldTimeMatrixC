@@ -9,6 +9,7 @@
 #include "Config.h"
 #include "Display.h"
 #include "Icons.h"
+#include "Jitter.h"
 #include "Version.h"
 #include "WebApi.h"
 #include "Weather.h"
@@ -25,6 +26,31 @@ enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
+// Estado del menu de botones (overlay). El boton central abre el MENU; en NORMAL
+// izquierda/derecha cambian de modo. Ver handleButtonAction() para la maquina de
+// estados completa.
+//   NORMAL           : reloj; izq=modo anterior, der=modo siguiente, centro=menu
+//   MENU             : izq/der mueven seleccion (Brillo/Jitter/Salir), centro ejecuta
+//   MENU_BRIGHTNESS  : der=+brillo, izq=-brillo, centro=vuelve al menu
+//   MENU_JITTER      : der=activa jitter, izq=desactiva, centro=vuelve al menu
+enum class UiState : uint8_t { NORMAL, MENU, MENU_BRIGHTNESS, MENU_JITTER, MENU_HOLA, MENU_KEEPAWAKE };
+static UiState  g_uiState = UiState::NORMAL;
+static int      g_menuIndex = 0;             // 0=Brightness,1=Jitter,2=Session,3=Keep Awake,4=Exit
+static constexpr int      MENU_COUNT = 5;
+// Navegacion dentro de un submenu (Brillo/Jitter/Sesion). Modelo de 2 niveles:
+//   - g_editing=false (navegar): izq/der mueven g_subIndex entre los campos +
+//     la opcion "Atras" (siempre la ultima); centro entra a editar el campo, o
+//     sale al menu si esta en "Atras".
+//   - g_editing=true (editar): izq/der cambian el valor del campo; centro
+//     acepta y vuelve a navegar.
+static int  g_subIndex = 0;      // fila seleccionada dentro del submenu
+static bool g_editing  = false;  // false=navegar, true=editar el campo actual
+
+// Numero de campos editables (sin contar "Back") de cada submenu.
+static int submenuFieldCount(UiState s) { return (s == UiState::MENU_HOLA) ? 3 : 1; }
+static uint32_t g_uiActivityMs = 0;                 // ultimo input (auto-cierre)
+static constexpr uint32_t MENU_TIMEOUT_MS = 20000;  // cierre por inactividad
+
 // Flag set desde WebApi para simular pulsaciones desde el navegador. bit i
 // = idx del boton (0=izq, 1=centro, 2=der). El loop lo consume y dispara
 // la misma accion que el flanco PRESSED del TTP correspondiente.
@@ -37,12 +63,53 @@ void requestButtonPress(int idx) {
 // Forward decls para handleButtonAction (definida tras inNightWindow).
 static bool inNightWindow(uint16_t nowMins);
 static DisplayMode nextDisplayMode(DisplayMode m);
+static DisplayMode prevDisplayMode(DisplayMode m);
+static const char* modeName(DisplayMode m);
+static float& activeBrightnessTarget();   // ref al brillo efectivo (dia o noche)
 // Centros del ripple para los 3 botones (mismas constantes que el TTP loop).
 static const int16_t BTN_RIPPLE_X[3] = {16, Display::WIDTH / 2, Display::WIDTH - 16};
 
-// Lanza la accion correspondiente al boton `idx` (0=izq, 1=centro, 2=der).
-// Compartida entre el flanco PRESSED del TTP y la simulacion via WebApi.
-// `source` es texto para los logs ("ttp" / "web").
+// Ajusta el brillo efectivo (dia o noche segun ventana) en +/- delta, con
+// clamp 0.05..1.0 y marca de persistencia diferida. Usado por el submenu de
+// brillo. No pinta el overlay clasico: el propio menu muestra la barra.
+static void adjustActiveBrightness(float delta) {
+    float& target = activeBrightnessTarget();
+    float b = constrain(target + delta, 0.05f, 1.0f);
+    if (b != target) {
+        target = b;
+        g_brightnessDirtyMs = millis();
+    }
+}
+
+// Aplica un cambio (+dir/-dir) al campo `field` del submenu `s`. Los cambios se
+// reflejan en vivo en Config::cfg (brillo dimea el panel, jitter arranca/para)
+// para dar feedback inmediato; la persistencia ocurre al "aceptar".
+static void submenuApplyDelta(UiState s, int field, int dir) {
+    if (s == UiState::MENU_BRIGHTNESS) {
+        adjustActiveBrightness(dir > 0 ? 0.05f : -0.05f);
+    } else if (s == UiState::MENU_JITTER) {
+        Config::cfg.jitterEnabled = (dir > 0);       // der=ON, izq=OFF
+    } else if (s == UiState::MENU_KEEPAWAKE) {
+        Config::cfg.claudeKeepAwakeEnabled = (dir > 0);   // der=ON, izq=OFF
+    } else if (s == UiState::MENU_HOLA) {
+        if (field == 0)      Config::cfg.claudeAutoHolaEnabled = (dir > 0);
+        else if (field == 1) Config::cfg.claudeAutoHolaHour   =
+                                 (uint8_t)((Config::cfg.claudeAutoHolaHour + dir + 24) % 24);
+        else                 Config::cfg.claudeAutoHolaMinute =
+                                 (uint8_t)((Config::cfg.claudeAutoHolaMinute + dir + 60) % 60);
+    }
+}
+
+// Persiste los cambios del submenu al "aceptar" (centro en modo edicion) o al
+// salir. Para el jitter ademas notifica a los suscriptores BLE.
+static void submenuCommit(UiState s) {
+    Config::save();
+    if (s == UiState::MENU_JITTER) Jitter::notifyStatus();
+}
+
+// Lanza la accion correspondiente al boton `idx` (0=izq, 1=centro, 2=der),
+// enrutada segun el estado del menu (g_uiState). Compartida entre el flanco
+// PRESSED del TTP y la simulacion via WebApi. `source` es texto para logs.
 static void handleButtonAction(int idx, const char* source) {
     if (idx < 0 || idx >= 3) return;
     // El flag ttpEnabled solo silencia el TTP fisico. Los botones de la web
@@ -53,53 +120,76 @@ static void handleButtonAction(int idx, const char* source) {
         Serial.printf("[ttp] button %d disabled, ignoring physical press\n", idx);
         return;
     }
-    Display::triggerRipple(idx, BTN_RIPPLE_X[idx], 0);
-    if (idx == 1) {
-        g_displayMode = nextDisplayMode(g_displayMode);
-        const char* name =
-            (g_displayMode == DisplayMode::FOCUS)  ? "FOCUS" :
-            (g_displayMode == DisplayMode::CLAUDE) ? "CLAUDE" :
-            (g_displayMode == DisplayMode::LIFE)   ? "LIFE"   :
-            (g_displayMode == DisplayMode::IMAGE)  ? "IMAGE"  :
-            (g_displayMode == DisplayMode::FIRE)   ? "FIRE"   :
-                                                     "FOUR_ROWS";
-        Serial.printf("[%s] displayMode -> %s\n", source, name);
-        if (g_displayMode == DisplayMode::CLAUDE) {
-            ClaudeStats::requestRefresh();
+    g_uiActivityMs = millis();   // cualquier input resetea el auto-cierre
+
+    switch (g_uiState) {
+    case UiState::NORMAL:
+        // Ripple de feedback solo en el reloj (en el menu el propio resaltado
+        // es la respuesta visual).
+        Display::triggerRipple(idx, BTN_RIPPLE_X[idx], 0);
+        if (idx == 1) {                       // centro: abrir menu
+            g_uiState = UiState::MENU;
+            g_menuIndex = 0;
+            Serial.printf("[%s] menu abierto\n", source);
+        } else {                              // izq=anterior, der=siguiente
+            g_displayMode = (idx == 2) ? nextDisplayMode(g_displayMode)
+                                       : prevDisplayMode(g_displayMode);
+            Serial.printf("[%s] displayMode -> %s\n", source, modeName(g_displayMode));
+            if (g_displayMode == DisplayMode::CLAUDE) ClaudeStats::requestRefresh();
         }
-        return;
-    }
-    // Botones de brillo (izq/der). Si estamos en ventana de modo noche se
-    // ajusta nightMode.brightness para que el cambio sea visible; sino el
-    // brillo normal.
-    float delta = (idx == 0) ? -0.05f : 0.05f;
-    bool inNight = false;
-    const auto& nm = Config::cfg.nightMode;
-    if (nm.enabled) {
-        time_t utc = time(nullptr);
-        if (utc > TIME_VALID_THRESHOLD) {
-            int refOffset = Weather::data[0].hasData
-                                ? Weather::data[0].offsetSec : 0;
-            time_t local = utc + refOffset;
-            struct tm tm;
-            gmtime_r(&local, &tm);
-            uint16_t nowMins = tm.tm_hour * 60 + tm.tm_min;
-            inNight = inNightWindow(nowMins);
+        break;
+
+    case UiState::MENU:
+        if (idx == 0) {                       // izquierda: opcion anterior
+            g_menuIndex = (g_menuIndex + MENU_COUNT - 1) % MENU_COUNT;
+        } else if (idx == 2) {                // derecha: opcion siguiente
+            g_menuIndex = (g_menuIndex + 1) % MENU_COUNT;
+        } else {                              // centro: entrar en la opcion
+            if (g_menuIndex == 4) {           // Exit -> reloj
+                g_uiState = UiState::NORMAL;
+            } else {
+                g_uiState = (g_menuIndex == 0) ? UiState::MENU_BRIGHTNESS
+                          : (g_menuIndex == 1) ? UiState::MENU_JITTER
+                          : (g_menuIndex == 2) ? UiState::MENU_HOLA
+                                               : UiState::MENU_KEEPAWAKE;
+                g_subIndex = 0;               // arranca navegando el 1er campo
+                g_editing  = false;
+            }
+            Serial.printf("[%s] menu exec idx=%d\n", source, g_menuIndex);
         }
+        break;
+
+    // Submenus (Brightness/Jitter/Session/Keep Awake): modelo navegar -> entrar
+    // -> editar -> aceptar, con "Back" como ultima opcion. Logica comun.
+    case UiState::MENU_BRIGHTNESS:
+    case UiState::MENU_JITTER:
+    case UiState::MENU_KEEPAWAKE:
+    case UiState::MENU_HOLA: {
+        int nFields = submenuFieldCount(g_uiState);
+        int nRows   = nFields + 1;            // + "Atras"
+        int atras   = nFields;                // indice de "Atras"
+        if (!g_editing) {                     // ── navegar ──
+            if (idx == 0)      g_subIndex = (g_subIndex + nRows - 1) % nRows;
+            else if (idx == 2) g_subIndex = (g_subIndex + 1) % nRows;
+            else {                            // centro: entrar / salir
+                if (g_subIndex == atras) {
+                    g_uiState = UiState::MENU; // volver al menu principal
+                    g_subIndex = 0;
+                } else {
+                    g_editing = true;         // entrar a editar el campo
+                }
+            }
+        } else {                              // ── editar ──
+            if (idx == 1) {                   // centro: aceptar
+                submenuCommit(g_uiState);
+                g_editing = false;
+            } else {                          // izq/der: cambiar valor
+                submenuApplyDelta(g_uiState, g_subIndex, idx == 2 ? +1 : -1);
+            }
+        }
+        break;
     }
-    float& target = inNight ? Config::cfg.nightMode.brightness
-                            : Config::cfg.brightness;
-    float b = constrain(target + delta, 0.05f, 1.0f);
-    if (b != target) {
-        target = b;
-        g_brightnessDirtyMs = millis();
-        Serial.printf("[%s] %s -> %.2f\n", source,
-                      inNight ? "night brightness" : "brightness", b);
-    } else {
-        Serial.printf("[%s] %s ya en limite (%.2f)\n", source,
-                      inNight ? "night brightness" : "brightness", b);
     }
-    Display::triggerBrightnessOverlay(target);
 }
 
 // Avanza al siguiente modo del toggle (boton central). CLAUDE solo si hay
@@ -116,6 +206,33 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
         case DisplayMode::FIRE:      return DisplayMode::FOUR_ROWS;
     }
     return DisplayMode::FOUR_ROWS;
+}
+
+// Inverso de nextDisplayMode (boton izquierdo). Mismo criterio con CLAUDE:
+// si no hay sessionKey, se salta.
+static DisplayMode prevDisplayMode(DisplayMode m) {
+    switch (m) {
+        case DisplayMode::FOUR_ROWS: return DisplayMode::FIRE;
+        case DisplayMode::FOCUS:     return DisplayMode::FOUR_ROWS;
+        case DisplayMode::CLAUDE:    return DisplayMode::FOCUS;
+        case DisplayMode::LIFE:
+            return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
+                                               : DisplayMode::FOCUS;
+        case DisplayMode::IMAGE:     return DisplayMode::LIFE;
+        case DisplayMode::FIRE:      return DisplayMode::IMAGE;
+    }
+    return DisplayMode::FOUR_ROWS;
+}
+
+static const char* modeName(DisplayMode m) {
+    switch (m) {
+        case DisplayMode::FOCUS:  return "FOCUS";
+        case DisplayMode::CLAUDE: return "CLAUDE";
+        case DisplayMode::LIFE:   return "LIFE";
+        case DisplayMode::IMAGE:  return "IMAGE";
+        case DisplayMode::FIRE:   return "FIRE";
+        default:                  return "FOUR_ROWS";
+    }
 }
 
 // Los 3 botones tienen su GPIO y modo (pullup/no) configurables desde la
@@ -190,6 +307,87 @@ static bool inNightWindow(uint16_t nowMins) {
         return nowMins >= nm.startMins && nowMins < nm.endMins;
     }
     return nowMins >= nm.startMins || nowMins < nm.endMins;
+}
+
+// Devuelve una referencia al brillo que esta "en efecto" ahora mismo: el de
+// modo noche si estamos dentro de su ventana, sino el brillo de dia. Asi el
+// submenu de brillo ajusta lo que realmente se ve en el panel.
+static float& activeBrightnessTarget() {
+    const auto& nm = Config::cfg.nightMode;
+    if (nm.enabled) {
+        time_t utc = time(nullptr);
+        if (utc > TIME_VALID_THRESHOLD) {
+            int refOffset = Weather::data[0].hasData ? Weather::data[0].offsetSec : 0;
+            time_t local = utc + refOffset;
+            struct tm tm;
+            gmtime_r(&local, &tm);
+            uint16_t nowMins = tm.tm_hour * 60 + tm.tm_min;
+            if (inNightWindow(nowMins)) return Config::cfg.nightMode.brightness;
+        }
+    }
+    return Config::cfg.brightness;
+}
+
+// Auto-"hola": una vez al dia local, a la hora configurada, dispara un
+// openWindow (ClaudeStats) que abre/renueva la ventana de 5h. La hora es local
+// (offset de cities[0], mismo criterio que modo noche y schedule). Se marca el
+// dia local en cfg para no re-disparar tras un reboot. Portado de
+// ClaudeStatsPortable (checkAutoOpen), aqui en local time.
+static void checkAutoHola() {
+    if (!Config::cfg.claudeAutoHolaEnabled) return;
+    if (!ClaudeStats::isConfigured()) return;
+    time_t utc = time(nullptr);
+    if (utc <= TIME_VALID_THRESHOLD) return;        // NTP aun no sincronizado
+
+    int refOffset = Weather::data[0].hasData ? Weather::data[0].offsetSec : 0;
+    time_t local = utc + refOffset;
+    struct tm tm;
+    gmtime_r(&local, &tm);
+    uint32_t today = (uint32_t)(tm.tm_year + 1900) * 10000u
+                   + (uint32_t)(tm.tm_mon + 1) * 100u
+                   + (uint32_t)tm.tm_mday;
+    if (today == Config::cfg.claudeAutoHolaLastDate) return;   // ya disparado hoy
+
+    uint16_t nowMins  = tm.tm_hour * 60 + tm.tm_min;
+    uint16_t fireMins = Config::cfg.claudeAutoHolaHour * 60 + Config::cfg.claudeAutoHolaMinute;
+    if (nowMins < fireMins) return;                 // aun no es la hora
+
+    Serial.printf("[hola] auto-disparo %04u-%02u-%02u %02u:%02u local\n",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                  Config::cfg.claudeAutoHolaHour, Config::cfg.claudeAutoHolaMinute);
+    ClaudeStats::requestOpenWindow();
+    // Marcar el dia hecho pase lo que pase (un fallo transitorio no debe
+    // spammear claude.ai). Un intento al dia.
+    Config::cfg.claudeAutoHolaLastDate = today;
+    Config::save();
+}
+
+// Keep-awake: mantiene viva la sesion de Claude re-abriendo la ventana de 5h
+// cada vez que expira. Usa el resetsAt de la ventana de 5h que ya trae
+// ClaudeStats; cuando ese instante pasa, lanza un "hola". Tras un openWindow
+// exitoso, la task refresca usage y resetsAt salta ~5h al futuro, con lo que el
+// guardado por-resetsAt evita re-disparos hasta la siguiente expiracion.
+static void checkKeepAwake() {
+    if (!Config::cfg.claudeKeepAwakeEnabled) return;
+    if (!ClaudeStats::isConfigured()) return;
+    if (!ClaudeStats::data.fiveHour.valid) return;          // sin datos aun
+    time_t now = time(nullptr);
+    if (now <= TIME_VALID_THRESHOLD) return;
+    time_t resetsAt = ClaudeStats::data.fiveHour.resetsAt;
+    if (resetsAt <= 0 || now < resetsAt) return;            // ventana aun viva
+    if (ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::PENDING) return;
+
+    static time_t   s_lastReset = 0;     // resetsAt para el que ya disparamos
+    static uint32_t s_retryMs   = 0;     // backoff si el openWindow falla
+    bool newWindow   = (resetsAt != s_lastReset);
+    bool retryFailed = (ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::FAIL
+                        && (int32_t)(millis() - s_retryMs) >= 0);
+    if (newWindow || retryFailed) {
+        Serial.printf("[keepawake] ventana 5h expirada (reset=%ld) -> hola\n", (long)resetsAt);
+        ClaudeStats::requestOpenWindow();
+        s_lastReset = resetsAt;
+        s_retryMs   = millis() + 60000;   // si falla, reintenta en ~60s
+    }
 }
 
 static float effectiveBrightness(time_t utc, int referenceOffsetSec) {
@@ -283,6 +481,11 @@ void setup() {
     Weather::taskStart();
     ClaudeStats::loadCache();
     ClaudeStats::taskStart();
+    // Raton BLE HID + servicio de control del jitter. Se inicializa siempre
+    // (coexiste con WiFi STA o AP); el motor solo mueve el cursor si el jitter
+    // esta activo en config Y hay un host BLE emparejado. Va el ultimo para no
+    // retrasar el arranque del reloj/WiFi.
+    Jitter::begin();
 }
 
 void loop() {
@@ -402,6 +605,21 @@ void loop() {
         Config::save();
         g_brightnessDirtyMs = 0;
     }
+
+    // Auto-cierre del menu por inactividad: si no se toca ningun boton en
+    // MENU_TIMEOUT_MS, volvemos al reloj para no quedarnos colgados en el menu.
+    if (g_uiState != UiState::NORMAL &&
+        millis() - g_uiActivityMs >= MENU_TIMEOUT_MS) {
+        // Si el cierre pilla editando un campo, persistir el valor en curso.
+        if (g_editing) { submenuCommit(g_uiState); g_editing = false; }
+        g_uiState = UiState::NORMAL;
+        Serial.println("[menu] auto-cierre por inactividad");
+    }
+
+    // Auto-"hola" diario (abre la ventana de 5h de Claude a la hora fijada).
+    checkAutoHola();
+    // Keep-awake: re-abre la ventana en cuanto expira.
+    checkKeepAwake();
 
     // Botón UP mantenido 3s → forzar modo AP. Util para reconfigurar WiFi
     // sin tener que esperar a que falle STA. Edge-detect: pressedSinceMs
@@ -594,7 +812,26 @@ void loop() {
             }
         }
     }
-    if (g_displayMode == DisplayMode::FOCUS) {
+    if (g_uiState != UiState::NORMAL) {
+        // El menu de botones tapa el reloj mientras esta abierto.
+        Display::MenuState ms;
+        ms.view = (g_uiState == UiState::MENU_BRIGHTNESS) ? Display::MenuView::BRIGHTNESS
+                : (g_uiState == UiState::MENU_JITTER)     ? Display::MenuView::JITTER
+                : (g_uiState == UiState::MENU_HOLA)       ? Display::MenuView::HOLA
+                : (g_uiState == UiState::MENU_KEEPAWAKE)  ? Display::MenuView::KEEPAWAKE
+                                                          : Display::MenuView::MAIN;
+        // En el menu principal la fila es g_menuIndex; en un submenu es g_subIndex.
+        ms.selected        = (g_uiState == UiState::MENU) ? g_menuIndex : g_subIndex;
+        ms.editing         = g_editing;
+        ms.brightness      = activeBrightnessTarget();
+        ms.jitterEnabled   = Config::cfg.jitterEnabled;
+        ms.jitterConnected = Jitter::hostConnected();
+        ms.holaEnabled     = Config::cfg.claudeAutoHolaEnabled;
+        ms.holaHour        = Config::cfg.claudeAutoHolaHour;
+        ms.holaMinute      = Config::cfg.claudeAutoHolaMinute;
+        ms.keepAwakeEnabled = Config::cfg.claudeKeepAwakeEnabled;
+        Display::renderMenu(ms);
+    } else if (g_displayMode == DisplayMode::FOCUS) {
         Display::renderFocus(rows[0], secondOfMinuteF);
     } else if (g_displayMode == DisplayMode::CLAUDE) {
         // Montamos ClaudeView desde ClaudeStats::data + computePace para los

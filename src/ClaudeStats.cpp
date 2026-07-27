@@ -126,6 +126,108 @@ static bool ensureOrgId() {
     return true;
 }
 
+// Flag consumido por la task: cuando es true, la task hace un openWindow.
+static volatile bool s_holaRequested = false;
+
+// UUID v4 aleatorio (para el id de la conversacion). Igual que
+// ClaudeStatsPortable / la app.
+static String genUuidV4() {
+    uint8_t b[16];
+    for (int i = 0; i < 16; i++) b[i] = (uint8_t)(esp_random() & 0xFF);
+    b[6] = (b[6] & 0x0F) | 0x40;   // version 4
+    b[8] = (b[8] & 0x3F) | 0x80;   // variant
+    char buf[37];
+    snprintf(buf, sizeof(buf),
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+    return String(buf);
+}
+
+// Headers "de navegador" para claude.ai (mismos que usa la web app). El
+// completion es mas quisquilloso con Origin/Referer que el simple GET de usage.
+static void addBrowserHeaders(HTTPClient& http) {
+    http.addHeader("Cookie",       "sessionKey=" + Config::cfg.claudeSessionKey);
+    http.addHeader("Accept",       "application/json");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Origin",       "https://claude.ai");
+    http.addHeader("Referer",      "https://claude.ai/chats");
+    http.addHeader("User-Agent",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+}
+
+// openWindow: manda un "hola" para abrir/renovar la ventana de 5h. Portado de
+// Api::openWindow (ClaudeStatsPortable): crear conversacion -> completion ->
+// borrar. Bloqueante; corre en la task, no en el render loop.
+static bool openWindowOnce() {
+    if (!ensureOrgId()) { data.holaError = "sin orgId"; return false; }
+    if (WiFi.status() != WL_CONNECTED) { data.holaError = "no wifi"; return false; }
+
+    String convUuid = genUuidV4();
+    String base = "https://claude.ai/api/organizations/" + Config::cfg.claudeOrgId +
+                  "/chat_conversations";
+    Serial.printf("[hola] openWindow conv=%s\n", convUuid.c_str());
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    // 1) Crear conversacion.
+    {
+        HTTPClient http;
+        http.setConnectTimeout(8000);
+        http.setTimeout(10000);
+        if (!http.begin(client, base)) { data.holaError = "create begin"; return false; }
+        addBrowserHeaders(http);
+        String body = "{\"uuid\":\"" + convUuid + "\",\"name\":\"\"}";
+        int code = http.POST(body);
+        http.end();
+        Serial.printf("[hola] create status=%d\n", code);
+        if (code == 401 || code == 403) { data.holaError = "auth (sessionKey?)"; return false; }
+        if (code < 200 || code >= 300)  { data.holaError = "create http " + String(code); return false; }
+    }
+
+    // 2) Completion "hola" -> consume/abre la ventana de 5h.
+    {
+        HTTPClient http;
+        http.setConnectTimeout(8000);
+        http.setTimeout(15000);
+        String url = base + "/" + convUuid + "/completion";
+        if (!http.begin(client, url)) { data.holaError = "completion begin"; return false; }
+        addBrowserHeaders(http);
+        http.addHeader("Accept", "text/event-stream");
+        String body = "{"
+            "\"prompt\":\"hola\","
+            "\"parent_message_uuid\":\"00000000-0000-4000-8000-000000000000\","
+            "\"timezone\":\"UTC\","
+            "\"attachments\":[],\"files\":[],\"sync_sources\":[],"
+            "\"rendering_mode\":\"messages\""
+        "}";
+        int code = http.POST(body);
+        http.end();
+        Serial.printf("[hola] completion status=%d\n", code);
+        // El completion devuelve SSE; nos basta con que no sea error de auth.
+        if (code == 401 || code == 403) { data.holaError = "auth (sessionKey?)"; return false; }
+    }
+
+    // 3) Borrar la conversacion para no ensuciar el sidebar (best-effort).
+    {
+        HTTPClient http;
+        http.setConnectTimeout(8000);
+        http.setTimeout(10000);
+        String url = base + "/" + convUuid;
+        if (http.begin(client, url)) {
+            addBrowserHeaders(http);
+            int code = http.sendRequest("DELETE");
+            http.end();
+            Serial.printf("[hola] delete status=%d\n", code);
+        }
+    }
+
+    data.holaError = "";
+    return true;
+}
+
 static bool fetchUsageOnce() {
     if (!ensureOrgId()) return false;
     if (WiFi.status() != WL_CONNECTED) {
@@ -223,6 +325,24 @@ static void taskBody(void*) {
     // Espera inicial para no saturar el boot con concurrent HTTP.
     vTaskDelay(pdMS_TO_TICKS(8000));
     for (;;) {
+        // Atender un "hola" pendiente antes del fetch normal.
+        if (s_holaRequested) {
+            s_holaRequested = false;
+            if (isConfigured()) {
+                data.holaStatus = HolaStatus::PENDING;
+                data.holaAtMs = millis();
+                bool ok = openWindowOnce();
+                data.holaStatus = ok ? HolaStatus::OK : HolaStatus::FAIL;
+                data.holaAtMs = millis();
+                Serial.printf("[hola] result=%s%s\n", ok ? "OK" : "FAIL",
+                              ok ? "" : (" " + data.holaError).c_str());
+                // Tras abrir la ventana, refrescamos usage para ver el efecto.
+                if (ok) fetchUsageOnce();
+            } else {
+                data.holaStatus = HolaStatus::FAIL;
+                data.holaError = "sin sessionKey";
+            }
+        }
         if (isConfigured()) {
             bool ok = fetchUsageOnce();
             if (ok) {
@@ -247,6 +367,11 @@ void taskStart() {
 
 void requestRefresh() {
     if (s_task) xTaskNotifyGive(s_task);
+}
+
+void requestOpenWindow() {
+    s_holaRequested = true;
+    if (s_task) xTaskNotifyGive(s_task);   // despierta la task ya
 }
 
 }  // namespace ClaudeStats

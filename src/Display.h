@@ -127,4 +127,23 @@ void setIconPreview(const std::vector<Icons::Frame>& frames, uint32_t duration_m
 void clearIconPreview();
 bool isIconPreviewActive();
 
+// ── Menu de botones ────────────────────────────────────────────────────────
+// Overlay a pantalla completa para el menu que abre el boton central. La
+// maquina de estados (navegacion + ejecucion) vive en main.cpp; aqui solo se
+// pinta el estado actual, de forma clara y con feedback de que hace cada boton.
+enum class MenuView : uint8_t { MAIN = 0, BRIGHTNESS = 1, JITTER = 2, HOLA = 3, KEEPAWAKE = 4 };
+struct MenuState {
+    MenuView view;
+    int      selected;         // MAIN: opcion; submenus: fila navegada (campo o Back)
+    bool     editing;          // submenus: false=navegando, true=editando el campo
+    float    brightness;       // BRIGHTNESS: valor mostrado/ajustado (0..1)
+    bool     jitterEnabled;    // JITTER: estado del jitter
+    bool     jitterConnected;  // JITTER: host BLE (Mac) conectado
+    bool     holaEnabled;      // HOLA: auto-hola diario activo
+    uint8_t  holaHour;         // HOLA: hora local configurada
+    uint8_t  holaMinute;
+    bool     keepAwakeEnabled; // KEEPAWAKE: renovar ventana al expirar
+};
+void renderMenu(const MenuState& m);
+
 }  // namespace Display

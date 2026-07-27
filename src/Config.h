@@ -92,6 +92,19 @@ struct All {
     String   claudeSessionKey;
     String   claudeOrgId;
     uint16_t claudeRefreshSec;             // 60..3600, default 180
+    // Auto-"hola": a una hora local (offset de cities[0]) manda un mensaje
+    // minimo a claude.ai que abre/renueva la ventana de 5h (crear conversacion
+    // -> completion "hola" -> borrar). Una vez al dia. Portado de
+    // ClaudeStatsPortable (Api::openWindow). lastDate evita re-disparar el
+    // mismo dia local tras un reboot (YYYYMMDD local).
+    bool     claudeAutoHolaEnabled;
+    uint8_t  claudeAutoHolaHour;           // 0..23 (hora local)
+    uint8_t  claudeAutoHolaMinute;         // 0..59
+    uint32_t claudeAutoHolaLastDate;       // YYYYMMDD local del ultimo disparo
+    // Keep-awake: cada vez que la ventana de 5h expira, lanza otro "hola" para
+    // abrir una nueva → mantiene la sesion viva de forma continua. Independiente
+    // del auto-hola diario (pueden estar ambos activos).
+    bool     claudeKeepAwakeEnabled;
     // Auto-update via GitHub Releases. Si enabled=false, ni se hace el check
     // al boot ni el check periodico. checkIntervalH: cada cuantas horas se
     // intenta despues del primer chequeo. 1..720 (1 mes).
@@ -113,8 +126,8 @@ struct All {
     // HIGH). Default 1.
     uint8_t  ttpPinMode[3];
     ScheduleEntry schedule[SCHEDULE_MAX];
-    // Modo al arrancar: 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE, 3=LIFE. Si CLAUDE
-    // pero sessionKey vacia, fallback a FOUR_ROWS.
+    // Modo al arrancar: 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE, 3=LIFE, 4=IMAGE,
+    // 5=FIRE (demoscene). Si CLAUDE pero sessionKey vacia, fallback a FOUR_ROWS.
     uint8_t   startupMode;
     // Color de las celulas vivas en modo Game of Life (RGB 0xRRGGBB).
     uint32_t  lifeColor;
@@ -129,6 +142,12 @@ struct All {
     bool      fireUseDefault;
     uint32_t  fireColor;
     uint8_t   demosceneEffect;
+    // Jitter: raton BLE HID anti-inactividad (ver Jitter.h). jitterEnabled
+    // persiste el estado — al boot vuelve a moverse si estaba activo y hay un
+    // host BLE emparejado. intervalMs 50..600000; maxStep 1..20 px.
+    bool      jitterEnabled;
+    uint32_t  jitterIntervalMs;
+    uint8_t   jitterMaxStep;
     bool     wifiUseDhcp;
     String   wifiStaticIp;
     String   wifiStaticGateway;

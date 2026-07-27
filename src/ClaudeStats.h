@@ -19,12 +19,19 @@ struct UsageWindow {
     time_t resetsAt = 0;        // epoch UTC del proximo reset
 };
 
+// Estado del ultimo "hola" (openWindow) para mostrarlo en web/menu.
+enum class HolaStatus : uint8_t { NONE = 0, PENDING = 1, OK = 2, FAIL = 3 };
+
 struct Data {
     bool        hasData = false;     // al menos un fetch exitoso desde boot/cache
     UsageWindow fiveHour;
     UsageWindow sevenDay;
     uint32_t    lastOkAtMs = 0;       // millis() del ultimo fetch ok
     String      lastError;            // texto del ultimo error (o vacio)
+    // Auto-"hola" (openWindow)
+    HolaStatus  holaStatus = HolaStatus::NONE;
+    uint32_t    holaAtMs = 0;         // millis() del ultimo intento
+    String      holaError;            // texto del ultimo error de hola (o vacio)
 };
 
 extern Data data;
@@ -51,6 +58,12 @@ void loadCache();
 void saveCache();
 void taskStart();
 void requestRefresh();
+
+// Dispara un "hola" (openWindow) en la task de fondo: crea una conversacion,
+// manda un completion minimo "hola" (esto abre/renueva la ventana de 5h) y la
+// borra. No bloquea: encola el trabajo y despierta la task. El estado queda en
+// data.holaStatus / data.holaError.
+void requestOpenWindow();
 
 // True si hay una sessionKey configurada (toggle del modo en main mira esto).
 bool isConfigured();
