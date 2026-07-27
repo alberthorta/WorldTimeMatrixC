@@ -164,10 +164,29 @@ Implementado con **NimBLE** (más ligero que Bluedroid, importante por la RAM qu
 App Swift mínima que controla el jitter por BLE desde la barra de menú, usando el mismo servicio de control `6B1D0001-7C9A-4F3E-9B2A-1F4D3C2B1A00` que expone el firmware:
 
 ```bash
-cd mac && ./build.sh        # genera WorldTimeJitter.app
+cd mac && ./build.sh          # genera WorldTimeJitter.app
+cd mac && ./build.sh --zip    # además, WorldTimeJitter.zip para la release
 ```
 
 Soporta varios dispositivos compatibles a la vez (el WorldTime Matrix y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
+
+#### Arranque automático
+
+Opción **"Abrir al iniciar sesión"** en el menú. Usa `SMAppService.mainApp` (sin helper bundle separado). Requiere **macOS 13+**: en macOS 12 la opción no aparece. Si macOS rechaza el registro suele ser porque la app no está en `/Applications`.
+
+#### Auto-actualización
+
+La app comprueba las releases de GitHub del propio repo y se actualiza sola:
+
+- **Al arrancar** (3 s después, para no competir con el escaneo BLE) si *"Buscar actualizaciones al arrancar"* está activo — por defecto sí. En este chequeo solo avisa si hay algo nuevo.
+- **Bajo demanda** con *"Buscar actualizaciones ahora"*, que siempre responde algo.
+- Al aceptar: descarga el asset `.zip` de la release, lo descomprime con `ditto`, escribe un script helper que espera a que el proceso muera, sustituye el bundle y relanza la app.
+
+**La app comparte tag con el firmware.** Las releases llevan los dos assets (`firmware.bin` para el ESP32 y `WorldTimeJitter.zip` para el Mac) bajo la misma versión. Es deliberado: el protocolo BLE tiene que cuadrar entre firmware y app, así que versionarlos juntos evita combinaciones incompatibles. `build.sh` inyecta la versión desde `git describe` en el `Info.plist` del bundle (no en el fuente, para no ensuciar el repo en cada build): `CFBundleShortVersionString` = tag limpio (lo que se compara), `CFBundleVersion` = describe completo.
+
+> Tras actualizar, **macOS vuelve a pedir permiso de Bluetooth una vez**: la app va firmada ad-hoc y el permiso está atado al cdhash del bundle, que cambia al sustituirlo.
+
+Portado de [ClaudeStats](https://github.com/alberthorta/ClaudeStats) (`Core/LaunchAtLogin.swift`, `Core/UpdateChecker.swift`, `Core/UpdateInstaller.swift`).
 
 ## Auto «hola» y keep-awake
 
@@ -416,11 +435,16 @@ Cada OTA abortado deja estado colgado y el heap libre va cayendo (~84 KB en boot
 git tag v0.X.Y
 git push --tags
 pio run -e matrixportal_s3        # build con FW_VERSION limpio
-gh release create v0.X.Y .pio/build/matrixportal_s3/firmware.bin \
+(cd mac && ./build.sh --zip)      # build de la app con la misma versión
+gh release create v0.X.Y \
+   .pio/build/matrixportal_s3/firmware.bin \
+   mac/WorldTimeJitter.zip \
    --title "..." --notes "..."
 ```
 
-Los devices con `auto_update_enabled` activo lo cogerán al próximo boot o al check periódico.
+**Ojo al orden**: tanto `version.py` como `mac/build.sh` sacan la versión de `git describe`, así que hay que **taggear antes de compilar** o los binarios saldrán con la versión anterior (o con sufijo `-dirty`).
+
+Los devices con `auto_update_enabled` activo cogerán el firmware al próximo boot o al check periódico; la app de macOS cogerá el `.zip` en su siguiente chequeo.
 
 ## Backup / restore de config
 

@@ -244,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var jitterActive = false
     private var intervalMs: UInt32 = 1000
     private var maxStep: UInt8 = 4
+    private var checkingForUpdate = false
 
     private let intervals: [(String, UInt32)] = [
         ("250 ms", 250), ("500 ms", 500), ("1 s", 1000), ("2 s", 2000),
@@ -251,7 +252,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     ]
     private let steps: [UInt8] = [2, 3, 4, 6, 10]
 
+    // Buscar actualizaciones al arrancar. Por defecto ON: el sentido de tener
+    // auto-update es no tener que acordarse de mirarlo.
+    private var autoCheckUpdates: Bool {
+        get { UserDefaults.standard.bool(forKey: "autoCheckUpdates") }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdates") }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: ["autoCheckUpdates": true])
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         updateIcon()
 
@@ -265,6 +274,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ble.onDevicesChanged = { [weak self] in self?.refresh() }
         ble.start()
         refresh()
+
+        // Chequeo de updates unos segundos despues del arranque, para no
+        // competir con el escaneo BLE inicial.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.autoCheckUpdates else { return }
+            Task { await self.runUpdateCheck(silent: true) }
+        }
     }
 
     private func refresh() { rebuildMenu(); updateIcon() }
@@ -364,6 +380,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(stepItem)
         menu.addItem(.separator())
 
+        // --- Ajustes de la app (arranque automatico + updates) ---
+        if LaunchAtLogin.isAvailable {
+            let login = NSMenuItem(title: "Abrir al iniciar sesión",
+                                   action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+            login.target = self
+            login.state = LaunchAtLogin.isEnabled ? .on : .off
+            menu.addItem(login)
+        }
+
+        let autoUp = NSMenuItem(title: "Buscar actualizaciones al arrancar",
+                                action: #selector(toggleAutoCheckUpdates), keyEquivalent: "")
+        autoUp.target = self
+        autoUp.state = autoCheckUpdates ? .on : .off
+        menu.addItem(autoUp)
+
+        let checkNow = NSMenuItem(title: checkingForUpdate ? "Buscando…" : "Buscar actualizaciones ahora",
+                                  action: #selector(checkForUpdatesNow), keyEquivalent: "")
+        checkNow.target = self
+        checkNow.isEnabled = !checkingForUpdate
+        menu.addItem(checkNow)
+
+        let version = NSMenuItem(title: "Versión \(UpdateChecker.currentVersion)",
+                                 action: nil, keyEquivalent: "")
+        version.isEnabled = false
+        menu.addItem(version)
+        menu.addItem(.separator())
+
         let salir = NSMenuItem(title: "Salir", action: #selector(quit), keyEquivalent: "q")
         salir.target = self
         menu.addItem(salir)
@@ -415,6 +458,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if alert.runModal() == .alertFirstButtonReturn, let v = UInt32(field.stringValue.trimmingCharacters(in: .whitespaces)) {
             intervalMs = max(50, v)
             applyIfActive(); refresh()
+        }
+    }
+
+    // MARK: Arranque automatico y actualizaciones
+    @objc private func toggleLaunchAtLogin() {
+        let target = !LaunchAtLogin.isEnabled
+        if !LaunchAtLogin.setEnabled(target) {
+            let a = NSAlert()
+            a.messageText = "No se pudo cambiar el arranque automático"
+            a.informativeText = "macOS rechazó registrar la app como elemento de inicio. "
+                + "Suele pasar si la app no está en /Applications; muévela ahí y reinténtalo."
+            a.alertStyle = .warning
+            NSApp.activate(ignoringOtherApps: true)
+            _ = a.runModal()
+        }
+        refresh()
+    }
+
+    @objc private func toggleAutoCheckUpdates() {
+        autoCheckUpdates.toggle()
+        refresh()
+    }
+
+    @objc private func checkForUpdatesNow() {
+        Task { await runUpdateCheck(silent: false) }
+    }
+
+    /// `silent`: en el chequeo automatico del arranque solo avisamos si hay algo
+    /// nuevo. En el manual siempre se responde algo, aunque sea "ya estas al dia".
+    @MainActor
+    private func runUpdateCheck(silent: Bool) async {
+        guard !checkingForUpdate else { return }
+        checkingForUpdate = true
+        refresh()
+        let status = await UpdateChecker.check()
+        checkingForUpdate = false
+        refresh()
+
+        switch status {
+        case .updateAvailable(let release):
+            promptForUpdate(release: release)
+        case .upToDate(let current, _):
+            guard !silent else { return }
+            let a = NSAlert()
+            a.messageText = "Ya estás en la última versión"
+            a.informativeText = "WorldTime Jitter \(current)."
+            a.alertStyle = .informational
+            NSApp.activate(ignoringOtherApps: true)
+            _ = a.runModal()
+        case .failed(let msg):
+            guard !silent else {
+                NSLog("[update] chequeo automatico fallido: \(msg)")
+                return
+            }
+            let a = NSAlert()
+            a.messageText = "No se pudo comprobar si hay actualizaciones"
+            a.informativeText = msg
+            a.alertStyle = .warning
+            NSApp.activate(ignoringOtherApps: true)
+            _ = a.runModal()
+        case .idle, .checking:
+            break
+        }
+    }
+
+    @MainActor
+    private func promptForUpdate(release: LatestRelease) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "WorldTime Jitter \(release.normalizedVersion) disponible"
+        alert.informativeText = "Estás en la \(UpdateChecker.currentVersion). "
+            + "¿Actualizar ahora? La app se reiniciará sola.\n\n"
+            + "Tras actualizar, macOS volverá a pedirte permiso de Bluetooth una vez."
+        alert.addButton(withTitle: "Actualizar")
+        alert.addButton(withTitle: "Ahora no")
+        alert.alertStyle = .informational
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do {
+                try await UpdateInstaller.installAndRestart(release: release)
+            } catch {
+                let err = NSAlert()
+                err.messageText = "La actualización falló"
+                err.informativeText = error.localizedDescription
+                err.alertStyle = .warning
+                NSApp.activate(ignoringOtherApps: true)
+                _ = err.runModal()
+            }
         }
     }
 

@@ -6,4 +6,5 @@
 # App macOS del jitter (mac/): artefactos de SwiftPM y el .app compilado.
 mac/.build
 mac/WorldTimeJitter.app
+mac/WorldTimeJitter.zip
 
