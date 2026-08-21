@@ -159,6 +159,20 @@ El device se anuncia por Bluetooth como ratón HID (`WorldTime Jitter`). Con el 
 
 Implementado con **NimBLE** (más ligero que Bluedroid, importante por la RAM que ya consumen HUB75-DMA + WiFi + AsyncWebServer). Portado de `../gizmo/tablet/main/jitter.c`.
 
+### Parámetros de conexión BLE y microcortes de audio
+
+`jitter_interval_ms` controla cada cuánto se envía una notificación HID, **no** cuánto ocupa la radio. El enlace BLE despierta en cada *connection event* lleve datos o no, así que subir el intervalo de 5 s a 60 s no libera airtime: quita 11 paquetes de ~4.000 eventos por minuto.
+
+Sin pedir nada, macOS negocia lo que le conviene a un ratón HID (~15 ms ⇒ ~67 eventos/s, permanentes). Eso compite con el A2DP de unos auriculares Bluetooth conectados al mismo Mac y se oye como microcortes.
+
+Por eso `ServerCb::onConnect` pide *slave latency* alta con `updateConnParams` (intervalo 30–45 ms, latency 30, timeout 6 s): el device se salta eventos cuando no tiene nada que enviar. En reposo el enlace pasa a ~0,9–1,4 s efectivos según el extremo del rango que negocie macOS, es decir de ~67 eventos/s a ~0,7–1,1/s.
+
+Los límites son los de las *Accessory Design Guidelines* de Apple, que macOS hace cumplir: intervalo ≥ 15 ms y múltiplo de 15 ms, latency ≤ 30, timeout ≤ 6 s. El spec además exige `timeout > 2 × (1+latency) × intervalo` (6 s > 2,79 s).
+
+> **Trade-off**: los comandos interactivos del servicio de control (`CMD_CLICK`, `CMD_MOVE`, `CMD_SCROLL`) heredan hasta ~1,4 s de latencia. Para el jitter da igual; si se usa el click remoto de forma interactiva y molesta, la salida es pedir latencia baja en `CmdCb::onWrite` y relajarla tras unos segundos de silencio.
+
+El central manda: macOS puede ignorar la petición. El `rc` de `ble_gap_update_params` lo loguea NimBLE, y el serial imprime los valores pedidos al conectar.
+
 ### App de barra de menú para macOS (`mac/`)
 
 App Swift mínima que controla el jitter por BLE desde la barra de menú, usando el mismo servicio de control `6B1D0001-7C9A-4F3E-9B2A-1F4D3C2B1A00` que expone el firmware:

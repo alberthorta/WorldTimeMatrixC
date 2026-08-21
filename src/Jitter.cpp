@@ -20,6 +20,24 @@ namespace {
 constexpr char DEVICE_NAME[] = "WorldTime Jitter";
 constexpr int  RECENTER_LIMIT = 30;   // recentrar si nos alejamos mas de esto (px)
 
+// Parametros de conexion BLE que pedimos al central (macOS) al conectar.
+//
+// Por que: un jiggler esta mudo casi todo el tiempo (una notificacion cada
+// jitterIntervalMs, que por defecto son segundos), pero el enlace BLE despierta
+// la radio en CADA connection event, lleve datos o no. Sin pedir nada, macOS
+// negocia lo que le conviene a un raton HID (~15ms => ~67 eventos/s), y ese
+// airtime se lo roba al A2DP de unos auriculares BT conectados al mismo Mac:
+// microcortes de audio. Con slave latency el device se salta eventos cuando no
+// tiene nada que enviar: 45ms * (1+30) = ~1.4s efectivos en reposo.
+//
+// Limites de las Accessory Design Guidelines de Apple, que macOS hace cumplir:
+// intervalo >= 15ms y multiplo de 15ms, latency <= 30, timeout <= 6s. Ademas el
+// spec exige timeout > 2 * (1+latency) * intervalo => 6s > 2.79s. OK.
+constexpr uint16_t CONN_ITVL_MIN = 24;   // 24 * 1.25ms = 30ms
+constexpr uint16_t CONN_ITVL_MAX = 36;   // 36 * 1.25ms = 45ms
+constexpr uint16_t CONN_LATENCY  = 30;   // maximo que admite Apple
+constexpr uint16_t CONN_TIMEOUT  = 600;  // 600 * 10ms = 6s
+
 // Protocolo de comandos (identico a gizmo / BltKeyboardClicker).
 enum : uint8_t {
     CMD_CLICK        = 0x10,
@@ -136,10 +154,16 @@ void handleCommand(const uint8_t* d, size_t n) {
 
 // --- Callbacks NimBLE ------------------------------------------------------
 class ServerCb : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer*, ble_gap_conn_desc*) override {
+    void onConnect(NimBLEServer* server, ble_gap_conn_desc* desc) override {
         s_connected = true;
         acc_x = acc_y = 0;
-        Serial.println("[jitter] host BLE conectado");
+        // Pedimos slave latency alta para no ocupar la radio 2.4GHz en reposo
+        // (ver CONN_* arriba). El central manda: macOS puede ignorarlo, y en ese
+        // caso simplemente nos quedamos con lo que el negocie.
+        server->updateConnParams(desc->conn_handle, CONN_ITVL_MIN, CONN_ITVL_MAX,
+                                 CONN_LATENCY, CONN_TIMEOUT);
+        Serial.printf("[jitter] host BLE conectado (pedidos itvl=%u-%u lat=%u to=%u)\n",
+                      CONN_ITVL_MIN, CONN_ITVL_MAX, CONN_LATENCY, CONN_TIMEOUT);
     }
     void onDisconnect(NimBLEServer*) override {
         s_connected = false;
