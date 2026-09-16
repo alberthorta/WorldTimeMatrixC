@@ -1356,28 +1356,30 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         dma->setCursor(1, 17);
         dma->print(cv.hasData ? "7d -" : "7d ...");
     }
-    // Filas 18..21: con cap de Fable la franja se parte en dos de 2 px (7d
-    // arriba, Fable abajo); sin cap, la barra de 7d sigue ocupando los 4 px.
+    // Con cap de Fable la franja se parte en dos de 2 px: 7d en 18..19 y Fable
+    // en 21..22, con la fila 20 en negro separandolas (sin el hueco se leian
+    // como una sola barra con un escalon). Sin cap, la de 7d ocupa 18..21.
     // Ambas ventanas resetean a la vez, asi que los dos markers caen en la
-    // misma columna y se leen como uno solo.
+    // misma columna.
     if (cv.sevenValid) {
         drawClaudePaceBar(1, 18, LEFT_W - 2, cv.fableValid ? 2 : 4,
                           cv.sevenUsed, cv.sevenElapsed, cv.sevenColor);
     }
     if (cv.fableValid) {
-        drawClaudePaceBar(1, 20, LEFT_W - 2, 2,
+        drawClaudePaceBar(1, 21, LEFT_W - 2, 2,
                           cv.fableUsed, cv.fableElapsed, cv.fableColor);
     }
 
-    // Pace label 5h centrada en la columna izquierda (y=29 baseline, top
-    // alrededor de y=25).
+    // Pace label 5h centrada en la columna izquierda. Baseline en y=29: los
+    // glifos de TomThumb llegan hasta la fila 28 y la barra de segundos empieza
+    // en la 30, asi que no se tocan.
     if (cv.fiveValid && cv.fiveLabel && *cv.fiveLabel) {
         dma->setTextColor(rgb888to565(cv.fiveColor));
         int16_t x1, y1; uint16_t w, h;
         dma->getTextBounds(cv.fiveLabel, 0, 0, &x1, &y1, &w, &h);
         int x = (LEFT_W - (int)w) / 2 - (int)x1;
         if (x < 0) x = 0;
-        dma->setCursor(x, 28);
+        dma->setCursor(x, 29);
         dma->print(cv.fiveLabel);
     }
 
