@@ -5,6 +5,7 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <strings.h>
 #include <time.h>
 
 #include "Config.h"
@@ -266,7 +267,7 @@ static bool fetchUsageOnce() {
     JsonDocument doc;
     if (deserializeJson(doc, body)) { data.lastError = "usage parse"; return false; }
 
-    UsageWindow five, seven;
+    UsageWindow five, seven, fable;
     auto parseWindow = [](JsonVariantConst v, UsageWindow& w) {
         if (v.isNull()) return;
         w.valid = true;
@@ -277,8 +278,24 @@ static bool fetchUsageOnce() {
     parseWindow(doc["five_hour"], five);
     parseWindow(doc["seven_day"], seven);
 
+    // Cap semanal por modelo: claude.ai lo publica dentro del array "limits",
+    // no como clave fija (seven_day_opus / seven_day_sonnet llegan a null).
+    // Ojo: aqui el porcentaje viene en "percent", no en "utilization".
+    for (JsonVariantConst v : doc["limits"].as<JsonArrayConst>()) {
+        const char* kind = v["kind"] | (const char*)nullptr;
+        const char* name = v["scope"]["model"]["display_name"] | (const char*)nullptr;
+        if (!kind || !name) continue;
+        if (strcmp(kind, "weekly_scoped") != 0) continue;
+        if (strcasecmp(name, "Fable") != 0) continue;
+        fable.valid       = true;
+        fable.utilization = v["percent"] | 0.0;
+        fable.resetsAt    = parseIso8601Utc(v["resets_at"] | (const char*)nullptr);
+        break;
+    }
+
     data.fiveHour = five;
     data.sevenDay = seven;
+    data.fable    = fable;
     data.hasData = five.valid || seven.valid;
     data.lastOkAtMs = millis();
     data.lastError = "";
@@ -302,6 +319,7 @@ void loadCache() {
     };
     loadWindow(doc["five_hour"], data.fiveHour);
     loadWindow(doc["seven_day"], data.sevenDay);
+    loadWindow(doc["fable"], data.fable);
     data.hasData = data.fiveHour.valid || data.sevenDay.valid;
 }
 
@@ -315,6 +333,7 @@ void saveCache() {
     };
     saveWindow(doc["five_hour"].to<JsonObject>(), data.fiveHour);
     saveWindow(doc["seven_day"].to<JsonObject>(), data.sevenDay);
+    saveWindow(doc["fable"].to<JsonObject>(), data.fable);
     File f = LittleFS.open(CACHE_PATH, "w");
     if (!f) return;
     serializeJson(doc, f);

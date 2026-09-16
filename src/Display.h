@@ -82,6 +82,12 @@ struct ClaudeView {
     long   sevenRemainingSec;
     uint32_t sevenColor;
     const char* sevenLabel;
+    // Cap semanal de Fable. Sin label ni countdown: se pinta como una franja
+    // de 2 px bajo la de 7d, que comparte reset con ella.
+    bool fableValid;
+    double fableUsed;
+    double fableElapsed;
+    uint32_t fableColor;
 };
 void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF = -1.0f);
 // Modo Game of Life: simulacion de Conway en la parte superior (y=0..23) +

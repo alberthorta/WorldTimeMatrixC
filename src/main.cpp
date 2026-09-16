@@ -863,6 +863,8 @@ void loop() {
                 ClaudeStats::data.fiveHour, 5L * 3600L, now);
             ClaudeStats::Pace p7 = ClaudeStats::computePace(
                 ClaudeStats::data.sevenDay, 7L * 86400L, now);
+            ClaudeStats::Pace pf = ClaudeStats::computePace(
+                ClaudeStats::data.fable, 7L * 86400L, now);
             Display::ClaudeView cv;
             cv.hasData         = ClaudeStats::data.hasData;
             cv.fiveValid       = ClaudeStats::data.fiveHour.valid;
@@ -879,6 +881,10 @@ void loop() {
             if (cv.sevenRemainingSec < 0) cv.sevenRemainingSec = 0;
             cv.sevenColor      = p7.color;
             cv.sevenLabel      = p7.label;
+            cv.fableValid      = ClaudeStats::data.fable.valid;
+            cv.fableUsed       = pf.used;
+            cv.fableElapsed    = pf.elapsed;
+            cv.fableColor      = pf.color;
             Display::renderClaude(rows[0], cv, secondOfMinuteF);
         }
     } else if (g_displayMode == DisplayMode::LIFE) {

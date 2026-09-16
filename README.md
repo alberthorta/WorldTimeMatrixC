@@ -78,7 +78,7 @@ Solo aparece si la `claude_session_key` está configurada. Layout 2/3 + 1/3:
 - Línea `5h NN%` + countdown en minutos (`180m`) con símbolo de reloj.
 - Pace bar 5 h: barra de color por estado + marker blanco de elapsed.
 - Línea `7d NN%` + countdown en horas (`96h`) + símbolo.
-- Pace bar 7 d.
+- Pace bar 7 d: 4 px de alto, o dos franjas de 2 px cuando la cuenta tiene un cap semanal por modelo — arriba 7 d, abajo Fable. Las dos ventanas resetean a la vez, así que los markers de elapsed caen en la misma columna.
 - Pace label centrada del 5 h en color por estado: `Well under` / `Under` / `On pace` / `Over` / `Burning`.
 
 **Columna derecha (info de cities[0])**

@@ -26,6 +26,10 @@ struct Data {
     bool        hasData = false;     // al menos un fetch exitoso desde boot/cache
     UsageWindow fiveHour;
     UsageWindow sevenDay;
+    // Cap semanal propio de un modelo: la entrada "weekly_scoped" del array
+    // "limits" cuyo scope.model.display_name es Fable. Misma ventana de 7 dias
+    // que sevenDay, asi que comparte reset y elapsed.
+    UsageWindow fable;
     uint32_t    lastOkAtMs = 0;       // millis() del ultimo fetch ok
     String      lastError;            // texto del ultimo error (o vacio)
     // Auto-"hola" (openWindow)
