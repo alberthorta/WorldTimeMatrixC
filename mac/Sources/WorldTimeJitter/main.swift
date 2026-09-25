@@ -67,7 +67,7 @@ final class BLEController: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
     }
 
     /// Revisa el enlace (p.ej. al abrir el menu).
-    func ensureConnected() { refresh() }
+    func ensureConnected() { refresh(); scanBriefly() }
 
     /// Elegir dispositivo: desconecta el anterior y conecta el nuevo.
     func select(_ id: UUID) {
@@ -110,10 +110,22 @@ final class BLEController: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
         for p in central.retrieveConnectedPeripherals(withServices: [kControlService]) {
             register(p, name: p.name)
         }
-        if !central.isScanning {
+        // Escanear solo mientras no hay enlace: un escaneo permanente roba
+        // airtime a los HID BLE (raton/teclado) y los hace ir a tirones.
+        if !isConnected && !central.isScanning {
             central.scanForPeripherals(withServices: [kControlService])
         }
         connectSelected()
+    }
+
+    /// Escaneo corto para refrescar la lista del menu aunque ya haya enlace.
+    private func scanBriefly() {
+        guard central?.state == .poweredOn, !central.isScanning else { return }
+        central.scanForPeripherals(withServices: [kControlService])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, self.isConnected, self.central.isScanning else { return }
+            self.central.stopScan()
+        }
     }
 
     private func register(_ p: CBPeripheral, name: String?) {
@@ -146,10 +158,16 @@ final class BLEController: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
 
     // MARK: CBCentralManagerDelegate
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        // Invalidar siempre el timer anterior: cada wake del Mac vuelve a pasar
+        // por .poweredOn y los timers huerfanos se acumulaban (tras 3 dias
+        // habia ~200 disparando refresh(), ~70 llamadas/s a bluetoothd).
+        retryTimer?.invalidate()
+        retryTimer = nil
         if c.state == .poweredOn {
             refresh()
             retryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-                self?.refresh()
+                guard let self, !self.isConnected else { return }
+                self.refresh()
             }
         } else {
             cmdChar = nil
@@ -213,6 +231,7 @@ final class BLEController: NSObject, CBCentralManagerDelegate, CBPeripheralDeleg
                 p.readValue(for: ch)  // leer estado del jitter al conectar
             }
         }
+        if isConnected, central.isScanning { central.stopScan() }
         notifyChange()
     }
 
