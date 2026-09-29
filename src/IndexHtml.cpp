@@ -387,9 +387,14 @@ code{
 
 <section class="card" data-tab="jitter">
   <h2 class="h-section mb-3">Jitter — raton BLE anti-inactividad</h2>
-  <span class="note">El device se anuncia por Bluetooth como raton ("WorldTime Jitter"). Emparejalo desde macOS (Ajustes &rarr; Bluetooth). Con el jitter activo mueve el cursor unos pixeles cada intervalo para que el equipo no entre en reposo. Tambien se controla desde la app de barra de menu (carpeta <code>mac/</code>).</span>
+  <span class="note">El device se anuncia por Bluetooth como raton con el nombre de abajo. Emparejalo desde macOS (Ajustes &rarr; Bluetooth). Con el jitter activo mueve el cursor unos pixeles cada intervalo para que el equipo no entre en reposo. Tambien se controla desde la app de barra de menu (carpeta <code>mac/</code>).</span>
   <div style="margin-top:.75rem;padding:.5rem .7rem;border:1px solid var(--border-2);border-radius:.4rem;background:var(--bg)">
     <span class="text-muted">Estado BLE:</span> <span id="jitter-ble-status">—</span>
+  </div>
+  <div style="margin-top:.9rem">
+    <span class="label">Nombre Bluetooth</span>
+    <input type="text" id="jitter-name" class="inp" maxlength="29" placeholder="WorldTime Jitter">
+    <span class="note" style="display:block">Se aplica al reiniciar. macOS puede seguir mostrando el nombre antiguo hasta que olvides el dispositivo y lo vuelvas a emparejar.</span>
   </div>
   <label class="row-flex" style="margin-top:.9rem">
     <input type="checkbox" id="jitter-en">
@@ -1910,8 +1915,10 @@ $('#prov-save').onclick = async () => {
 // jitterDirty: si el usuario toca un control y aun no ha pulsado "Aplicar", el
 // poll de /api/jitter no le pisa la seleccion.
 let jitterDirty = false;
-['jitter-en','jitter-interval','jitter-step'].forEach(id => {
+let jitterNameLoaded = '';
+['jitter-en','jitter-interval','jitter-step','jitter-name'].forEach(id => {
   const el = $('#'+id);
+  if (el) el.addEventListener('input', () => { jitterDirty = true; });
   if (el) el.addEventListener('change', () => { jitterDirty = true; });
 });
 async function loadJitter(){
@@ -1923,6 +1930,8 @@ async function loadJitter(){
       : '<span class="text-muted">esperando emparejamiento…</span>';
     if (!jitterDirty){
       $('#jitter-en').checked = !!d.enabled;
+      $('#jitter-name').value = d.name || '';
+      jitterNameLoaded = d.name || '';
       if ([...$('#jitter-interval').options].some(o => +o.value === d.interval_ms)) $('#jitter-interval').value = d.interval_ms;
       if ([...$('#jitter-step').options].some(o => +o.value === d.max_step)) $('#jitter-step').value = d.max_step;
     }
@@ -1933,7 +1942,9 @@ $('#jitter-apply').onclick = async () => {
     jitter_enabled: $('#jitter-en').checked,
     jitter_interval_ms: parseInt($('#jitter-interval').value, 10) || 1000,
     jitter_max_step: parseInt($('#jitter-step').value, 10) || 4,
+    jitter_name: $('#jitter-name').value.trim() || 'WorldTime Jitter',
   };
+  const nameChanged = patch.jitter_name !== jitterNameLoaded;
   try{
     const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(patch)});
@@ -1941,6 +1952,11 @@ $('#jitter-apply').onclick = async () => {
     if (d.error) throw new Error(d.error);
     jitterDirty = false;
     setMsg('Jitter ' + (patch.jitter_enabled ? 'activado' : 'desactivado') + '.', 'ok');
+    if (nameChanged && confirm('El nuevo nombre Bluetooth se aplica al reiniciar. ¿Reiniciar ahora?')){
+      try{ await fetch('/api/reset', {method:'POST'}); }catch(e){}
+      setMsg('Reiniciando…', 'ok');
+      return;
+    }
     loadJitter();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };

@@ -32,6 +32,8 @@ struct ScheduleEntry {
     uint8_t mode;     // 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE
 };
 static constexpr int SCHEDULE_MAX = 10;
+static constexpr char   JITTER_NAME_DEFAULT[] = "WorldTime Jitter";
+static constexpr size_t JITTER_NAME_MAX = 29;
 
 struct NightMode {
     bool enabled;
@@ -148,6 +150,10 @@ struct All {
     bool      jitterEnabled;
     uint32_t  jitterIntervalMs;
     uint8_t   jitterMaxStep;
+    // Nombre BLE con el que se anuncia. Se lee solo en Jitter::begin(), asi que
+    // cambiarlo requiere reboot. Max JITTER_NAME_MAX bytes: va en el scan
+    // response (31 bytes - 2 de cabecera AD).
+    String    jitterName;
     bool     wifiUseDhcp;
     String   wifiStaticIp;
     String   wifiStaticGateway;

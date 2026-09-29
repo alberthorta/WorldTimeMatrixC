@@ -524,6 +524,7 @@ void begin() {
         doc["enabled"]       = Config::cfg.jitterEnabled;
         doc["interval_ms"]   = Config::cfg.jitterIntervalMs;
         doc["max_step"]      = Config::cfg.jitterMaxStep;
+        doc["name"]          = Config::cfg.jitterName;
         sendJson(req, doc);
     });
 

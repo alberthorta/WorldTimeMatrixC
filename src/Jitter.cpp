@@ -17,7 +17,6 @@ namespace Jitter {
 
 namespace {
 
-constexpr char DEVICE_NAME[] = "WorldTime Jitter";
 constexpr int  RECENTER_LIMIT = 30;   // recentrar si nos alejamos mas de esto (px)
 
 // Parametros de conexion BLE que pedimos al central (macOS) al conectar.
@@ -251,7 +250,7 @@ void begin() {
     }
     WiFi.setSleep(true);   // WIFI_PS_MIN_MODEM: imprescindible para el coex BT+WiFi
 
-    NimBLEDevice::init(DEVICE_NAME);
+    NimBLEDevice::init(Config::cfg.jitterName.c_str());
     // Emparejamiento "Just Works" (como un raton normal): bonding + Secure
     // Connections, sin MITM ni passkey — asi macOS empareja sin pedir codigo.
     NimBLEDevice::setSecurityAuth(/*bonding=*/true, /*mitm=*/false, /*sc=*/true);
@@ -293,7 +292,7 @@ void begin() {
     xTaskCreatePinnedToCore(jitterTask, "jitter", 3072, nullptr, 4, nullptr, 0);
 
     Serial.printf("[jitter] BLE up (name='%s' enabled=%d int=%u max=%u)\n",
-                  DEVICE_NAME, Config::cfg.jitterEnabled,
+                  Config::cfg.jitterName.c_str(), Config::cfg.jitterEnabled,
                   (unsigned)Config::cfg.jitterIntervalMs, Config::cfg.jitterMaxStep);
 }
 

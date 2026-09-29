@@ -139,6 +139,7 @@ static All defaults() {
     a.jitterEnabled    = false;
     a.jitterIntervalMs = 1000;
     a.jitterMaxStep    = 4;
+    a.jitterName       = JITTER_NAME_DEFAULT;
     a.wifiUseDhcp          = true;
     a.wifiStaticIp         = "";
     a.wifiStaticGateway    = "";
@@ -204,6 +205,7 @@ static void buildJson(JsonDocument& doc) {
     doc["jitter_enabled"]     = cfg.jitterEnabled;
     doc["jitter_interval_ms"] = cfg.jitterIntervalMs;
     doc["jitter_max_step"]    = cfg.jitterMaxStep;
+    doc["jitter_name"]        = cfg.jitterName;
     JsonArray schedArr = doc["schedule"].to<JsonArray>();
     for (int i = 0; i < SCHEDULE_MAX; i++) {
         const auto& s = cfg.schedule[i];
@@ -436,6 +438,18 @@ static bool applyJson(JsonDocument& doc) {
         if (s < 1)  s = 1;
         if (s > 20) s = 20;
         cfg.jitterMaxStep = (uint8_t)s;
+    }
+    if (doc["jitter_name"].is<const char*>()) {
+        String n = doc["jitter_name"].as<const char*>();
+        n.trim();
+        if (n.length() > JITTER_NAME_MAX) {
+            // Cortar sin partir un caracter UTF-8 multibyte a medias.
+            size_t cut = JITTER_NAME_MAX;
+            while (cut > 0 && ((uint8_t)n[cut] & 0xC0) == 0x80) cut--;
+            n = n.substring(0, cut);
+            n.trim();
+        }
+        cfg.jitterName = n.length() ? n : String(JITTER_NAME_DEFAULT);
     }
     JsonArrayConst schedArr = doc["schedule"].as<JsonArrayConst>();
     if (!schedArr.isNull()) {
