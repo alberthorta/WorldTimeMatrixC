@@ -50,6 +50,8 @@ Si todo lo anterior falla, subir `STABLE_THRESH` en `main.cpp` a 4-5 (a costa de
 |---|---|---|
 | 192.168.53.62 | RBG | Panel con G/B swapped. Funcional. |
 | 192.168.53.51 | RGB | Panel estándar. Tras un OTA fallido a 98% quedó respondiendo, requiere flash USB con BOOT+RESET manual para volver a actualizar fiablemente. |
+| 192.168.53.81 | ? | Placa nueva (sep-2026) que sustituye a la antigua .36: MAC WiFi `58:8c:81:f1:7e:70`, dirección BLE `58:8C:81:F1:7E:71` (el ESP32 deriva la de BT de la de WiFi, +1). Flasheada por USB con v0.16.1: sin botón BOOT, se entra en bootloader con doble RESET. RSSI −79 al arrancar. |
+| ~~192.168.53.36~~ | RBG | Retirada, sustituida por la .81. Era el jiggler BLE de mi Mac (MAC WiFi `58:8c:81:f1:99:9c`, BLE `58:8C:81:F1:99:9D`), con WiFi inestable (RSSI −66…−81, `boot_count` 678). |
 
 AP fallback: SSID `WorldTime-Setup`, password `matrixportal`, IP `192.168.4.1`.
 
