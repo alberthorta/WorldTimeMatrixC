@@ -88,6 +88,8 @@ struct ClaudeView {
     double fableUsed;
     double fableElapsed;
     uint32_t fableColor;
+    // Ventana de modo noche activa: Clawd se echa a dormir.
+    bool night;
 };
 void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF = -1.0f);
 // Modo Game of Life: simulacion de Conway en la parte superior (y=0..23) +

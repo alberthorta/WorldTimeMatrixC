@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd Matrix Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Banco de pruebas: carcasa oscura del panel HUB75 como pieza central,
+   controles debajo como un rack de instrumentos. Tema oscuro unico a proposito
+   (es un panel LED), con colores explicitos. */
+:root {
+  color-scheme: dark;
+  --bg: #111317;
+  --surface: #1a1d23;
+  --surface-2: #22262e;
+  --line: #2e333d;
+  --fg: #e6e3de;
+  --muted: #8d929c;
+  --accent: #e07a2f;
+  --accent-ink: #1a1009;
+  --night: #5070b0;
+  --housing: #050506;
+  --font-display: "Silkscreen", ui-monospace, monospace;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-inline: 16px; padding-block: 28px 48px;
+}
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 22px; }
+header { display: grid; gap: 6px; }
+h1 {
+  font-family: var(--font-display); font-weight: 400; font-size: clamp(22px, 4vw, 32px);
+  margin: 0; letter-spacing: .02em; text-wrap: balance;
+}
+h1 span { color: var(--accent); }
+.lede { margin: 0; color: var(--muted); max-width: 65ch; }
+h2 {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--muted); margin: 0 0 10px;
+}
+
+.panel-box {
+  background: var(--housing); border: 1px solid var(--line); border-radius: 6px;
+  padding: 14px; display: grid; gap: 10px;
+}
+.panel-box canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.readout {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--font-mono); font-size: 13px;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.readout b { color: var(--fg); font-weight: 500; }
+.readout .act b { color: var(--accent); }
+
+.rack { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.module { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+button, .toggle {
+  font: inherit; font-size: 14px; color: var(--fg); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 7px 12px; cursor: pointer;
+}
+button:hover, .toggle:hover { border-color: var(--muted); }
+button:focus-visible, .toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.primary { border-color: var(--accent); color: var(--accent); }
+.toggle { display: inline-flex; align-items: center; gap: 8px; user-select: none; }
+.toggle input { accent-color: var(--accent); margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button + button { border-left: 1px solid var(--line); }
+.hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+kbd { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+
+.acts-table { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+td:first-child { white-space: nowrap; font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Clawd <span>·</span> modo Claude</h1>
+    <p class="lede">Simulador del panel 64×32 que ejecuta la misma máquina de estados que <code>drawClawd()</code> en el firmware, a 20 fps. La columna izquierda y los datos (hora, meteo, % de uso) son de ejemplo.</p>
+  </header>
+
+  <section class="panel-box" aria-label="Panel LED simulado">
+    <canvas id="panel" width="640" height="320"></canvas>
+    <div class="readout" aria-live="polite">
+      <span class="act">Acto: <b id="r-act">—</b></span>
+      <span>Termina: <b id="r-left">—</b></span>
+      <span>x: <b id="r-x">—</b></span>
+      <span>Uso 5h: <b id="r-use">—</b></span>
+      <span>Tiempo: <b id="r-t">—</b></span>
+    </div>
+  </section>
+
+  <div class="rack">
+    <div class="module">
+      <h2>Lanzar acto</h2>
+      <div class="row" id="acts"></div>
+      <p class="hint">En automático elige solo, igual que en el panel. Al acabar un acto forzado vuelve a reposo.</p>
+    </div>
+    <div class="module">
+      <h2>Situación</h2>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="night"> Modo noche</label>
+        <button id="bump" class="primary">Usar Claude (+1 %)</button>
+      </div>
+      <p class="hint">Subir el % de 5h hace que dé saltitos. En modo noche duerme; al quitarlo se despierta de un sobresalto.</p>
+    </div>
+    <div class="module">
+      <h2>Reproducción</h2>
+      <div class="row">
+        <button id="pause">Pausa</button>
+        <button id="step">+1 frame</button>
+        <div class="seg" id="speed" role="group" aria-label="Velocidad">
+          <button data-s="0.25">¼×</button><button data-s="0.5">½×</button><button data-s="1" class="on">1×</button><button data-s="2">2×</button>
+        </div>
+      </div>
+      <p class="hint"><kbd>Espacio</kbd> pausa · <kbd>→</kbd> avanza un frame (50 ms)</p>
+    </div>
+    <div class="module">
+      <h2>Vista y variantes</h2>
+      <div class="row">
+        <div class="seg" id="view" role="group" aria-label="Vista">
+          <button data-v="full" class="on">Panel entero</button><button data-v="right">Columna derecha</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="grid"> Rejilla</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="toggle"><input type="checkbox" id="hopUp"> Salto sube a la fila 18</label>
+        <label class="toggle"><input type="checkbox" id="margin"> 1 px de aire con el separador</label>
+      </div>
+      <p class="hint">Las dos variantes son propuestas, todavía no están en el firmware.</p>
+    </div>
+  </div>
+
+  <section class="module acts-table">
+    <h2>Actos</h2>
+    <table>
+      <thead><tr><th>Acto</th><th>Peso</th><th>Duración</th><th>Qué hace</th></tr></thead>
+      <tbody>
+        <tr><td>Reposo</td><td class="num">—</td><td class="num">4–9 s</td><td>Entre cada acto. Doble parpadeo cada 6–15 s y miradas de reojo cada 4–10 s.</td></tr>
+        <tr><td>Saludar</td><td class="num">24</td><td class="num">3–6 s</td><td>Cara feliz ^ ^ y agita la mano derecha cada 350 ms.</td></tr>
+        <tr><td>Pasear</td><td class="num">24</td><td class="num">hasta llegar</td><td>Pasos de 180 ms alternando patas en diagonal, mirando hacia donde va.</td></tr>
+        <tr><td>Saltitos</td><td class="num">14</td><td class="num">2–3 × 600 ms</td><td>Se agacha, despega con las patas recogidas y los brazos arriba, aterriza.</td></tr>
+        <tr><td>Bailar</td><td class="num">14</td><td class="num">3–5 s</td><td>Compás de 4 × 300 ms: brazo izquierdo, agachado, brazo derecho, agachado.</td></tr>
+        <tr><td>Sobresalto</td><td class="num">8</td><td class="num">0,9 s</td><td>Ojos de 3 px y los dos brazos arriba.</td></tr>
+        <tr><td>Siesta</td><td class="num">16</td><td class="num">5–9 s</td><td>Ojos cerrados y una z que sube junto a la cabeza.</td></tr>
+        <tr><td>Dormir</td><td class="num">—</td><td class="num">noche</td><td>Como la siesta, mientras dure la ventana de modo noche.</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+(() => {
+  const W = 64, H = 32, FRAME_MS = 50;
+  const LEFT_W = 42, RIGHT_X = 43, RIGHT_CX = 53;
+
+  // ── Port de la logica del firmware (src/Display.cpp, drawClawd) ──────
+  const CLAWD_ACTS = [
+    { act: 'WAVE', w: 24, min: 3000, max: 6000 },
+    { act: 'WALK', w: 24, min: 0, max: 0 },
+    { act: 'HOP', w: 14, min: 0, max: 0 },
+    { act: 'DANCE', w: 14, min: 0, max: 0 },
+    { act: 'SURPRISED', w: 8, min: 900, max: 900 },
+    { act: 'NAP', w: 16, min: 5000, max: 9000 },
+  ];
+  const IDLE_MIN = 4000, IDLE_MAX = 9000, STEP_MS = 180, HOP_MS = 600, BEAT_MS = 300;
+  const LEGS_STAND = 0, LEGS_A = 1, LEGS_B = 2, LEGS_TUCKED = 3;
+  const NAMES = { IDLE: 'Reposo', WAVE: 'Saludar', WALK: 'Pasear', HOP: 'Saltitos', DANCE: 'Bailar', SURPRISED: 'Sobresalto', NAP: 'Siesta', SLEEP: 'Dormir' };
+
+  const rand = (lo, hi) => hi <= lo ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+  const s = { act: 'IDLE', startMs: 0, durMs: 0, dx: 0, walkTarget: 0, lastStepMs: 0, steps: 0, lastFiveUsed: -1 };
+  const look = { next: 0, start: 0, dur: 0, off: 0 };
+  const blinkT = { next: 0, start: 0, rem: 0 };
+
+  function start(act, now, minDx, maxDx) {
+    s.act = act; s.startMs = now; s.steps = 0; s.lastStepMs = now;
+    if (act === 'IDLE') s.durMs = rand(IDLE_MIN, IDLE_MAX);
+    else if (act === 'WALK') {
+      let t = rand(0, maxDx - minDx) + minDx;
+      if (Math.abs(t - s.dx) < 2) t = (s.dx > Math.trunc((minDx + maxDx) / 2)) ? minDx : maxDx;
+      s.walkTarget = t; s.durMs = 0;
+    } else if (act === 'HOP') s.durMs = HOP_MS * rand(2, 3);
+    else if (act === 'SLEEP') s.durMs = 0;
+    else if (act === 'DANCE') { const bar = 4 * BEAT_MS; s.durMs = Math.ceil(rand(3000, 5000) / bar) * bar; }
+    else { const d = CLAWD_ACTS.find(d => d.act === act); s.durMs = rand(d.min, d.max); }
+  }
+  function pick() {
+    const total = CLAWD_ACTS.reduce((a, d) => a + d.w, 0);
+    let r = Math.floor(Math.random() * total);
+    for (const d of CLAWD_ACTS) { if (r < d.w) return d.act; r -= d.w; }
+    return 'WAVE';
+  }
+  function lookOffset(now) {
+    if (look.start === 0) {
+      if (look.next === 0) look.next = now + rand(4000, 10000);
+      if (now < look.next) return 0;
+      look.off = Math.random() < .5 ? -1 : 1; look.start = now; look.dur = rand(800, 2300);
+    }
+    if (now - look.start >= look.dur) { look.start = 0; look.next = now + rand(4000, 10000); return 0; }
+    return look.off;
+  }
+  function blinkRows(now) {
+    if (blinkT.start === 0) {
+      if (blinkT.next === 0) blinkT.next = now + rand(6000, 15000);
+      if (now < blinkT.next) return 0;
+      blinkT.rem = 2; blinkT.start = now;
+    }
+    let e = now - blinkT.start;
+    if (e >= 300) {
+      if (--blinkT.rem > 0) { blinkT.start = now; e = 0; }
+      else { blinkT.start = 0; blinkT.next = now + rand(6000, 15000); return 0; }
+    }
+    if (e < 60) return 1; if (e < 180) return 2; if (e < 240) return 1; return 0;
+  }
+  function tick(now, night, fiveUsed, minDx, maxDx, opts) {
+    if (s.startMs === 0) start('IDLE', now, minDx, maxDx);
+    if (night) { if (s.act !== 'SLEEP') start('SLEEP', now, minDx, maxDx); }
+    else if (s.act === 'SLEEP') start('SURPRISED', now, minDx, maxDx);
+    if (fiveUsed >= 0) {
+      if (s.lastFiveUsed >= 0 && fiveUsed > s.lastFiveUsed + 1e-6 && s.act !== 'SLEEP') start('HOP', now, minDx, maxDx);
+      s.lastFiveUsed = fiveUsed;
+    }
+    if (s.act !== 'SLEEP' && s.act !== 'WALK' && now - s.startMs >= s.durMs)
+      start(s.act === 'IDLE' ? pick() : 'IDLE', now, minDx, maxDx);
+    s.dx = Math.max(minDx, Math.min(maxDx, s.dx));
+    const lk = lookOffset(now);
+
+    const p = { dx: 0, dy: 0, legs: LEGS_STAND, eyeOff: 0, blinkable: false, happy: false, surprised: false, eyesClosed: false, armL: false, armR: false, zzz: false };
+    const e = now - s.startMs;
+    switch (s.act) {
+      case 'IDLE': p.eyeOff = lk; p.blinkable = true; break;
+      case 'WAVE': p.happy = true; p.armR = (Math.floor(e / 350) & 1) === 0; break;
+      case 'WALK': {
+        const dir = Math.sign(s.walkTarget - s.dx);
+        if (now - s.lastStepMs >= STEP_MS) {
+          if (dir === 0) { start('IDLE', now, minDx, maxDx); p.blinkable = true; break; }
+          s.dx += dir; s.steps++; s.lastStepMs = now;
+        }
+        p.eyeOff = dir; p.legs = (s.steps & 1) ? LEGS_A : LEGS_B; p.blinkable = true; break;
+      }
+      case 'HOP': {
+        const t = e % HOP_MS; p.happy = true;
+        if (t < 150) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (t < 400) { p.dy = opts.hopUp ? -1 : 0; p.legs = LEGS_TUCKED; p.armL = p.armR = true; }
+        else if (t < 500) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        break;
+      }
+      case 'DANCE': {
+        const beat = Math.floor(e / BEAT_MS) & 3; p.happy = true;
+        if (beat === 0) { p.armL = true; p.legs = LEGS_A; }
+        else if (beat === 2) { p.armR = true; p.legs = LEGS_B; }
+        else { p.dy = 1; p.legs = LEGS_TUCKED; }
+        break;
+      }
+      case 'SURPRISED':
+        if (e < 120) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        p.surprised = true; p.armL = p.armR = true; break;
+      case 'NAP': case 'SLEEP': p.eyesClosed = true; p.zzz = true; break;
+    }
+    p.dx = s.dx;
+    return p;
+  }
+
+  const BODY = [0b00111111111100, 0b00111111111100, 0b00111111111100, 0b00111111111100,
+                0b11111111111111, 0b11111111111111, 0b00111111111100, 0b00111111111100];
+  const LEGS_FULL = 0b00110100101100, LEGS_A_LOW = 0b00000100001100, LEGS_B_LOW = 0b00110000100000;
+  const ORANGE = '#e07a2f', BLACK = null, ZC = '#5070b0';
+
+  function drawClawd(fb, now, x0, y0, colL, colR, night, fiveUsed, opts) {
+    const p = tick(now, night, fiveUsed, colL - x0, colR - (x0 + 13), opts);
+    let blink = blinkRows(now);
+    if (!p.blinkable) blink = 0;
+    const bx = x0 + p.dx, by = y0 + p.dy;
+    const row = (bits, y) => { for (let xx = 0; xx < 14; xx++) if (bits & (0x2000 >> xx)) px(fb, bx + xx, y, ORANGE); };
+    for (let yy = 0; yy < 8; yy++) row(BODY[yy], by + yy);
+    row(LEGS_FULL, by + 8);
+    if (p.legs === LEGS_STAND) row(LEGS_FULL, by + 9);
+    if (p.legs === LEGS_A) row(LEGS_A_LOW, by + 9);
+    if (p.legs === LEGS_B) row(LEGS_B_LOW, by + 9);
+    if (p.armL) { px(fb, bx, by + 5, BLACK); px(fb, bx, by + 3, ORANGE); }
+    if (p.armR) { px(fb, bx + 13, by + 5, BLACK); px(fb, bx + 13, by + 3, ORANGE); }
+    const eL = bx + 4 + p.eyeOff, eR = bx + 9 + p.eyeOff;
+    if (p.eyesClosed) {
+      px(fb, eL - 1, by + 3, BLACK); px(fb, eL, by + 3, BLACK); px(fb, eR, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
+    } else if (p.happy) {
+      px(fb, eL, by + 2, BLACK); px(fb, eR, by + 2, BLACK);
+      px(fb, eL - 1, by + 3, BLACK); px(fb, eL + 1, by + 3, BLACK); px(fb, eR - 1, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
+    } else {
+      const top = p.surprised ? 1 : 2 + (blink >= 1 ? 1 : 0), bottom = blink >= 2 ? 2 : 3;
+      for (let yy = top; yy <= bottom; yy++) { px(fb, eL, by + yy, BLACK); px(fb, eR, by + yy, BLACK); }
+    }
+    if (p.zzz) {
+      const Z = [0b111, 0b010, 0b111];
+      const zx = (bx + 17 <= colR) ? bx + 15 : bx - 4;
+      const zy = by + 5 - Math.floor((now % 2400) / 400);
+      for (let yy = 0; yy < 3; yy++) for (let xx = 0; xx < 3; xx++) if (Z[yy] & (0b100 >> xx)) px(fb, zx + xx, zy + yy, ZC);
+    }
+    return { bx };
+  }
+
+  // ── Contexto del panel (de ejemplo) ──────────────────────────────────
+  const FONT = {
+    '0': ['111','101','101','101','111'], '1': ['01','11','01','01','01'], '2': ['111','001','111','100','111'],
+    '3': ['111','001','011','001','111'], '4': ['101','101','111','001','001'], '5': ['111','100','111','001','111'],
+    '6': ['111','100','111','101','111'], '7': ['111','001','001','010','010'], '8': ['111','101','111','101','111'],
+    '9': ['111','101','111','001','111'], ':': ['0','1','0','1','0'], '/': ['001','001','010','100','100'],
+    '%': ['101','001','010','100','101'], 'h': ['100','100','111','101','101'], 'd': ['001','001','111','101','111'], ' ': ['0','0','0','0','0'],
+  };
+  const textW = str => [...str].reduce((a, c) => a + FONT[c][0].length + 1, 0) - 1;
+  function text(fb, str, x, baseline, col) {
+    for (const c of str) {
+      const g = FONT[c];
+      g.forEach((r, yy) => [...r].forEach((b, xx) => { if (b === '1') px(fb, x + xx, baseline - 5 + yy, col); }));
+      x += g[0].length + 1;
+    }
+  }
+  const SUN = ['..y..', '.yyy.', 'yyyyy', '.yyy.', '..y..'];
+
+  function drawContext(fb, now, fiveUsed, wallSec) {
+    for (let y = 0; y < H - 2; y++) px(fb, LEFT_W, y, '#202020');
+    // Columna izquierda simplificada.
+    const bar = (y, frac, col) => { for (let x = 0; x < 40; x++) for (let k = 0; k < 3; k++) px(fb, x, y + k, x < Math.round(frac * 40) ? col : '#1c1c1c'); };
+    text(fb, '5h', 0, 6, '#aaaaaa'); text(fb, Math.round(fiveUsed * 100) + '%', 10, 6, '#aaaaaa');
+    bar(8, fiveUsed, '#3aa36b');
+    text(fb, '7d', 0, 18, '#aaaaaa'); text(fb, '61%', 10, 18, '#aaaaaa');
+    bar(20, .61, '#d4a73a');
+    // Columna derecha: hora, fecha, icono + temp (layout del firmware).
+    const hhmm = '12:34';
+    text(fb, hhmm, RIGHT_CX - Math.floor(textW(hhmm) / 2), 6, '#f2f2f2');
+    const date = '30/09';
+    text(fb, date, RIGHT_CX - Math.floor(textW(date) / 2), 12, '#8a8a8a');
+    const temp = '21', tw = textW(temp), total = 5 + 2 + tw + 1 + 2;
+    const xs = RIGHT_CX - Math.floor(total / 2);
+    SUN.forEach((r, yy) => [...r].forEach((c, xx) => { if (c === 'y') px(fb, xs + xx, 13 + yy, '#ffd21f'); }));
+    const tx = xs + 7;
+    text(fb, temp, tx, 18, '#f0a040');
+    const degX = tx + tw + 1;
+    for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++) px(fb, degX + xx, 13 + yy, '#f0a040');
+    // Barra de segundos.
+    const fill = Math.round((wallSec % 60) / 60 * W);
+    for (let x = 0; x < W; x++) for (let y = 30; y < 32; y++) px(fb, x, y, x < fill ? '#505a70' : '#141414');
+  }
+
+  // ── Framebuffer y pintado ────────────────────────────────────────────
+  const fb = new Array(W * H).fill(null);
+  function px(b, x, y, c) { if (x >= 0 && x < W && y >= 0 && y < H) b[y * W + x] = c; }
+
+  const canvas = document.getElementById('panel');
+  const ctx = canvas.getContext('2d');
+  let view = 'full';
+
+  function paint() {
+    const x0 = view === 'full' ? 0 : 40, cols = view === 'full' ? W : W - 40, rows = H;
+    const gutter = opts.grid ? 18 : 0;
+    const cssW = canvas.clientWidth || 640;
+    const cell = Math.max(4, Math.floor((cssW - gutter) / cols));
+    const dpr = window.devicePixelRatio || 1;
+    const wPx = cols * cell + gutter, hPx = rows * cell + gutter;
+    if (canvas.width !== Math.round(wPx * dpr)) { canvas.width = Math.round(wPx * dpr); canvas.height = Math.round(hPx * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#050506'; ctx.fillRect(0, 0, wPx, hPx);
+    const r = cell * 0.4;
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const c = fb[y * W + x0 + x];
+      ctx.fillStyle = c || '#121216';
+      ctx.beginPath(); ctx.arc(gutter + x * cell + cell / 2, gutter + y * cell + cell / 2, r, 0, Math.PI * 2); ctx.fill();
+    }
+    if (opts.grid) {
+      ctx.font = `${Math.min(10, cell * .8)}px "IBM Plex Mono", monospace`;
+      ctx.fillStyle = '#6b707a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const every = cell < 9 ? 2 : 1;
+      for (let x = 0; x < cols; x += every) ctx.fillText(String(x0 + x), gutter + x * cell + cell / 2, gutter / 2);
+      ctx.textAlign = 'right';
+      for (let y = 0; y < rows; y += every) ctx.fillText(String(y), gutter - 3, gutter + y * cell + cell / 2);
+      // Zona de Clawd: columna derecha, filas 18..29.
+      ctx.strokeStyle = 'rgba(224,122,47,.55)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.strokeRect(gutter + (RIGHT_X - x0) * cell + .5, gutter + 18 * cell + .5, (W - RIGHT_X) * cell - 1, 12 * cell - 1);
+      ctx.setLineDash([]);
+    }
+    canvas.style.aspectRatio = `${wPx} / ${hPx}`;
+  }
+
+  // ── Bucle de simulacion ──────────────────────────────────────────────
+  const opts = { hopUp: false, margin: false, grid: false };
+  let simNow = 1000, acc = 0, last = performance.now(), paused = false, speed = 1;
+  let night = false, fiveUsed = 0.42, bx = RIGHT_CX - 7;
+
+  function frame() {
+    fb.fill(null);
+    drawContext(fb, simNow, fiveUsed, simNow / 1000);
+    const colL = RIGHT_X + (opts.margin ? 1 : 0);
+    ({ bx } = drawClawd(fb, simNow, RIGHT_CX - 7, 19, colL, W - 1, night, fiveUsed, opts));
+    updateReadout();
+  }
+  function updateReadout() {
+    document.getElementById('r-act').textContent = NAMES[s.act];
+    let left;
+    if (s.act === 'WALK') left = `al llegar a x=${RIGHT_CX - 7 + s.walkTarget}`;
+    else if (s.act === 'SLEEP') left = 'al acabar la noche';
+    else left = ((Math.max(0, s.durMs - (simNow - s.startMs))) / 1000).toFixed(1) + ' s';
+    document.getElementById('r-left').textContent = left;
+    document.getElementById('r-x').textContent = `${bx}..${bx + 13}`;
+    document.getElementById('r-use').textContent = Math.round(fiveUsed * 100) + ' %';
+    document.getElementById('r-t').textContent = (simNow / 1000).toFixed(2) + ' s';
+    document.querySelectorAll('#acts button').forEach(b => b.classList.toggle('on', b.dataset.a === s.act));
+  }
+  function loop(t) {
+    const dt = Math.min(250, t - last); last = t;
+    if (!paused) {
+      acc += dt * speed;
+      let stepped = false;
+      while (acc >= FRAME_MS) { acc -= FRAME_MS; simNow += FRAME_MS; frame(); stepped = true; }
+      if (stepped) paint();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ── Controles ────────────────────────────────────────────────────────
+  const minDx = () => RIGHT_X + (opts.margin ? 1 : 0) - (RIGHT_CX - 7);
+  const maxDx = () => (W - 1) - (RIGHT_CX - 7 + 13);
+  const actsEl = document.getElementById('acts');
+  ['IDLE', 'WAVE', 'WALK', 'HOP', 'DANCE', 'SURPRISED', 'NAP'].forEach(a => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = NAMES[a]; b.dataset.a = a;
+    b.addEventListener('click', () => { if (night) return; start(a, simNow, minDx(), maxDx()); frame(); paint(); });
+    actsEl.appendChild(b);
+  });
+  document.getElementById('night').addEventListener('change', e => { night = e.target.checked; });
+  document.getElementById('bump').addEventListener('click', () => { fiveUsed = Math.min(1, fiveUsed + 0.01); });
+  const pauseBtn = document.getElementById('pause');
+  const togglePause = () => { paused = !paused; pauseBtn.textContent = paused ? 'Seguir' : 'Pausa'; pauseBtn.classList.toggle('on', paused); };
+  const stepOnce = () => { if (!paused) togglePause(); simNow += FRAME_MS; frame(); paint(); };
+  pauseBtn.addEventListener('click', togglePause);
+  document.getElementById('step').addEventListener('click', stepOnce);
+  document.querySelectorAll('#speed button').forEach(b => b.addEventListener('click', () => {
+    speed = +b.dataset.s; document.querySelectorAll('#speed button').forEach(o => o.classList.toggle('on', o === b));
+  }));
+  document.querySelectorAll('#view button').forEach(b => b.addEventListener('click', () => {
+    view = b.dataset.v; document.querySelectorAll('#view button').forEach(o => o.classList.toggle('on', o === b)); paint();
+  }));
+  ['grid', 'hopUp', 'margin'].forEach(id => document.getElementById(id).addEventListener('change', e => { opts[id] = e.target.checked; paint(); }));
+  document.addEventListener('keydown', e => {
+    if (e.target.closest('input, button')) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); stepOnce(); }
+  });
+  window.addEventListener('resize', paint);
+
+  frame(); paint();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

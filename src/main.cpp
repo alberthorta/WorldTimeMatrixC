@@ -885,6 +885,8 @@ void loop() {
             cv.fableUsed       = pf.used;
             cv.fableElapsed    = pf.elapsed;
             cv.fableColor      = pf.color;
+            cv.night           = rows[0].hasTime &&
+                                 inNightWindow(rows[0].hour * 60 + rows[0].minute);
             Display::renderClaude(rows[0], cv, secondOfMinuteF);
         }
     } else if (g_displayMode == DisplayMode::LIFE) {
