@@ -1248,19 +1248,23 @@ static void drawClaudePaceBar(int x0, int y0, int barW, int height,
 // timers independientes que se superponen a IDLE y WALK; eso es lo que le
 // da vida entre acto y acto.
 //
-// Espacio disponible: columna x=43..63, filas 19..29 (arriba esta la temp,
-// abajo la barra de segundos). No cabe un salto hacia arriba, asi que los
-// saltos son squash-and-stretch: agacharse bajando 1 px hasta la fila 29 y
-// "despegar" recogiendo las patas, dejando un hueco bajo los pies.
+// Zona: columna derecha x=43..63, filas 18..31 (encima esta la temp). En
+// este modo la barra de segundos se queda en la columna izquierda para
+// dejarle la esquina entera: pisa el borde inferior del panel (reposo en
+// y=22) y tiene 4 filas libres sobre la cabeza para saltos y bocadillos.
+// Lo que flota (z, nube, corazon, bolas) se ancla al reposo, no al salto.
 //
 // tools/clawd-sim.html replica esta logica en JS para probar animaciones
 // sin flashear: si cambias actos, tiempos o pixeles, cambialo tambien alli.
 
-enum class ClawdAct : uint8_t { IDLE, WAVE, WALK, HOP, DANCE, SURPRISED, NAP, SLEEP };
+enum class ClawdAct : uint8_t {
+    IDLE, WAVE, WALK, HOP, DANCE, SURPRISED, NAP, SLEEP,
+    THINK, HEART, SPIN, NOD, FIREFLY, JUGGLE, PEEK, CODE, JACKS, SNEEZE,
+};
 
 struct ClawdActDef { ClawdAct act; uint8_t weight; uint16_t minMs; uint16_t maxMs; };
 
-// WALK, HOP y DANCE calculan su duracion al arrancar.
+// Los que tienen 0/0 calculan su duracion al arrancar (clawdStart).
 static constexpr ClawdActDef CLAWD_ACTS[] = {
     { ClawdAct::WAVE,      24, 3000, 6000 },
     { ClawdAct::WALK,      24,    0,    0 },
@@ -1268,25 +1272,65 @@ static constexpr ClawdActDef CLAWD_ACTS[] = {
     { ClawdAct::DANCE,     14,    0,    0 },
     { ClawdAct::SURPRISED,  8,  900,  900 },
     { ClawdAct::NAP,       16, 5000, 9000 },
+    { ClawdAct::THINK,     12, 3000, 5000 },
+    { ClawdAct::HEART,     10, 2400, 3600 },
+    { ClawdAct::SPIN,      10,    0,    0 },
+    { ClawdAct::NOD,        8,    0,    0 },
+    { ClawdAct::FIREFLY,    8, 6000, 8000 },
+    { ClawdAct::JUGGLE,     8, 4000, 6000 },
+    { ClawdAct::PEEK,       6,    0,    0 },
+    { ClawdAct::CODE,      10, 4000, 7000 },
+    { ClawdAct::JACKS,      8,    0,    0 },
+    { ClawdAct::SNEEZE,     6, 2400, 2400 },
 };
 static constexpr uint32_t CLAWD_IDLE_MIN_MS = 4000;
 static constexpr uint32_t CLAWD_IDLE_MAX_MS = 9000;
 static constexpr uint32_t CLAWD_STEP_MS     = 180;
 static constexpr uint32_t CLAWD_HOP_MS      = 600;
 static constexpr uint32_t CLAWD_BEAT_MS     = 300;
+static constexpr uint32_t CLAWD_SPIN_FRAME_MS = 110;
+static constexpr uint32_t CLAWD_NOD_MS      = 4500;
+static constexpr uint32_t CLAWD_FLY_MOVE_MS = 160;
+static constexpr uint32_t CLAWD_CATCH_MS    = 900;
+static constexpr uint32_t CLAWD_JUGGLE_CYCLE_MS = 900;
+static constexpr uint32_t CLAWD_JUGGLE_PATH_MS  = 630;
+static constexpr uint32_t CLAWD_JACK_MS     = 300;
+static constexpr uint32_t CLAWD_TYPE_MS     = 110;
+static constexpr int      CLAWD_PEEK_OUT    = 14;   // px fuera del panel: invisible del todo
+static constexpr int      CLAWD_PEEK_SHOW   = 9;    // asoma brazo + medio ojo
+static constexpr uint32_t CLAWD_PEEK_HIDE_MS = 1500;
+static constexpr uint32_t CLAWD_PEEK_HOLD_MS = 1600;
+static constexpr uint32_t CLAWD_PEEK_IN_MS  = 120;
 
-enum : uint8_t { LEGS_STAND, LEGS_STEP_A, LEGS_STEP_B, LEGS_TUCKED };
+enum : uint8_t {
+    LEGS_STAND, LEGS_STEP_A, LEGS_STEP_B, LEGS_TUCKED,
+    LEGS_SIDE_A, LEGS_SIDE_B, LEGS_SPREAD, LEGS_NONE,
+};
+enum : uint8_t { VIEW_FRONT, VIEW_LOOK_R, VIEW_SIDE_R, VIEW_BACK, VIEW_SIDE_L, VIEW_LOOK_L };
+static constexpr uint8_t CLAWD_SPIN_SEQ[] = {
+    VIEW_FRONT, VIEW_LOOK_R, VIEW_SIDE_R, VIEW_BACK, VIEW_SIDE_L, VIEW_LOOK_L,
+};
+static constexpr int CLAWD_SPIN_LEN = sizeof(CLAWD_SPIN_SEQ);
+
+struct ClawdGeom { int x0, y0, top, bottom, colL, colR, minDx, maxDx; };
 
 struct ClawdPose {
-    int     dx = 0, dy = 0;
+    int     dx = 0, dy = 0, extra = 0;
     uint8_t legs = LEGS_STAND;
     int     eyeOff = 0;
-    bool    blinkable = false;
-    bool    happy = false;
-    bool    surprised = false;
-    bool    eyesClosed = false;
-    bool    armL = false, armR = false;
-    bool    zzz = false;
+    bool    blinkable = false, happy = false, surprised = false, eyesClosed = false;
+    bool    eyesUp = false, eyesDown = false, halfClosed = false;
+    uint8_t armL = 0, armR = 0;     // 0 abajo, 1 levantado, 2 por encima de la cabeza
+    uint8_t view = VIEW_FRONT;
+    bool    zzz = false, laptop = false, typeL = false, typeR = false, check = false;
+    uint8_t think = 0;
+    int32_t heart = -1;
+    int8_t  spray = -1;
+    bool    hasFly = false;
+    int     flyX = 0, flyY = 0;
+    uint8_t nBalls = 0;
+    float   ballU[3];
+    uint8_t ballIdx[3];
 };
 
 static struct {
@@ -1296,27 +1340,42 @@ static struct {
     int8_t   dx = 0;            // persiste entre actos: se queda donde llego
     int8_t   walkTarget = 0;
     uint32_t lastStepMs = 0;
-    uint8_t  steps = 0;
+    uint16_t steps = 0;
     double   lastFiveUsed = -1;
+    int      lastMinute = -1;
+    int8_t   side = 1;          // lado con sitio para bocadillos
+    int      flyX = 0, flyY = 0;
+    uint32_t flyLastMove = 0;
+    uint8_t  phase = 0;
+    uint32_t phaseStart = 0;
+    int      extra = 0;         // desplazamiento fuera del panel (PEEK)
 } s_clawd;
 
 static uint32_t clawdRand(uint32_t lo, uint32_t hi) {
     return (hi <= lo) ? lo : lo + (esp_random() % (hi - lo + 1));
 }
 
-static void clawdStart(ClawdAct act, uint32_t now, int minDx, int maxDx) {
+// Altura (px hacia arriba) de un salto en u ∈ [0,1]: parabola con pico h.
+static int clawdArc(float u, int h) {
+    return (int)lroundf((float)h * 4.0f * u * (1.0f - u));
+}
+
+static void clawdStart(ClawdAct act, uint32_t now, const ClawdGeom& g) {
     s_clawd.act = act;
     s_clawd.startMs = now;
     s_clawd.steps = 0;
     s_clawd.lastStepMs = now;
+    s_clawd.phase = 0;
+    s_clawd.phaseStart = now;
+    s_clawd.extra = 0;
     switch (act) {
     case ClawdAct::IDLE:
         s_clawd.durMs = clawdRand(CLAWD_IDLE_MIN_MS, CLAWD_IDLE_MAX_MS);
         break;
     case ClawdAct::WALK: {
-        int t = (int)clawdRand(0, maxDx - minDx) + minDx;
+        int t = (int)clawdRand(0, g.maxDx - g.minDx) + g.minDx;
         // Un paseo de 0-1 px no se percibe: vamos al extremo opuesto.
-        if (abs(t - s_clawd.dx) < 2) t = (s_clawd.dx > (minDx + maxDx) / 2) ? minDx : maxDx;
+        if (abs(t - s_clawd.dx) < 2) t = (s_clawd.dx > (g.minDx + g.maxDx) / 2) ? g.minDx : g.maxDx;
         s_clawd.walkTarget = (int8_t)t;
         s_clawd.durMs = 0;
         break;
@@ -1324,19 +1383,38 @@ static void clawdStart(ClawdAct act, uint32_t now, int minDx, int maxDx) {
     case ClawdAct::HOP:
         s_clawd.durMs = CLAWD_HOP_MS * clawdRand(2, 3);
         break;
-    case ClawdAct::SLEEP:
-        s_clawd.durMs = 0;
-        break;
     case ClawdAct::DANCE: {
         // Compas completo: cortar en un beat de agachado da un "pop" a de pie.
         const uint32_t bar = 4 * CLAWD_BEAT_MS;
         s_clawd.durMs = ((clawdRand(3000, 5000) + bar - 1) / bar) * bar;
         break;
     }
+    case ClawdAct::SPIN:
+        s_clawd.durMs = CLAWD_SPIN_LEN * CLAWD_SPIN_FRAME_MS * clawdRand(1, 2);
+        break;
+    case ClawdAct::NOD:
+        s_clawd.durMs = CLAWD_NOD_MS;
+        break;
+    case ClawdAct::JACKS:
+        s_clawd.durMs = 2 * CLAWD_JACK_MS * clawdRand(4, 6);
+        break;
+    case ClawdAct::SLEEP:
+    case ClawdAct::PEEK:
+        s_clawd.durMs = 0;
+        break;
     default:
         for (const auto& d : CLAWD_ACTS)
             if (d.act == act) s_clawd.durMs = clawdRand(d.minMs, d.maxMs);
         break;
+    }
+    // Mismo criterio que la z: a la derecha si caben 3 px + 1 de hueco.
+    int bx = g.x0 + s_clawd.dx;
+    s_clawd.side = (bx + 17 <= g.colR) ? 1 : -1;
+    if (act == ClawdAct::FIREFLY) {
+        // Aparece arriba del todo, en el lado contrario.
+        s_clawd.flyX = s_clawd.side > 0 ? g.colL : g.colR;
+        s_clawd.flyY = g.top;
+        s_clawd.flyLastMove = now;
     }
 }
 
@@ -1398,13 +1476,37 @@ static int clawdBlinkRows(uint32_t now) {
     return 0;
 }
 
-static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minDx, int maxDx) {
-    if (s_clawd.startMs == 0) clawdStart(ClawdAct::IDLE, now, minDx, maxDx);
+// Mueve la luciernaga un paso al azar sin meterse dentro de Clawd. Tiende a
+// subir (peso doble) para que no se quede pegada al suelo.
+static void clawdMoveFly(uint32_t now, const ClawdGeom& g, int bx, int by) {
+    if (now - s_clawd.flyLastMove < CLAWD_FLY_MOVE_MS) return;
+    s_clawd.flyLastMove = now;
+    int cx[9], cy[9], cw[9], n = 0, total = 0;
+    for (int ddx = -1; ddx <= 1; ddx++) {
+        for (int ddy = -1; ddy <= 1; ddy++) {
+            int x = s_clawd.flyX + ddx, y = s_clawd.flyY + ddy;
+            if (x < g.colL || x > g.colR || y < g.top || y > g.bottom - 2) continue;
+            if (x >= bx && x <= bx + 13 && y >= by && y <= by + 9) continue;
+            cx[n] = x; cy[n] = y; cw[n] = (ddy < 0) ? 2 : 1;
+            total += cw[n];
+            n++;
+        }
+    }
+    if (n == 0) return;
+    int r = (int)(esp_random() % (uint32_t)total);
+    for (int i = 0; i < n; i++) {
+        if (r < cw[i]) { s_clawd.flyX = cx[i]; s_clawd.flyY = cy[i]; return; }
+        r -= cw[i];
+    }
+}
+
+static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute, const ClawdGeom& g) {
+    if (s_clawd.startMs == 0) clawdStart(ClawdAct::IDLE, now, g);
 
     if (night) {
-        if (s_clawd.act != ClawdAct::SLEEP) clawdStart(ClawdAct::SLEEP, now, minDx, maxDx);
+        if (s_clawd.act != ClawdAct::SLEEP) clawdStart(ClawdAct::SLEEP, now, g);
     } else if (s_clawd.act == ClawdAct::SLEEP) {
-        clawdStart(ClawdAct::SURPRISED, now, minDx, maxDx);   // se despierta de golpe
+        clawdStart(ClawdAct::SURPRISED, now, g);   // se despierta de golpe
     }
 
     // Si el % de la ventana de 5h sube es que estas usando Claude: lo
@@ -1412,19 +1514,25 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minDx,
     if (fiveUsed >= 0) {
         if (s_clawd.lastFiveUsed >= 0 && fiveUsed > s_clawd.lastFiveUsed + 1e-6 &&
             s_clawd.act != ClawdAct::SLEEP) {
-            clawdStart(ClawdAct::HOP, now, minDx, maxDx);
+            clawdStart(ClawdAct::HOP, now, g);
         }
         s_clawd.lastFiveUsed = fiveUsed;
     }
-
-    if (s_clawd.act != ClawdAct::SLEEP && s_clawd.act != ClawdAct::WALK &&
-        now - s_clawd.startMs >= s_clawd.durMs) {
-        clawdStart(s_clawd.act == ClawdAct::IDLE ? clawdPickAct() : ClawdAct::IDLE,
-                   now, minDx, maxDx);
+    if (minute >= 0) {
+        if (s_clawd.lastMinute >= 0 && minute == 0 && s_clawd.lastMinute != 0 &&
+            s_clawd.act != ClawdAct::SLEEP) {
+            clawdStart(ClawdAct::DANCE, now, g);     // baile en la hora en punto
+        }
+        s_clawd.lastMinute = minute;
     }
 
-    if (s_clawd.dx < minDx) s_clawd.dx = minDx;
-    if (s_clawd.dx > maxDx) s_clawd.dx = maxDx;
+    if (s_clawd.act != ClawdAct::SLEEP && s_clawd.act != ClawdAct::WALK &&
+        s_clawd.act != ClawdAct::PEEK && now - s_clawd.startMs >= s_clawd.durMs) {
+        clawdStart(s_clawd.act == ClawdAct::IDLE ? clawdPickAct() : ClawdAct::IDLE, now, g);
+    }
+
+    if (s_clawd.dx < g.minDx) s_clawd.dx = g.minDx;
+    if (s_clawd.dx > g.maxDx) s_clawd.dx = g.maxDx;
 
     // Los timers de mirada y parpadeo corren siempre, aunque el acto actual
     // no los use, para que no se queden congelados a medio guiño.
@@ -1432,20 +1540,22 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minDx,
 
     ClawdPose p;
     uint32_t e = now - s_clawd.startMs;
+    auto walkLegs = []() -> uint8_t { return (s_clawd.steps & 1) ? LEGS_STEP_A : LEGS_STEP_B; };
     switch (s_clawd.act) {
     case ClawdAct::IDLE:
         p.eyeOff = look;
         p.blinkable = true;
         break;
     case ClawdAct::WAVE:
+        // Brazo arriba todo el rato; la mano sube y baja 1 px.
         p.happy = true;
-        p.armR = ((e / 350) & 1) == 0;
+        p.armR = ((e / 250) & 1) ? 1 : 2;
         break;
     case ClawdAct::WALK: {
         int dir = (s_clawd.walkTarget > s_clawd.dx) ? 1 : (s_clawd.walkTarget < s_clawd.dx ? -1 : 0);
         if (now - s_clawd.lastStepMs >= CLAWD_STEP_MS) {
             if (dir == 0) {
-                clawdStart(ClawdAct::IDLE, now, minDx, maxDx);
+                clawdStart(ClawdAct::IDLE, now, g);
                 p.blinkable = true;
                 break;
             }
@@ -1453,44 +1563,235 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minDx,
             s_clawd.steps++;
             s_clawd.lastStepMs = now;
         }
+        // Balanceo: sube 1 px en la primera mitad de cada paso.
         p.eyeOff = dir;
-        p.legs = (s_clawd.steps & 1) ? LEGS_STEP_A : LEGS_STEP_B;
         p.blinkable = true;
+        p.legs = walkLegs();
+        if (now - s_clawd.lastStepMs < CLAWD_STEP_MS / 2) { p.dy = -1; p.legs = LEGS_STAND; }
         break;
     }
     case ClawdAct::HOP: {
         uint32_t t = e % CLAWD_HOP_MS;
         p.happy = true;
-        if (t < 150)      { p.dy = 1; p.legs = LEGS_TUCKED; }
-        else if (t < 400) { p.legs = LEGS_TUCKED; p.armL = p.armR = true; }
-        else if (t < 500) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        if (t < 120)      { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (t < 480) { p.dy = -clawdArc((t - 120) / 360.0f, 3); p.legs = LEGS_TUCKED; p.armL = p.armR = 2; }
+        else if (t < 560) { p.dy = 1; p.legs = LEGS_TUCKED; }
         break;
     }
     case ClawdAct::DANCE: {
-        uint32_t beat = (e / CLAWD_BEAT_MS) & 3;
+        uint32_t beat = (e / CLAWD_BEAT_MS) & 3, tb = e % CLAWD_BEAT_MS;
         p.happy = true;
-        if (beat == 0)      { p.armL = true; p.legs = LEGS_STEP_A; }
-        else if (beat == 2) { p.armR = true; p.legs = LEGS_STEP_B; }
-        else                { p.dy = 1; p.legs = LEGS_TUCKED; }
+        if (beat == 0 || beat == 2) {
+            // Saltito con un brazo arriba en los tiempos fuertes.
+            if (beat == 0) p.armL = 2; else p.armR = 2;
+            p.dy = -clawdArc(tb / (float)CLAWD_BEAT_MS, 2);
+            p.legs = (p.dy < 0) ? LEGS_TUCKED : (beat == 0 ? LEGS_STEP_A : LEGS_STEP_B);
+        } else {
+            p.dy = 1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1;
+        }
         break;
     }
     case ClawdAct::SURPRISED:
-        if (e < 120) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        // Bote del susto: se encoge, salta 2 px con los brazos arriba y aterriza.
+        if (e < 100)      { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (e < 400) { p.dy = -clawdArc((e - 100) / 300.0f, 2); p.legs = LEGS_TUCKED; }
         p.surprised = true;
-        p.armL = p.armR = true;
+        p.armL = p.armR = (e < 400) ? 2 : 1;
         break;
     case ClawdAct::NAP:
     case ClawdAct::SLEEP:
+        // Respira: cada 2,4 s se hunde 1 px un momento.
         p.eyesClosed = true;
         p.zzz = true;
+        if ((now % 2400) > 1600) { p.dy = 1; p.legs = LEGS_TUCKED; }
         break;
+    case ClawdAct::THINK: {
+        // Mira arriba hacia el bocadillo y se rasca la cabeza.
+        p.eyesUp = true;
+        p.eyeOff = s_clawd.side;
+        p.think = (uint8_t)min<uint32_t>(3, e / 400);
+        uint8_t scratch = ((e / 300) & 1) ? 1 : 2;
+        if (s_clawd.side > 0) p.armR = scratch; else p.armL = scratch;
+        break;
+    }
+    case ClawdAct::HEART:
+        // Abrazo (brazos a media altura) y un corazon que late sobre la cabeza.
+        p.happy = true;
+        p.armL = p.armR = 1;
+        p.heart = (int32_t)e;
+        break;
+    case ClawdAct::SPIN: {
+        // Se da la vuelta pisando en el sitio; al pasar de espaldas, saltito.
+        uint32_t f = e / CLAWD_SPIN_FRAME_MS;
+        p.view = CLAWD_SPIN_SEQ[f % CLAWD_SPIN_LEN];
+        bool side = (p.view == VIEW_SIDE_R || p.view == VIEW_SIDE_L);
+        p.legs = side ? ((f & 1) ? LEGS_SIDE_A : LEGS_SIDE_B) : ((f & 1) ? LEGS_STEP_A : LEGS_STEP_B);
+        if (p.view == VIEW_BACK) { p.dy = -1; p.legs = LEGS_TUCKED; }
+        break;
+    }
+    case ClawdAct::NOD:
+        // Ojos a media asta, dos cabezadas (la segunda mas honda) y se
+        // despierta de un bote.
+        if (e >= CLAWD_NOD_MS - 700) {
+            uint32_t t = e - (CLAWD_NOD_MS - 700);
+            p.surprised = true;
+            p.armL = p.armR = 2;
+            if (t < 300) { p.dy = -clawdArc(t / 300.0f, 2); p.legs = LEGS_TUCKED; }
+        } else if (e >= 1500 && ((e - 1500) % 1000) < 400) {
+            p.eyesClosed = true;
+            if (e - 1500 >= 1000) { p.dy = 2; p.legs = LEGS_NONE; }
+            else                  { p.dy = 1; p.legs = LEGS_TUCKED; }
+        } else {
+            p.halfClosed = true;
+        }
+        break;
+    case ClawdAct::FIREFLY: {
+        int bx = g.x0 + s_clawd.dx, by = g.y0;
+        float cx = bx + 6.5f;
+        if (e + CLAWD_CATCH_MS < s_clawd.durMs) {
+            clawdMoveFly(now, g, bx, by);
+            int dir = (s_clawd.flyX > cx) ? 1 : -1;
+            p.eyeOff = dir;
+            p.eyesUp = s_clawd.flyY < by + 2;
+            if (fabsf(s_clawd.flyX - cx) > 8 && now - s_clawd.lastStepMs >= CLAWD_STEP_MS) {
+                int nd = s_clawd.dx + dir;
+                if (nd >= g.minDx && nd <= g.maxDx) {
+                    s_clawd.dx = nd; s_clawd.steps++; s_clawd.lastStepMs = now;
+                }
+            }
+            p.legs = (now - s_clawd.lastStepMs < CLAWD_STEP_MS && s_clawd.steps) ? walkLegs() : LEGS_STAND;
+            // Si la tiene justo encima, intenta alcanzarla con la mano.
+            if (s_clawd.flyY < by && fabsf(s_clawd.flyX - cx) < 5) {
+                if (s_clawd.flyX > cx) p.armR = 2; else p.armL = 2;
+            }
+            p.hasFly = true; p.flyX = s_clawd.flyX; p.flyY = s_clawd.flyY;
+            p.blinkable = true;
+        } else {
+            // Baja sobre su cabeza y la caza de un salto de 3 px.
+            uint32_t t = e - (s_clawd.durMs - CLAWD_CATCH_MS);
+            int flyX = (int)lroundf(cx);
+            if (t < 250) {
+                p.hasFly = true; p.flyX = flyX; p.flyY = g.top;
+                p.eyesUp = true; p.dy = 1; p.legs = LEGS_TUCKED;
+            } else if (t < 600) {
+                p.dy = -clawdArc((t - 250) / 350.0f, 3);
+                p.legs = LEGS_TUCKED; p.armL = p.armR = 2; p.happy = true;
+                if (t < 400) { p.hasFly = true; p.flyX = flyX; p.flyY = g.top; }
+            } else {
+                p.happy = true;
+            }
+        }
+        break;
+    }
+    case ClawdAct::JUGGLE: {
+        // Cascada tipo "shower": cada bola sale de la mano izquierda en
+        // parabola por encima de la cabeza y cae en la derecha; la vuelta
+        // va por detras del cuerpo.
+        p.eyesUp = true;
+        float lead = -1;
+        for (int i = 0; i < 3; i++) {
+            uint32_t t = (e + i * (CLAWD_JUGGLE_CYCLE_MS / 3)) % CLAWD_JUGGLE_CYCLE_MS;
+            if (t < 120 || t > CLAWD_JUGGLE_CYCLE_MS - 80) p.armL = 1;
+            if (t >= CLAWD_JUGGLE_PATH_MS - 120 && t < CLAWD_JUGGLE_PATH_MS + 60) p.armR = 1;
+            if (t < CLAWD_JUGGLE_PATH_MS) {
+                float u = t / (float)CLAWD_JUGGLE_PATH_MS;
+                p.ballU[p.nBalls] = u;
+                p.ballIdx[p.nBalls] = (uint8_t)i;
+                p.nBalls++;
+                if (u > lead) lead = u;
+            }
+        }
+        p.eyeOff = (lead < 0) ? 0 : (lead < 0.4f ? -1 : (lead > 0.6f ? 1 : 0));
+        break;
+    }
+    case ClawdAct::CODE:
+        p.laptop = true;
+        if (e + 900 >= s_clawd.durMs) {
+            // Compila a la primera: check verde encima y saltito.
+            uint32_t t = e + 900 - s_clawd.durMs;
+            p.happy = true; p.armL = p.armR = 2; p.check = true;
+            if (t < 300) p.dy = -clawdArc(t / 300.0f, 1);
+        } else {
+            p.eyesDown = true;
+            uint32_t k = e / CLAWD_TYPE_MS;
+            uint32_t r = k * 2654435761u;   // pseudo-aleatorio estable por tecla
+            p.typeL = (r & 3) != 0 && (k & 1) == 0;
+            p.typeR = (r & 12) != 0 && (k & 1) == 1;
+            // De vez en cuando levanta la vista a pensar.
+            if ((e % 2600) > 2100) { p.eyesDown = false; p.eyesUp = true; p.typeL = p.typeR = false; }
+        }
+        break;
+    case ClawdAct::JACKS: {
+        // Cada cambio de postura es un saltito de 1 px.
+        uint32_t half = e / CLAWD_JACK_MS, t = e % CLAWD_JACK_MS;
+        if (t < 100)       { p.dy = -1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1; }
+        else if (half & 1) { p.armL = p.armR = 2; p.legs = LEGS_SPREAD; }
+        break;
+    }
+    case ClawdAct::SNEEZE:
+        // a… a… (se echa hacia atras) — ¡ACHIS! (se encoge de golpe).
+        if (e < 1000) {
+            p.eyesUp = true;
+            p.halfClosed = ((e / 250) & 1) == 0;
+            p.eyesClosed = !p.halfClosed;
+            if (e > 500) { p.dy = -1; p.legs = LEGS_TUCKED; }
+        } else if (e < 1300) {
+            p.eyesClosed = true; p.armL = p.armR = 2; p.dy = -2; p.legs = LEGS_TUCKED;
+        } else if (e < 1600) {
+            p.eyesClosed = true; p.dy = 1; p.legs = LEGS_TUCKED;
+        }
+        if (e >= 1300 && e < 1900) p.spray = (int8_t)((e - 1300) / 100);
+        break;
+    case ClawdAct::PEEK: {
+        // Sale por el borde derecho del panel, asoma medio ojo, saluda y vuelve.
+        bool stepDue = now - s_clawd.lastStepMs >= CLAWD_STEP_MS;
+        uint32_t pe = now - s_clawd.phaseStart;
+        auto next = [&](uint8_t ph) { s_clawd.phase = ph; s_clawd.phaseStart = now; s_clawd.lastStepMs = now; };
+        switch (s_clawd.phase) {
+        case 0:   // hasta el borde
+            if (s_clawd.dx >= g.maxDx) next(1);
+            else if (stepDue) { s_clawd.dx++; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            p.eyeOff = 1; p.legs = walkLegs();
+            break;
+        case 1:   // sale del panel
+            if (s_clawd.extra >= CLAWD_PEEK_OUT) next(2);
+            else if (stepDue) { s_clawd.extra++; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            p.eyeOff = 1; p.legs = walkLegs();
+            break;
+        case 2:   // escondido
+            if (pe >= CLAWD_PEEK_HIDE_MS) next(3);
+            break;
+        case 3:   // asoma
+            if (s_clawd.extra <= CLAWD_PEEK_SHOW) next(4);
+            else if (now - s_clawd.lastStepMs >= CLAWD_PEEK_IN_MS) { s_clawd.extra--; s_clawd.lastStepMs = now; }
+            p.eyeOff = -1;
+            break;
+        case 4:   // mira, parpadea y saluda
+            p.eyeOff = -1;
+            p.halfClosed = pe > 700 && pe < 820;
+            if (pe > 900) p.armL = ((pe / 250) & 1) ? 1 : 2;
+            if (pe >= CLAWD_PEEK_HOLD_MS) next(5);
+            break;
+        default:  // vuelve a entrar
+            if (s_clawd.extra <= 0) {
+                clawdStart(ClawdAct::IDLE, now, g);
+                p.blinkable = true;
+                break;
+            }
+            if (stepDue) { s_clawd.extra--; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            p.eyeOff = -1; p.legs = walkLegs();
+            break;
+        }
+        p.extra = s_clawd.extra;
+        break;
+    }
     }
     p.dx = s_clawd.dx;
     return p;
 }
 
-// Pinta a Clawd (14x10) con la esquina sup-izq de reposo en (x0, y0).
-static void drawClawd(int x0, int y0, int colL, int colR, bool night, double fiveUsed) {
+// Pinta a Clawd (14x10) en su zona. minute < 0 = sin hora valida.
+static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minute) {
     // Sprite SIN ojos: los huecos se pintan despues para poder moverlos.
     // Filas 0-7 cuerpo (brazos en 4-5), 8-9 patas.
     static const uint16_t BODY[8] = {
@@ -1504,66 +1805,178 @@ static void drawClawd(int x0, int y0, int colL, int colR, bool night, double fiv
         0b00111111111100,
     };
     // Patas: exterior-izq (cols 2-3), interior-izq (5), interior-der (8),
-    // exterior-der (10-11). En cada paso se levantan dos en diagonal.
-    static const uint16_t LEGS_FULL   = 0b00110100101100;   // ..XX.X..X.XX..
-    static const uint16_t LEGS_A_LOW  = 0b00000100001100;   // .....X....XX..
-    static const uint16_t LEGS_B_LOW  = 0b00110000100000;   // ..XX....X.....
+    // exterior-der (10-11). En cada paso se levantan dos en diagonal. De
+    // perfil solo se ven dos; abiertas, las exteriores se separan.
+    static const uint16_t LEGS_FULL        = 0b00110100101100;   // ..XX.X..X.XX..
+    static const uint16_t LEGS_A_LOW       = 0b00000100001100;   // .....X....XX..
+    static const uint16_t LEGS_B_LOW       = 0b00110000100000;   // ..XX....X.....
+    static const uint16_t LEGS_SIDE_ROW    = 0b00001100110000;   // ....XX..XX....
+    static const uint16_t LEGS_SIDE_A_LOW  = 0b00001100000000;
+    static const uint16_t LEGS_SIDE_B_LOW  = 0b00000000110000;
+    static const uint16_t LEGS_SPREAD_HI   = 0b01100100100110;   // .XX..X..X..XX.
+    static const uint16_t LEGS_SPREAD_LOW  = 0b11000000000011;   // XX..........XX
 
     uint32_t now = millis();
-    ClawdPose p = clawdTick(now, night, fiveUsed, colL - x0, colR - (x0 + 13));
+    ClawdPose p = clawdTick(now, night, fiveUsed, minute, g);
     int blink = clawdBlinkRows(now);
     if (!p.blinkable) blink = 0;
+    if (p.halfClosed) blink = 1;
 
-    uint16_t orange = rgb888to565(0xE07A2F);
-    int bx = x0 + p.dx, by = y0 + p.dy;
+    const uint16_t orange = rgb888to565(0xE07A2F);
+    int bx = g.x0 + p.dx + p.extra, by = g.y0 + p.dy;
+
+    // Todo se recorta a la zona de Clawd: en PEEK sale por el borde derecho.
+    auto px = [&](int x, int y, uint16_t c) {
+        if (x < g.colL || x > g.colR || y < g.top || y > g.bottom) return;
+        dma->drawPixel(x, y, c);
+    };
     auto drawRow = [&](uint16_t bits, int y) {
         for (int xx = 0; xx < 14; xx++)
-            if (bits & (0x2000 >> xx)) dma->drawPixel(bx + xx, y, orange);
+            if (bits & (0x2000 >> xx)) px(bx + xx, y, orange);
     };
+    auto blit = [&](const uint8_t* rows, int nRows, int w, int x, int y, uint16_t c) {
+        for (int yy = 0; yy < nRows; yy++)
+            for (int xx = 0; xx < w; xx++)
+                if (rows[yy] & (1 << (w - 1 - xx))) px(x + xx, y + yy, c);
+    };
+
     for (int yy = 0; yy < 8; yy++) drawRow(BODY[yy], by + yy);
-    drawRow(LEGS_FULL, by + 8);
-    if (p.legs == LEGS_STAND)  drawRow(LEGS_FULL,  by + 9);
-    if (p.legs == LEGS_STEP_A) drawRow(LEGS_A_LOW, by + 9);
-    if (p.legs == LEGS_STEP_B) drawRow(LEGS_B_LOW, by + 9);
+    switch (p.legs) {
+    case LEGS_STAND:  drawRow(LEGS_FULL, by + 8); drawRow(LEGS_FULL, by + 9); break;
+    case LEGS_STEP_A: drawRow(LEGS_FULL, by + 8); drawRow(LEGS_A_LOW, by + 9); break;
+    case LEGS_STEP_B: drawRow(LEGS_FULL, by + 8); drawRow(LEGS_B_LOW, by + 9); break;
+    case LEGS_TUCKED: drawRow(LEGS_FULL, by + 8); break;
+    case LEGS_SIDE_A: drawRow(LEGS_SIDE_ROW, by + 8); drawRow(LEGS_SIDE_A_LOW, by + 9); break;
+    case LEGS_SIDE_B: drawRow(LEGS_SIDE_ROW, by + 8); drawRow(LEGS_SIDE_B_LOW, by + 9); break;
+    case LEGS_SPREAD: drawRow(LEGS_SPREAD_HI, by + 8); drawRow(LEGS_SPREAD_LOW, by + 9); break;
+    default: break;
+    }
 
-    // Brazo levantado: la punta (col 0/13, fila 5) sube a la fila 3.
-    if (p.armL) { dma->drawPixel(bx,      by + 5, 0); dma->drawPixel(bx,      by + 3, orange); }
-    if (p.armR) { dma->drawPixel(bx + 13, by + 5, 0); dma->drawPixel(bx + 13, by + 3, orange); }
+    // Brazo: nivel 1 = punta en filas 3-4, nivel 2 = punta en filas 2-3.
+    auto arm = [&](uint8_t lvl, int cx) {
+        if (!lvl) return;
+        px(cx, by + 5, 0);
+        if (lvl == 2) { px(cx, by + 4, 0); px(cx, by + 2, orange); }
+        px(cx, by + 3, orange);
+    };
+    arm(p.armL, bx);
+    arm(p.armR, bx + 13);
+    // Teclear: la punta de la mano baja a la fila 6, sobre el teclado.
+    if (p.typeL) { px(bx,      by + 4, 0); px(bx,      by + 6, orange); }
+    if (p.typeR) { px(bx + 13, by + 4, 0); px(bx + 13, by + 6, orange); }
+    // De perfil el brazo del fondo queda oculto tras el cuerpo.
+    if (p.view == VIEW_SIDE_R) for (int y = 4; y <= 5; y++) { px(bx, by + y, 0); px(bx + 1, by + y, 0); }
+    if (p.view == VIEW_SIDE_L) for (int y = 4; y <= 5; y++) { px(bx + 12, by + y, 0); px(bx + 13, by + y, 0); }
 
-    int eyeLX = bx + 4 + p.eyeOff;
-    int eyeRX = bx + 9 + p.eyeOff;
-    if (p.eyesClosed) {
+    int eyeShift = (p.view == VIEW_LOOK_R) ? 1 : (p.view == VIEW_LOOK_L ? -1 : 0);
+    int eyeLX = bx + 4 + p.eyeOff + eyeShift;
+    int eyeRX = bx + 9 + p.eyeOff + eyeShift;
+    if (p.view == VIEW_BACK) {
+        // de espaldas: sin ojos
+    } else if (p.view == VIEW_SIDE_R || p.view == VIEW_SIDE_L) {
+        int ex = (p.view == VIEW_SIDE_R) ? bx + 10 : bx + 3;
+        px(ex, by + 2, 0);
+        px(ex, by + 3, 0);
+    } else if (p.eyesClosed) {
         // Rayita de 2 px por ojo, simetrica respecto al centro del sprite.
-        dma->drawPixel(eyeLX - 1, by + 3, 0);
-        dma->drawPixel(eyeLX,     by + 3, 0);
-        dma->drawPixel(eyeRX,     by + 3, 0);
-        dma->drawPixel(eyeRX + 1, by + 3, 0);
+        px(eyeLX - 1, by + 3, 0); px(eyeLX, by + 3, 0);
+        px(eyeRX, by + 3, 0);     px(eyeRX + 1, by + 3, 0);
     } else if (p.happy) {
         // "^ ^": fila 2 el ojo, fila 3 los dos laterales.
-        dma->drawPixel(eyeLX,     by + 2, 0);
-        dma->drawPixel(eyeRX,     by + 2, 0);
-        dma->drawPixel(eyeLX - 1, by + 3, 0);
-        dma->drawPixel(eyeLX + 1, by + 3, 0);
-        dma->drawPixel(eyeRX - 1, by + 3, 0);
-        dma->drawPixel(eyeRX + 1, by + 3, 0);
+        px(eyeLX, by + 2, 0); px(eyeRX, by + 2, 0);
+        px(eyeLX - 1, by + 3, 0); px(eyeLX + 1, by + 3, 0);
+        px(eyeRX - 1, by + 3, 0); px(eyeRX + 1, by + 3, 0);
     } else {
-        int top = p.surprised ? 1 : 2 + (blink >= 1 ? 1 : 0);
-        int bottom = (blink >= 2) ? 2 : 3;
+        int base = p.eyesUp ? 1 : (p.eyesDown ? 3 : 2);
+        int top = p.surprised ? 1 : base + (blink >= 1 ? 1 : 0);
+        int bottom = (blink >= 2) ? base : base + 1;
         for (int yy = top; yy <= bottom; yy++) {
-            dma->drawPixel(eyeLX, by + yy, 0);
-            dma->drawPixel(eyeRX, by + yy, 0);
+            px(eyeLX, by + yy, 0);
+            px(eyeRX, by + yy, 0);
         }
     }
 
+    if (p.laptop) {
+        // Tapa del portatil vista por detras (tapa las patas) y base mas ancha.
+        uint16_t lid = rgb888to565(0x8C93A0), edge = rgb888to565(0x5D636E), logo = rgb888to565(0xDFE3EA);
+        for (int yy = 6; yy <= 8; yy++)
+            for (int xx = 2; xx <= 11; xx++) px(bx + xx, by + yy, lid);
+        for (int xx = 1; xx <= 12; xx++) px(bx + xx, by + 9, edge);
+        px(bx + 6, by + 7, logo);
+        px(bx + 7, by + 7, logo);
+    }
+
+    const int sideX = (s_clawd.side > 0) ? bx + 15 : bx - 4;
+    const int restTop = g.y0;
     if (p.zzz) {
-        // "z" de 3x3 que sube junto a la cabeza por el lado con sitio libre.
+        // Dos "z" que suben desde la cabeza hasta el techo, desfasadas.
         static const uint8_t Z[3] = { 0b111, 0b010, 0b111 };
-        int zx = (bx + 17 <= colR) ? bx + 15 : bx - 4;
-        int zy = by + 5 - (int)((now % 2400) / 400);
         uint16_t zc = rgb888to565(0x5070B0);
-        for (int yy = 0; yy < 3; yy++)
-            for (int xx = 0; xx < 3; xx++)
-                if (Z[yy] & (0b100 >> xx)) dma->drawPixel(zx + xx, zy + yy, zc);
+        for (int k = 0; k < 2; k++) {
+            uint32_t ph = (now + k * 1400) % 2800;
+            int zy = restTop + 3 - (int)(ph / 350);
+            if (zy >= g.top) blit(Z, 3, 3, sideX, zy, zc);
+        }
+    }
+    if (p.think) {
+        // Puntito junto a la esquina de la cabeza y nube con "..." que se
+        // van encendiendo, como el indicador de que Claude esta pensando.
+        static const uint8_t CLOUD[3] = { 0b01110, 0b11111, 0b01110 };
+        uint16_t cloud = rgb888to565(0xC9C9C9), dot = rgb888to565(0x555A63);
+        int dotX = (s_clawd.side > 0) ? bx + 13 : bx;
+        px(dotX, restTop - 1, cloud);
+        if (p.think >= 2) {
+            int cx = (s_clawd.side > 0) ? bx + 13 : bx - 4;
+            blit(CLOUD, 3, 5, cx, g.top, cloud);
+            if (p.think >= 3) {
+                int on = (int)((now / 250) % 4);
+                for (int i = 0; i < on; i++) px(cx + 1 + i, g.top + 1, dot);
+            }
+        }
+    }
+    if (p.heart >= 0) {
+        // Late sobre la cabeza: pequeño, grande, grande, grande.
+        static const uint8_t BIG[4]   = { 0b01010, 0b11111, 0b01110, 0b00100 };
+        static const uint8_t SMALL[3] = { 0b101, 0b111, 0b010 };
+        uint16_t hc = rgb888to565(0xFF4D8D);
+        if ((p.heart / 300) % 4 != 0) blit(BIG, 4, 5, bx + 5, g.top, hc);
+        else                          blit(SMALL, 3, 3, bx + 6, g.top + 1, hc);
+    }
+    if (p.check) {
+        static const uint8_t CHECK[4] = { 0b001, 0b001, 0b101, 0b010 };
+        blit(CHECK, 4, 3, bx + 6, g.top, rgb888to565(0x46C46A));
+    }
+    if (p.nBalls) {
+        // Parabola de mano a mano con el pico en el techo.
+        static const uint32_t BALL_RGB[3] = { 0xE8E8E8, 0x5AD1E6, 0xFF4D8D };
+        for (int i = 0; i < p.nBalls; i++) {
+            float u = p.ballU[i];
+            int x = bx + (int)lroundf(13.0f * u);
+            int y = (restTop + 2) - clawdArc(u, (restTop + 2) - g.top);
+            px(x, y, rgb888to565(BALL_RGB[p.ballIdx[i]]));
+        }
+    }
+    if (p.spray >= 0 && p.spray < 6) {
+        // Gotitas del estornudo, abriendose hacia el lado con sitio.
+        static const int8_t F[6][3][2] = {
+            { {0, 3}, {-1, -1}, {-1, -1} },
+            { {0, 2}, {1, 3},   {0, 4}   },
+            { {1, 1}, {2, 3},   {1, 5}   },
+            { {2, 1}, {3, 3},   {2, 5}   },
+            { {3, 2}, {3, 4},   {-1, -1} },
+            { {3, 3}, {-1, -1}, {-1, -1} },
+        };
+        uint16_t sc = rgb888to565(0xBFE6FF);
+        for (int i = 0; i < 3; i++) {
+            int xx = F[p.spray][i][0], yy = F[p.spray][i][1];
+            if (xx < 0) continue;
+            int x = (s_clawd.side > 0) ? bx + 14 + xx : bx - 1 - xx;
+            px(x, by + yy, sc);
+        }
+    }
+    if (p.hasFly) {
+        bool dim = ((now / 200) % 4) == 3;
+        px(p.flyX, p.flyY, rgb888to565(dim ? 0x6B6420 : 0xF5E663));
     }
 }
 
@@ -1589,11 +2002,10 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
     const int RIGHT_W  = WIDTH - RIGHT_X;        // 21
     const int RIGHT_CX = RIGHT_X + RIGHT_W / 2;  // x medio para centrar
 
-    // Separador vertical fino entre las dos columnas. Termina 2 px antes
-    // del bottom para que la barra de segundos de abajo recorra la pantalla
-    // de punta a punta sin interrumpirse.
+    // Separador vertical fino entre las dos columnas, hasta abajo: la barra
+    // de segundos se queda a su izquierda para dejarle la esquina a Clawd.
     uint16_t sepCol = rgb888to565(0x202020);
-    for (int y = 0; y < HEIGHT - 2; y++) dma->drawPixel(LEFT_W, y, sepCol);
+    for (int y = 0; y < HEIGHT; y++) dma->drawPixel(LEFT_W, y, sepCol);
 
     // ── LEFT 2/3: Claude stats ─────────────────────────────────────────
     //
@@ -1777,11 +2189,22 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
                 dma->drawPixel(degX + xx, degTopY + yy, tc);
     }
 
-    drawClawd(RIGHT_CX - 7, 19, RIGHT_X, WIDTH - 1, cv.night,
-              cv.fiveValid ? cv.fiveUsed : -1.0);
+    {
+        ClawdGeom g;
+        g.x0 = RIGHT_CX - 7;
+        g.y0 = HEIGHT - 10;       // pies en el borde inferior
+        g.top = 18;               // justo bajo la fila de icono + temp
+        g.bottom = HEIGHT - 1;
+        g.colL = RIGHT_X;
+        g.colR = WIDTH - 1;
+        g.minDx = g.colL - g.x0;
+        g.maxDx = g.colR - (g.x0 + 13);
+        drawClawd(g, cv.night, cv.fiveValid ? cv.fiveUsed : -1.0,
+                  weatherRow.hasTime ? (int)weatherRow.minute : -1);
+    }
 
-    // ── Barra de segundos full width en y=30..31, sub-pixel smooth.
-    drawSecondsBarSmooth(0, 30, WIDTH, 2, secondOfMinuteF);
+    // ── Barra de segundos en y=30..31, solo en la columna izquierda.
+    drawSecondsBarSmooth(0, 30, LEFT_W, 2, secondOfMinuteF);
 
     drawActiveRipples();
     drawBrightnessOverlay();

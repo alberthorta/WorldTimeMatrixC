@@ -69,6 +69,9 @@ button:hover, .toggle:hover { border-color: var(--muted); }
 button:focus-visible, .toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 button.primary { border-color: var(--accent); color: var(--accent); }
+button.new { border-style: dashed; }
+.tag { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); border: 1px dashed var(--accent); border-radius: 3px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
+output { font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 4ch; }
 .toggle { display: inline-flex; align-items: center; gap: 8px; user-select: none; }
 .toggle input { accent-color: var(--accent); margin: 0; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
@@ -91,7 +94,7 @@ td:first-child { white-space: nowrap; font-weight: 500; }
 <div class="wrap">
   <header>
     <h1>Clawd <span>·</span> modo Claude</h1>
-    <p class="lede">Simulador del panel 64×32 que ejecuta la misma máquina de estados que <code>drawClawd()</code> en el firmware, a 20 fps. La columna izquierda y los datos (hora, meteo, % de uso) son de ejemplo.</p>
+    <p class="lede">Simulador del panel 64×32 que ejecuta la misma máquina de estados que <code>drawClawd()</code> en el firmware, a 20 fps. La columna izquierda y los datos (hora, meteo, % de uso) son de ejemplo. En este modo la barra de segundos acaba en la raya vertical y Clawd tiene toda la esquina inferior derecha (21×14 px).</p>
   </header>
 
   <section class="panel-box" aria-label="Panel LED simulado">
@@ -116,8 +119,10 @@ td:first-child { white-space: nowrap; font-weight: 500; }
       <div class="row">
         <label class="toggle"><input type="checkbox" id="night"> Modo noche</label>
         <button id="bump" class="primary">Usar Claude (+1 %)</button>
+        <button id="hour">Hora en punto</button>
       </div>
-      <p class="hint">Subir el % de 5h hace que dé saltitos. En modo noche duerme; al quitarlo se despierta de un sobresalto.</p>
+
+      <p class="hint">Subir el % de 5h hace que dé saltitos. En modo noche duerme; al quitarlo se despierta de un sobresalto. En la hora en punto baila.</p>
     </div>
     <div class="module">
       <h2>Reproducción</h2>
@@ -139,10 +144,11 @@ td:first-child { white-space: nowrap; font-weight: 500; }
         <label class="toggle"><input type="checkbox" id="grid"> Rejilla</label>
       </div>
       <div class="row" style="margin-top:8px">
-        <label class="toggle"><input type="checkbox" id="hopUp"> Salto sube a la fila 18</label>
         <label class="toggle"><input type="checkbox" id="margin"> 1 px de aire con el separador</label>
       </div>
-      <p class="hint">Las dos variantes son propuestas, todavía no están en el firmware.</p>
+      <div class="row" style="margin-top:8px">
+      </div>
+      <p class="hint">El margen con el separador es una propuesta: no está en el firmware.</p>
     </div>
   </div>
 
@@ -152,13 +158,24 @@ td:first-child { white-space: nowrap; font-weight: 500; }
       <thead><tr><th>Acto</th><th>Peso</th><th>Duración</th><th>Qué hace</th></tr></thead>
       <tbody>
         <tr><td>Reposo</td><td class="num">—</td><td class="num">4–9 s</td><td>Entre cada acto. Doble parpadeo cada 6–15 s y miradas de reojo cada 4–10 s.</td></tr>
-        <tr><td>Saludar</td><td class="num">24</td><td class="num">3–6 s</td><td>Cara feliz ^ ^ y agita la mano derecha cada 350 ms.</td></tr>
-        <tr><td>Pasear</td><td class="num">24</td><td class="num">hasta llegar</td><td>Pasos de 180 ms alternando patas en diagonal, mirando hacia donde va.</td></tr>
-        <tr><td>Saltitos</td><td class="num">14</td><td class="num">2–3 × 600 ms</td><td>Se agacha, despega con las patas recogidas y los brazos arriba, aterriza.</td></tr>
-        <tr><td>Bailar</td><td class="num">14</td><td class="num">3–5 s</td><td>Compás de 4 × 300 ms: brazo izquierdo, agachado, brazo derecho, agachado.</td></tr>
-        <tr><td>Sobresalto</td><td class="num">8</td><td class="num">0,9 s</td><td>Ojos de 3 px y los dos brazos arriba.</td></tr>
-        <tr><td>Siesta</td><td class="num">16</td><td class="num">5–9 s</td><td>Ojos cerrados y una z que sube junto a la cabeza.</td></tr>
+        <tr><td>Saludar</td><td class="num">24</td><td class="num">3–6 s</td><td>Cara feliz y el brazo en alto; la mano sube y baja cada 250 ms.</td></tr>
+        <tr><td>Pasear</td><td class="num">24</td><td class="num">hasta llegar</td><td>Pasos de 180 ms alternando patas en diagonal y con un pequeño balanceo; mira hacia donde va.</td></tr>
+        <tr><td>Saltitos</td><td class="num">14</td><td class="num">2–3 × 600 ms</td><td>Se agacha y salta de verdad (3 px, en parábola) con los brazos muy arriba.</td></tr>
+        <tr><td>Bailar</td><td class="num">14</td><td class="num">3–5 s</td><td>Compás de 4 × 300 ms: saltito con el brazo izquierdo, agachado, saltito con el derecho, agachado.</td></tr>
+        <tr><td>Sobresalto</td><td class="num">8</td><td class="num">0,9 s</td><td>Bote de 2 px con los brazos arriba y ojos de 3 px.</td></tr>
+        <tr><td>Siesta</td><td class="num">16</td><td class="num">5–9 s</td><td>Ojos cerrados, respira hundiéndose 1 px y dos «z» suben hasta el techo.</td></tr>
         <tr><td>Dormir</td><td class="num">—</td><td class="num">noche</td><td>Como la siesta, mientras dure la ventana de modo noche.</td></tr>
+        <tr><td>Pensar</td><td class="num">12</td><td class="num">3–5 s</td><td>Mira arriba, se rasca la cabeza y aparece una nube con «…» que se van encendiendo.</td></tr>
+        <tr><td>Corazón</td><td class="num">10</td><td class="num">2,4–3,6 s</td><td>Abrazo con los brazos a media altura y un corazón que late sobre la cabeza.</td></tr>
+        <tr><td>Girar</td><td class="num">10</td><td class="num">1–2 × 660 ms</td><td>Vuelta completa pisando en el sitio, con un saltito al pasar de espaldas.</td></tr>
+        <tr><td>Cabecear</td><td class="num">8</td><td class="num">4,5 s</td><td>Ojos a media asta, dos cabezadas cada vez más hondas y se despierta de un bote.</td></tr>
+        <tr><td>Luciérnaga</td><td class="num">8</td><td class="num">6–8 s</td><td>Revolotea por toda la zona; la sigue con los ojos, estira la mano si la tiene encima y la caza con un salto de 3 px.</td></tr>
+        <tr><td>Malabares</td><td class="num">8</td><td class="num">4–6 s</td><td>Tres bolas en parábola de mano a mano por encima de la cabeza; vuelven por detrás del cuerpo.</td></tr>
+        <tr><td>Asomarse</td><td class="num">6</td><td class="num">≈ 9 s</td><td>Sale por el borde derecho, asoma medio ojo, parpadea, saluda con la mano y vuelve a entrar.</td></tr>
+        <tr><td>Programar</td><td class="num">10</td><td class="num">4–7 s</td><td>Detrás de un portátil tecleando; a ratos levanta la vista. Al final, check verde y saltito.</td></tr>
+        <tr><td>Saltos de tijera</td><td class="num">8</td><td class="num">4–6 × 600 ms</td><td>Firmes ↔ brazos arriba y piernas abiertas, con un saltito en cada cambio.</td></tr>
+        <tr><td>Estornudo</td><td class="num">6</td><td class="num">2,4 s</td><td>«a… a…» echándose hacia atrás, coge aire, ¡achís! encogiéndose y salen gotitas.</td></tr>
+        <tr><td>Hora en punto</td><td class="num">—</td><td class="num">minuto 00</td><td>Se pone a bailar cuando el minuto pasa a 00.</td></tr>
       </tbody>
     </table>
   </section>
@@ -167,9 +184,12 @@ td:first-child { white-space: nowrap; font-weight: 500; }
 <script>
 (() => {
   const W = 64, H = 32, FRAME_MS = 50;
-  const LEFT_W = 42, RIGHT_X = 43, RIGHT_CX = 53;
+  const LEFT_W = 42, RIGHT_X = 43, RIGHT_CX = 53, CLAWD_Y0 = 22, CLAWD_TOP = 18;
 
   // ── Port de la logica del firmware (src/Display.cpp, drawClawd) ──────
+  // Zona de Clawd: columna derecha x=43..63, filas 18..31. La
+  // barra de segundos se queda en la columna izquierda y Clawd pisa el borde
+  // inferior del panel, con 4 filas libres encima de la cabeza.
   const CLAWD_ACTS = [
     { act: 'WAVE', w: 24, min: 3000, max: 6000 },
     { act: 'WALK', w: 24, min: 0, max: 0 },
@@ -177,18 +197,39 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     { act: 'DANCE', w: 14, min: 0, max: 0 },
     { act: 'SURPRISED', w: 8, min: 900, max: 900 },
     { act: 'NAP', w: 16, min: 5000, max: 9000 },
+    { act: 'THINK', w: 12, min: 3000, max: 5000 },
+    { act: 'HEART', w: 10, min: 2400, max: 3600 },
+    { act: 'SPIN', w: 10, min: 0, max: 0 },
+    { act: 'NOD', w: 8, min: 0, max: 0 },
+    { act: 'FIREFLY', w: 8, min: 6000, max: 8000 },
+    { act: 'JUGGLE', w: 8, min: 4000, max: 6000 },
+    { act: 'PEEK', w: 6, min: 0, max: 0 },
+    { act: 'CODE', w: 10, min: 4000, max: 7000 },
+    { act: 'JACKS', w: 8, min: 0, max: 0 },
+    { act: 'SNEEZE', w: 6, min: 2400, max: 2400 },
   ];
   const IDLE_MIN = 4000, IDLE_MAX = 9000, STEP_MS = 180, HOP_MS = 600, BEAT_MS = 300;
-  const LEGS_STAND = 0, LEGS_A = 1, LEGS_B = 2, LEGS_TUCKED = 3;
-  const NAMES = { IDLE: 'Reposo', WAVE: 'Saludar', WALK: 'Pasear', HOP: 'Saltitos', DANCE: 'Bailar', SURPRISED: 'Sobresalto', NAP: 'Siesta', SLEEP: 'Dormir' };
+  const SPIN_FRAME_MS = 110, NOD_MS = 4500, FLY_MOVE_MS = 160, CATCH_MS = 900;
+  const JUGGLE_CYCLE_MS = 900, JUGGLE_PATH_MS = 630, JACK_MS = 300, TYPE_MS = 110;
+  const PEEK_OUT = 14, PEEK_SHOW = 9, PEEK_HIDE_MS = 1500, PEEK_HOLD_MS = 1600, PEEK_IN_MS = 120;
+  const LEGS_STAND = 0, LEGS_A = 1, LEGS_B = 2, LEGS_TUCKED = 3, LEGS_SIDE_A = 4, LEGS_SIDE_B = 5, LEGS_SPREAD = 6, LEGS_NONE = 7;
+  const NAMES = { IDLE: 'Reposo', WAVE: 'Saludar', WALK: 'Pasear', HOP: 'Saltitos', DANCE: 'Bailar', SURPRISED: 'Sobresalto', NAP: 'Siesta', SLEEP: 'Dormir',
+                  THINK: 'Pensar', HEART: 'Corazón', SPIN: 'Girar', NOD: 'Cabecear', FIREFLY: 'Luciérnaga',
+                  JUGGLE: 'Malabares', PEEK: 'Asomarse', CODE: 'Programar', JACKS: 'Saltos de tijera', SNEEZE: 'Estornudo' };
+  const NEW_ACTS = new Set(CLAWD_ACTS.filter(d => d.isNew).map(d => d.act));
+  // Vuelta completa: frente, reojo, perfil, espalda, perfil, reojo, frente.
+  const SPIN_SEQ = ['front', 'lookR', 'sideR', 'back', 'sideL', 'lookL'];
 
   const rand = (lo, hi) => hi <= lo ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
-  const s = { act: 'IDLE', startMs: 0, durMs: 0, dx: 0, walkTarget: 0, lastStepMs: 0, steps: 0, lastFiveUsed: -1 };
+  const s = { act: 'IDLE', startMs: 0, durMs: 0, dx: 0, walkTarget: 0, lastStepMs: 0, steps: 0, lastFiveUsed: -1, lastMinute: -1,
+              side: 1, fly: { x: 0, y: 0, lastMove: 0 }, phase: 0, phaseStart: 0, extra: 0 };
   const look = { next: 0, start: 0, dur: 0, off: 0 };
   const blinkT = { next: 0, start: 0, rem: 0 };
 
-  function start(act, now, minDx, maxDx) {
+  function start(act, now, g) {
     s.act = act; s.startMs = now; s.steps = 0; s.lastStepMs = now;
+    s.phase = 0; s.phaseStart = now; s.extra = 0;
+    const { minDx, maxDx } = g;
     if (act === 'IDLE') s.durMs = rand(IDLE_MIN, IDLE_MAX);
     else if (act === 'WALK') {
       let t = rand(0, maxDx - minDx) + minDx;
@@ -197,12 +238,25 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     } else if (act === 'HOP') s.durMs = HOP_MS * rand(2, 3);
     else if (act === 'SLEEP') s.durMs = 0;
     else if (act === 'DANCE') { const bar = 4 * BEAT_MS; s.durMs = Math.ceil(rand(3000, 5000) / bar) * bar; }
+    else if (act === 'SPIN') s.durMs = SPIN_SEQ.length * SPIN_FRAME_MS * rand(1, 2);
+    else if (act === 'NOD') s.durMs = NOD_MS;
+    else if (act === 'JACKS') s.durMs = 2 * JACK_MS * rand(4, 6);
+    else if (act === 'PEEK') s.durMs = 0;
     else { const d = CLAWD_ACTS.find(d => d.act === act); s.durMs = rand(d.min, d.max); }
+    // Lado con sitio para bocadillos (puntos, corazones): el mismo criterio que la z.
+    const bx = g.x0 + s.dx;
+    s.side = (bx + 17 <= g.colR) ? 1 : -1;
+    if (act === 'FIREFLY') {
+      // Aparece arriba del todo, en el lado contrario.
+      s.fly.x = s.side > 0 ? g.colL : g.colR;
+      s.fly.y = g.top; s.fly.lastMove = now;
+    }
   }
-  function pick() {
-    const total = CLAWD_ACTS.reduce((a, d) => a + d.w, 0);
+  function pick(allowNew) {
+    const list = CLAWD_ACTS.filter(d => allowNew || !d.isNew);
+    const total = list.reduce((a, d) => a + d.w, 0);
     let r = Math.floor(Math.random() * total);
-    for (const d of CLAWD_ACTS) { if (r < d.w) return d.act; r -= d.w; }
+    for (const d of list) { if (r < d.w) return d.act; r -= d.w; }
     return 'WAVE';
   }
   function lookOffset(now) {
@@ -227,50 +281,241 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     }
     if (e < 60) return 1; if (e < 180) return 2; if (e < 240) return 1; return 0;
   }
-  function tick(now, night, fiveUsed, minDx, maxDx, opts) {
-    if (s.startMs === 0) start('IDLE', now, minDx, maxDx);
-    if (night) { if (s.act !== 'SLEEP') start('SLEEP', now, minDx, maxDx); }
-    else if (s.act === 'SLEEP') start('SURPRISED', now, minDx, maxDx);
-    if (fiveUsed >= 0) {
-      if (s.lastFiveUsed >= 0 && fiveUsed > s.lastFiveUsed + 1e-6 && s.act !== 'SLEEP') start('HOP', now, minDx, maxDx);
-      s.lastFiveUsed = fiveUsed;
+
+  // Mueve la luciérnaga un paso al azar sin meterse dentro de Clawd.
+  function moveFly(now, g, bx, by) {
+    if (now - s.fly.lastMove < FLY_MOVE_MS) return;
+    s.fly.lastMove = now;
+    const inside = (x, y) => x >= bx && x <= bx + 13 && y >= by && y <= by + 9;
+    const cand = [];
+    for (let ddx = -1; ddx <= 1; ddx++) for (let ddy = -1; ddy <= 1; ddy++) {
+      const x = s.fly.x + ddx, y = s.fly.y + ddy;
+      if (x < g.colL || x > g.colR || y < g.top || y > g.bottom - 2 || inside(x, y)) continue;
+      cand.push({ x, y, w: ddy < 0 ? 2 : 1 });   // tiende a subir: no se queda en el suelo
     }
-    if (s.act !== 'SLEEP' && s.act !== 'WALK' && now - s.startMs >= s.durMs)
-      start(s.act === 'IDLE' ? pick() : 'IDLE', now, minDx, maxDx);
+    if (!cand.length) return;
+    const total = cand.reduce((a, o) => a + o.w, 0);
+    let r = Math.random() * total;
+    for (const o of cand) { if ((r -= o.w) < 0) { s.fly.x = o.x; s.fly.y = o.y; return; } }
+  }
+
+  // Altura de un salto (px hacia arriba) en funcion de u ∈ [0,1]: parabola.
+  const arc = (u, h) => Math.round(h * 4 * u * (1 - u));
+
+  function tick(now, env, g, opts) {
+    const { minDx, maxDx } = g;
+    if (s.startMs === 0) start('IDLE', now, g);
+    if (env.night) { if (s.act !== 'SLEEP') start('SLEEP', now, g); }
+    else if (s.act === 'SLEEP') start('SURPRISED', now, g);
+    if (env.fiveUsed >= 0) {
+      if (s.lastFiveUsed >= 0 && env.fiveUsed > s.lastFiveUsed + 1e-6 && s.act !== 'SLEEP') start('HOP', now, g);
+      s.lastFiveUsed = env.fiveUsed;
+    }
+    if (opts.hourDance) {
+      if (s.lastMinute >= 0 && env.minute === 0 && s.lastMinute !== 0 && s.act !== 'SLEEP') start('DANCE', now, g);
+      s.lastMinute = env.minute;
+    }
+    if (s.act !== 'SLEEP' && s.act !== 'WALK' && s.act !== 'PEEK' && now - s.startMs >= s.durMs)
+      start(s.act === 'IDLE' ? pick(opts.newActs) : 'IDLE', now, g);
     s.dx = Math.max(minDx, Math.min(maxDx, s.dx));
     const lk = lookOffset(now);
 
-    const p = { dx: 0, dy: 0, legs: LEGS_STAND, eyeOff: 0, blinkable: false, happy: false, surprised: false, eyesClosed: false, armL: false, armR: false, zzz: false };
+    // armL/armR: 0 abajo, 1 levantado, 2 muy arriba (mano por encima de la cabeza).
+    const p = { dx: 0, dy: 0, legs: LEGS_STAND, eyeOff: 0, blinkable: false, happy: false, surprised: false, eyesClosed: false,
+                armL: 0, armR: 0, zzz: false, eyesUp: false, halfClosed: false, view: 'front',
+                think: 0, heart: -1, fly: null, extra: 0, eyesDown: false, laptop: false, typeL: false, typeR: false,
+                balls: null, spray: -1, check: false };
     const e = now - s.startMs;
+    const walkLegs = () => (s.steps & 1) ? LEGS_A : LEGS_B;
     switch (s.act) {
       case 'IDLE': p.eyeOff = lk; p.blinkable = true; break;
-      case 'WAVE': p.happy = true; p.armR = (Math.floor(e / 350) & 1) === 0; break;
+      case 'WAVE':
+        // Brazo arriba todo el rato; la mano sube y baja 1 px (saludo).
+        p.happy = true; p.armR = (Math.floor(e / 250) & 1) ? 1 : 2;
+        break;
       case 'WALK': {
         const dir = Math.sign(s.walkTarget - s.dx);
         if (now - s.lastStepMs >= STEP_MS) {
-          if (dir === 0) { start('IDLE', now, minDx, maxDx); p.blinkable = true; break; }
+          if (dir === 0) { start('IDLE', now, g); p.blinkable = true; break; }
           s.dx += dir; s.steps++; s.lastStepMs = now;
         }
-        p.eyeOff = dir; p.legs = (s.steps & 1) ? LEGS_A : LEGS_B; p.blinkable = true; break;
+        // Balanceo: en cada paso el cuerpo sube 1 px mientras la pata esta en el aire.
+        p.eyeOff = dir; p.legs = walkLegs(); p.blinkable = true;
+        p.dy = (now - s.lastStepMs < STEP_MS / 2) ? -1 : 0;
+        if (p.dy < 0) p.legs = LEGS_STAND;
+        break;
       }
       case 'HOP': {
         const t = e % HOP_MS; p.happy = true;
-        if (t < 150) { p.dy = 1; p.legs = LEGS_TUCKED; }
-        else if (t < 400) { p.dy = opts.hopUp ? -1 : 0; p.legs = LEGS_TUCKED; p.armL = p.armR = true; }
-        else if (t < 500) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        if (t < 120) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (t < 480) { p.dy = -arc((t - 120) / 360, 3); p.legs = LEGS_TUCKED; p.armL = p.armR = 2; }
+        else if (t < 560) { p.dy = 1; p.legs = LEGS_TUCKED; }
         break;
       }
       case 'DANCE': {
         const beat = Math.floor(e / BEAT_MS) & 3; p.happy = true;
-        if (beat === 0) { p.armL = true; p.legs = LEGS_A; }
-        else if (beat === 2) { p.armR = true; p.legs = LEGS_B; }
-        else { p.dy = 1; p.legs = LEGS_TUCKED; }
+        const tb = e % BEAT_MS;
+        if (beat === 0 || beat === 2) {
+          // Saltito con un brazo arriba en los tiempos fuertes.
+          if (beat === 0) p.armL = 2; else p.armR = 2;
+          p.dy = -arc(tb / BEAT_MS, 2);
+          p.legs = p.dy < 0 ? LEGS_TUCKED : (beat === 0 ? LEGS_A : LEGS_B);
+        } else { p.dy = 1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1; }
         break;
       }
       case 'SURPRISED':
-        if (e < 120) { p.dy = 1; p.legs = LEGS_TUCKED; }
-        p.surprised = true; p.armL = p.armR = true; break;
-      case 'NAP': case 'SLEEP': p.eyesClosed = true; p.zzz = true; break;
+        // Bote del susto: se encoge, salta 2 px con los brazos arriba y aterriza.
+        if (e < 100) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (e < 400) { p.dy = -arc((e - 100) / 300, 2); p.legs = LEGS_TUCKED; }
+        p.surprised = true; p.armL = p.armR = e < 400 ? 2 : 1; break;
+      case 'NAP': case 'SLEEP':
+        // Respira: cada 2,4 s se hunde 1 px durante un momento.
+        p.eyesClosed = true; p.zzz = true;
+        if ((now % 2400) > 1600) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        break;
+
+      case 'THINK':
+        // Mira arriba hacia el bocadillo y se rasca la cabeza.
+        p.eyesUp = true; p.eyeOff = s.side;
+        p.think = Math.min(3, Math.floor(e / 400));
+        if (s.side > 0) p.armR = (Math.floor(e / 300) & 1) ? 1 : 2; else p.armL = (Math.floor(e / 300) & 1) ? 1 : 2;
+        break;
+      case 'HEART':
+        // Abrazo (brazos a media altura) y un corazon que late sobre la cabeza.
+        p.happy = true; p.armL = p.armR = 1; p.heart = e; break;
+      case 'SPIN': {
+        // Se da la vuelta pisando en el sitio; al pasar de espaldas da un saltito.
+        const f = Math.floor(e / SPIN_FRAME_MS);
+        p.view = SPIN_SEQ[f % SPIN_SEQ.length];
+        const side = p.view === 'sideR' || p.view === 'sideL';
+        p.legs = side ? ((f & 1) ? LEGS_SIDE_A : LEGS_SIDE_B) : ((f & 1) ? LEGS_A : LEGS_B);
+        if (p.view === 'back') { p.dy = -1; p.legs = LEGS_TUCKED; }
+        break;
+      }
+      case 'NOD': {
+        // Ojos a media asta, dos cabezadas (cada vez mas hondas) y se despierta de un bote.
+        if (e >= NOD_MS - 700) {
+          const t = e - (NOD_MS - 700);
+          p.surprised = true; p.armL = p.armR = 2;
+          if (t < 300) { p.dy = -arc(t / 300, 2); p.legs = LEGS_TUCKED; }
+        } else if (e >= 1500 && ((e - 1500) % 1000) < 400) {
+          p.eyesClosed = true; p.legs = LEGS_TUCKED;
+          p.dy = ((e - 1500) >= 1000) ? 2 : 1;
+          if (p.dy === 2) p.legs = LEGS_NONE;
+        } else p.halfClosed = true;
+        break;
+      }
+      case 'FIREFLY': {
+        const bx = g.x0 + s.dx, by = g.y0, cx = bx + 6.5;
+        const catching = e >= s.durMs - CATCH_MS;
+        if (!catching) {
+          moveFly(now, g, bx, by);
+          const dir = Math.sign(s.fly.x - cx);
+          p.eyeOff = dir; p.eyesUp = s.fly.y < by + 2;
+          if (Math.abs(s.fly.x - cx) > 8 && now - s.lastStepMs >= STEP_MS) {
+            const nd = s.dx + dir;
+            if (nd >= minDx && nd <= maxDx) { s.dx = nd; s.steps++; s.lastStepMs = now; }
+          }
+          p.legs = (now - s.lastStepMs < STEP_MS && s.steps) ? walkLegs() : LEGS_STAND;
+          // Si la tiene justo encima, intenta alcanzarla con la mano.
+          if (s.fly.y < by && Math.abs(s.fly.x - cx) < 5) { if (s.fly.x > cx) p.armR = 2; else p.armL = 2; }
+          p.fly = { x: s.fly.x, y: s.fly.y };
+          p.blinkable = true;
+        } else {
+          // Baja sobre su cabeza y la caza de un salto de 3 px.
+          const t = e - (s.durMs - CATCH_MS);
+          const flyTop = { x: Math.round(cx), y: g.top };
+          if (t < 250) { p.fly = flyTop; p.eyesUp = true; p.dy = 1; p.legs = LEGS_TUCKED; }
+          else if (t < 600) {
+            p.dy = -arc((t - 250) / 350, 3); p.legs = LEGS_TUCKED; p.armL = p.armR = 2; p.happy = true;
+            if (t < 400) p.fly = flyTop;
+          } else p.happy = true;
+        }
+        break;
+      }
+      case 'JUGGLE': {
+        // Cascada tipo "shower": cada bola sale de la mano izquierda en parabola
+        // por encima de la cabeza y cae en la derecha; la vuelta va por detras.
+        p.eyesUp = true; p.balls = [];
+        let lead = null;
+        for (let i = 0; i < 3; i++) {
+          const t = (e + i * (JUGGLE_CYCLE_MS / 3)) % JUGGLE_CYCLE_MS;
+          if (t < 120 || t > JUGGLE_CYCLE_MS - 80) p.armL = 1;
+          if (t >= JUGGLE_PATH_MS - 120 && t < JUGGLE_PATH_MS + 60) p.armR = 1;
+          if (t < JUGGLE_PATH_MS) {
+            const u = t / JUGGLE_PATH_MS;
+            p.balls.push({ u, i });
+            if (lead === null || u > lead) lead = u;
+          }
+        }
+        p.eyeOff = lead === null ? 0 : (lead < 0.4 ? -1 : lead > 0.6 ? 1 : 0);
+        break;
+      }
+      case 'CODE': {
+        p.laptop = true;
+        if (e >= s.durMs - 900) {
+          // Compila a la primera: check verde encima y saltito.
+          const t = e - (s.durMs - 900);
+          p.happy = true; p.armL = p.armR = 2; p.check = true;
+          if (t < 300) { p.dy = -arc(t / 300, 1); }
+        } else {
+          p.eyesDown = true;
+          const k = Math.floor(e / TYPE_MS);
+          const r = (k * 2654435761) >>> 0;   // pseudo-aleatorio estable por tecla
+          p.typeL = (r & 3) !== 0 && (k & 1) === 0;
+          p.typeR = (r & 12) !== 0 && (k & 1) === 1;
+          // De vez en cuando levanta la vista a pensar.
+          if ((e % 2600) > 2100) { p.eyesDown = false; p.eyesUp = true; p.typeL = p.typeR = false; }
+        }
+        break;
+      }
+      case 'JACKS': {
+        // Cada cambio de postura es un saltito de 1 px.
+        const half = Math.floor(e / JACK_MS), t = e % JACK_MS;
+        const open = (half & 1) === 1;
+        if (t < 100) { p.dy = -1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1; }
+        else if (open) { p.armL = p.armR = 2; p.legs = LEGS_SPREAD; }
+        break;
+      }
+      case 'SNEEZE':
+        // a… a… (se echa hacia atras) — ¡ACHÍS! (se encoge de golpe).
+        if (e < 1000) { p.eyesUp = true; p.halfClosed = (Math.floor(e / 250) & 1) === 0; p.eyesClosed = !p.halfClosed; p.dy = e > 500 ? -1 : 0; if (p.dy) p.legs = LEGS_TUCKED; }
+        else if (e < 1300) { p.eyesClosed = true; p.armL = p.armR = 2; p.dy = -2; p.legs = LEGS_TUCKED; }
+        else if (e < 1600) { p.eyesClosed = true; p.dy = 1; p.legs = LEGS_TUCKED; }
+        if (e >= 1300 && e < 1900) p.spray = Math.floor((e - 1300) / 100);
+        break;
+      case 'PEEK': {
+        // Sale por el borde derecho del panel, asoma medio ojo y vuelve.
+        const stepDue = now - s.lastStepMs >= STEP_MS;
+        const next = ph => { s.phase = ph; s.phaseStart = now; s.lastStepMs = now; };
+        const pe = now - s.phaseStart;
+        if (s.phase === 0) {                       // hasta el borde
+          if (s.dx >= maxDx) next(1);
+          else if (stepDue) { s.dx++; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = 1; p.legs = walkLegs();
+        } else if (s.phase === 1) {                // sale del panel
+          if (s.extra >= PEEK_OUT) next(2);
+          else if (stepDue) { s.extra++; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = 1; p.legs = walkLegs();
+        } else if (s.phase === 2) {                // escondido
+          if (pe >= PEEK_HIDE_MS) next(3);
+        } else if (s.phase === 3) {                // asoma
+          if (s.extra <= PEEK_SHOW) next(4);
+          else if (now - s.lastStepMs >= PEEK_IN_MS) { s.extra--; s.lastStepMs = now; }
+          p.eyeOff = -1;
+        } else if (s.phase === 4) {                // mira, parpadea y saluda con la mano
+          p.eyeOff = -1;
+          p.halfClosed = pe > 700 && pe < 820;
+          if (pe > 900) p.armL = (Math.floor(pe / 250) & 1) ? 1 : 2;
+          if (pe >= PEEK_HOLD_MS) next(5);
+        } else {                                   // vuelve a entrar
+          if (s.extra <= 0) { start('IDLE', now, g); p.blinkable = true; break; }
+          if (stepDue) { s.extra--; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = -1; p.legs = walkLegs();
+        }
+        p.extra = s.extra;
+        break;
+      }
     }
     p.dx = s.dx;
     return p;
@@ -279,37 +524,126 @@ td:first-child { white-space: nowrap; font-weight: 500; }
   const BODY = [0b00111111111100, 0b00111111111100, 0b00111111111100, 0b00111111111100,
                 0b11111111111111, 0b11111111111111, 0b00111111111100, 0b00111111111100];
   const LEGS_FULL = 0b00110100101100, LEGS_A_LOW = 0b00000100001100, LEGS_B_LOW = 0b00110000100000;
-  const ORANGE = '#e07a2f', BLACK = null, ZC = '#5070b0';
+  const LEGS_SIDE = 0b00001100110000, LEGS_SIDE_A_LOW = 0b00001100000000, LEGS_SIDE_B_LOW = 0b00000000110000;
+  // Piernas abiertas: las interiores se quedan, las exteriores se abren en diagonal.
+  const LEGS_SPREAD_HI = 0b01100100100110, LEGS_SPREAD_LOW = 0b11000000000011;
+  const ORANGE = '#e07a2f', BLACK = null, ZC = '#5070b0', HEART_C = '#ff4d8d';
+  const FLY_ON = '#f5e663', FLY_DIM = '#6b6420', CLOUD_C = '#c9c9c9', CLOUD_DOT = '#555a63';
+  const BALL_C = ['#e8e8e8', '#5ad1e6', '#ff4d8d'], LAPTOP_C = '#8c93a0', LAPTOP_EDGE_C = '#5d636e', LOGO_C = '#dfe3ea';
+  const SPRAY_C = '#bfe6ff', CHECK_C = '#46c46a';
 
-  function drawClawd(fb, now, x0, y0, colL, colR, night, fiveUsed, opts) {
-    const p = tick(now, night, fiveUsed, colL - x0, colR - (x0 + 13), opts);
+  function blit(fb, rows, w, x, y, col) {
+    rows.forEach((r, yy) => { for (let xx = 0; xx < w; xx++) if (r & (1 << (w - 1 - xx))) px(fb, x + xx, y + yy, col); });
+  }
+
+  function drawClawd(fb, now, g, env, opts) {
+    const { x0, y0, colR } = g;
+    const p = tick(now, env, g, opts);
     let blink = blinkRows(now);
     if (!p.blinkable) blink = 0;
-    const bx = x0 + p.dx, by = y0 + p.dy;
+    if (p.halfClosed) blink = 1;
+    const bx = x0 + p.dx + p.extra, by = y0 + p.dy;
     const row = (bits, y) => { for (let xx = 0; xx < 14; xx++) if (bits & (0x2000 >> xx)) px(fb, bx + xx, y, ORANGE); };
     for (let yy = 0; yy < 8; yy++) row(BODY[yy], by + yy);
-    row(LEGS_FULL, by + 8);
-    if (p.legs === LEGS_STAND) row(LEGS_FULL, by + 9);
-    if (p.legs === LEGS_A) row(LEGS_A_LOW, by + 9);
-    if (p.legs === LEGS_B) row(LEGS_B_LOW, by + 9);
-    if (p.armL) { px(fb, bx, by + 5, BLACK); px(fb, bx, by + 3, ORANGE); }
-    if (p.armR) { px(fb, bx + 13, by + 5, BLACK); px(fb, bx + 13, by + 3, ORANGE); }
-    const eL = bx + 4 + p.eyeOff, eR = bx + 9 + p.eyeOff;
-    if (p.eyesClosed) {
+    if (p.legs !== LEGS_NONE) {
+      const sideLegs = p.legs === LEGS_SIDE_A || p.legs === LEGS_SIDE_B;
+      row(sideLegs ? LEGS_SIDE : p.legs === LEGS_SPREAD ? LEGS_SPREAD_HI : LEGS_FULL, by + 8);
+      if (p.legs === LEGS_SPREAD) row(LEGS_SPREAD_LOW, by + 9);
+      if (p.legs === LEGS_SIDE_A) row(LEGS_SIDE_A_LOW, by + 9);
+      if (p.legs === LEGS_SIDE_B) row(LEGS_SIDE_B_LOW, by + 9);
+      if (p.legs === LEGS_STAND) row(LEGS_FULL, by + 9);
+      if (p.legs === LEGS_A) row(LEGS_A_LOW, by + 9);
+      if (p.legs === LEGS_B) row(LEGS_B_LOW, by + 9);
+    }
+    // Brazo: nivel 1 = punta en filas 3-4, nivel 2 = punta en filas 2-3.
+    const arm = (lvl, cx) => {
+      if (!lvl) return;
+      px(fb, cx, by + 5, BLACK);
+      if (lvl === 2) { px(fb, cx, by + 4, BLACK); px(fb, cx, by + 2, ORANGE); }
+      px(fb, cx, by + 3, ORANGE);
+    };
+    arm(p.armL, bx); arm(p.armR, bx + 13);
+    // Teclear: la punta de la mano baja a la fila 6, sobre el teclado.
+    if (p.typeL) { px(fb, bx, by + 4, BLACK); px(fb, bx, by + 6, ORANGE); }
+    if (p.typeR) { px(fb, bx + 13, by + 4, BLACK); px(fb, bx + 13, by + 6, ORANGE); }
+
+    // De perfil el brazo del fondo queda oculto tras el cuerpo.
+    if (p.view === 'sideR') for (const y of [4, 5]) { px(fb, bx, by + y, BLACK); px(fb, bx + 1, by + y, BLACK); }
+    if (p.view === 'sideL') for (const y of [4, 5]) { px(fb, bx + 12, by + y, BLACK); px(fb, bx + 13, by + y, BLACK); }
+
+    const eyeShift = p.view === 'lookR' ? 1 : p.view === 'lookL' ? -1 : 0;
+    const eL = bx + 4 + p.eyeOff + eyeShift, eR = bx + 9 + p.eyeOff + eyeShift;
+    if (p.view === 'back') {
+      // de espaldas: sin ojos
+    } else if (p.view === 'sideR' || p.view === 'sideL') {
+      const ex = p.view === 'sideR' ? bx + 10 : bx + 3;
+      px(fb, ex, by + 2, BLACK); px(fb, ex, by + 3, BLACK);
+    } else if (p.eyesClosed) {
       px(fb, eL - 1, by + 3, BLACK); px(fb, eL, by + 3, BLACK); px(fb, eR, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
     } else if (p.happy) {
       px(fb, eL, by + 2, BLACK); px(fb, eR, by + 2, BLACK);
       px(fb, eL - 1, by + 3, BLACK); px(fb, eL + 1, by + 3, BLACK); px(fb, eR - 1, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
     } else {
-      const top = p.surprised ? 1 : 2 + (blink >= 1 ? 1 : 0), bottom = blink >= 2 ? 2 : 3;
+      const base = p.eyesUp ? 1 : p.eyesDown ? 3 : 2;
+      const top = p.surprised ? 1 : base + (blink >= 1 ? 1 : 0), bottom = blink >= 2 ? base : base + 1;
       for (let yy = top; yy <= bottom; yy++) { px(fb, eL, by + yy, BLACK); px(fb, eR, by + yy, BLACK); }
     }
-    if (p.zzz) {
-      const Z = [0b111, 0b010, 0b111];
-      const zx = (bx + 17 <= colR) ? bx + 15 : bx - 4;
-      const zy = by + 5 - Math.floor((now % 2400) / 400);
-      for (let yy = 0; yy < 3; yy++) for (let xx = 0; xx < 3; xx++) if (Z[yy] & (0b100 >> xx)) px(fb, zx + xx, zy + yy, ZC);
+
+    if (p.laptop) {
+      // Tapa del portatil vista por detras (tapa las patas) y base mas ancha.
+      for (let yy = 6; yy <= 8; yy++) for (let xx = 2; xx <= 11; xx++) px(fb, bx + xx, by + yy, LAPTOP_C);
+      for (let xx = 1; xx <= 12; xx++) px(fb, bx + xx, by + 9, LAPTOP_EDGE_C);
+      px(fb, bx + 6, by + 7, LOGO_C); px(fb, bx + 7, by + 7, LOGO_C);
     }
+
+    // Todo lo que flota se ancla a la posicion de reposo (y0), no al salto,
+    // para que no se mueva con el cuerpo. Techo: g.top (fila 18).
+    const sideX = s.side > 0 ? bx + 15 : bx - 4;
+    const restTop = y0;
+    if (p.zzz) {
+      // Dos "z" que suben desde la cabeza hasta el techo, desfasadas.
+      for (let k = 0; k < 2; k++) {
+        const ph = (now + k * 1400) % 2800;
+        const zy = restTop + 3 - Math.floor(ph / 350);
+        if (zy >= g.top) blit(fb, [0b111, 0b010, 0b111], 3, sideX, zy, ZC);
+      }
+    }
+    if (p.think) {
+      // Puntito junto a la esquina de la cabeza y nube con "..." que se van
+      // encendiendo, como el indicador de que Claude esta pensando.
+      const dotX = s.side > 0 ? bx + 13 : bx;
+      if (p.think >= 1) px(fb, dotX, restTop - 1, CLOUD_C);
+      if (p.think >= 2) {
+        const cx = s.side > 0 ? bx + 13 : bx - 4;
+        blit(fb, [0b01110, 0b11111, 0b01110], 5, cx, g.top, CLOUD_C);
+        if (p.think >= 3) {
+          const on = Math.floor(now / 250) % 4;
+          for (let i = 0; i < 3; i++) if (i < on) px(fb, cx + 1 + i, g.top + 1, CLOUD_DOT);
+        }
+      }
+    }
+    if (p.heart >= 0) {
+      // Late sobre la cabeza: pequeño, grande, grande, pequeño.
+      const big = (Math.floor(p.heart / 300) % 4) !== 0;
+      const hx = bx + 5;
+      if (big) blit(fb, [0b01010, 0b11111, 0b01110, 0b00100], 5, hx - 1 + 1, g.top, HEART_C);
+      else blit(fb, [0b101, 0b111, 0b010], 3, hx + 1, g.top + 1, HEART_C);
+    }
+    if (p.check) blit(fb, [0b001, 0b001, 0b101, 0b010], 3, bx + 6, g.top, CHECK_C);
+    if (p.balls) for (const b of p.balls) {
+      // Parabola de mano a mano con el pico en el techo (fila 18).
+      const x = bx + Math.round(13 * b.u);
+      const y = (restTop + 2) - arc(b.u, (restTop + 2) - g.top);
+      px(fb, x, y, BALL_C[b.i]);
+    }
+    if (p.spray >= 0) {
+      const F = [[[0, 3]], [[0, 2], [1, 3], [0, 4]], [[1, 1], [2, 3], [1, 5]], [[2, 1], [3, 3], [2, 5]], [[3, 2], [3, 4]], [[3, 3]]];
+      for (const [xx, yy] of (F[p.spray] || [])) {
+        const x = s.side > 0 ? bx + 14 + xx : bx - 1 - xx;
+        px(fb, x, by + yy, SPRAY_C);
+      }
+    }
+    if (p.fly) px(fb, p.fly.x, p.fly.y, (Math.floor(now / 200) % 4) === 3 ? FLY_DIM : FLY_ON);
     return { bx };
   }
 
@@ -320,6 +654,7 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     '6': ['111','100','111','101','111'], '7': ['111','001','001','010','010'], '8': ['111','101','111','101','111'],
     '9': ['111','101','111','001','111'], ':': ['0','1','0','1','0'], '/': ['001','001','010','100','100'],
     '%': ['101','001','010','100','101'], 'h': ['100','100','111','101','101'], 'd': ['001','001','111','101','111'], ' ': ['0','0','0','0','0'],
+    '-': ['000','000','111','000','000'],
   };
   const textW = str => [...str].reduce((a, c) => a + FONT[c][0].length + 1, 0) - 1;
   function text(fb, str, x, baseline, col) {
@@ -331,8 +666,9 @@ td:first-child { white-space: nowrap; font-weight: 500; }
   }
   const SUN = ['..y..', '.yyy.', 'yyyyy', '.yyy.', '..y..'];
 
-  function drawContext(fb, now, fiveUsed, wallSec) {
-    for (let y = 0; y < H - 2; y++) px(fb, LEFT_W, y, '#202020');
+  function drawContext(fb, now, env, wallSec) {
+    const fiveUsed = env.fiveUsed;
+    for (let y = 0; y < H; y++) px(fb, LEFT_W, y, '#202020');
     // Columna izquierda simplificada.
     const bar = (y, frac, col) => { for (let x = 0; x < 40; x++) for (let k = 0; k < 3; k++) px(fb, x, y + k, x < Math.round(frac * 40) ? col : '#1c1c1c'); };
     text(fb, '5h', 0, 6, '#aaaaaa'); text(fb, Math.round(fiveUsed * 100) + '%', 10, 6, '#aaaaaa');
@@ -340,11 +676,11 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     text(fb, '7d', 0, 18, '#aaaaaa'); text(fb, '61%', 10, 18, '#aaaaaa');
     bar(20, .61, '#d4a73a');
     // Columna derecha: hora, fecha, icono + temp (layout del firmware).
-    const hhmm = '12:34';
+    const hhmm = '13:' + String(env.minute).padStart(2, '0');
     text(fb, hhmm, RIGHT_CX - Math.floor(textW(hhmm) / 2), 6, '#f2f2f2');
     const date = '30/09';
     text(fb, date, RIGHT_CX - Math.floor(textW(date) / 2), 12, '#8a8a8a');
-    const temp = '21', tw = textW(temp), total = 5 + 2 + tw + 1 + 2;
+    const temp = String(env.tempC), tw = textW(temp), total = 5 + 2 + tw + 1 + 2;
     const xs = RIGHT_CX - Math.floor(total / 2);
     SUN.forEach((r, yy) => [...r].forEach((c, xx) => { if (c === 'y') px(fb, xs + xx, 13 + yy, '#ffd21f'); }));
     const tx = xs + 7;
@@ -352,8 +688,9 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     const degX = tx + tw + 1;
     for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++) px(fb, degX + xx, 13 + yy, '#f0a040');
     // Barra de segundos.
-    const fill = Math.round((wallSec % 60) / 60 * W);
-    for (let x = 0; x < W; x++) for (let y = 30; y < 32; y++) px(fb, x, y, x < fill ? '#505a70' : '#141414');
+    // Barra de segundos solo en la columna izquierda, hasta la raya.
+    const fill = Math.round((wallSec % 60) / 60 * LEFT_W);
+    for (let x = 0; x < LEFT_W; x++) for (let y = 30; y < 32; y++) px(fb, x, y, x < fill ? '#505a70' : '#141414');
   }
 
   // ── Framebuffer y pintado ────────────────────────────────────────────
@@ -387,24 +724,24 @@ td:first-child { white-space: nowrap; font-weight: 500; }
       for (let x = 0; x < cols; x += every) ctx.fillText(String(x0 + x), gutter + x * cell + cell / 2, gutter / 2);
       ctx.textAlign = 'right';
       for (let y = 0; y < rows; y += every) ctx.fillText(String(y), gutter - 3, gutter + y * cell + cell / 2);
-      // Zona de Clawd: columna derecha, filas 18..29.
+      // Zona de Clawd: columna derecha, filas 18..31.
       ctx.strokeStyle = 'rgba(224,122,47,.55)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
-      ctx.strokeRect(gutter + (RIGHT_X - x0) * cell + .5, gutter + 18 * cell + .5, (W - RIGHT_X) * cell - 1, 12 * cell - 1);
+      ctx.strokeRect(gutter + (RIGHT_X - x0) * cell + .5, gutter + CLAWD_TOP * cell + .5, (W - RIGHT_X) * cell - 1, (H - CLAWD_TOP) * cell - 1);
       ctx.setLineDash([]);
     }
     canvas.style.aspectRatio = `${wPx} / ${hPx}`;
   }
 
   // ── Bucle de simulacion ──────────────────────────────────────────────
-  const opts = { hopUp: false, margin: false, grid: false };
+  const opts = { margin: false, grid: false, newActs: true, hourDance: true };
   let simNow = 1000, acc = 0, last = performance.now(), paused = false, speed = 1;
-  let night = false, fiveUsed = 0.42, bx = RIGHT_CX - 7;
+  let night = false, fiveUsed = 0.42, tempC = 21, minute = 34, bx = RIGHT_CX - 7;
+  const env = () => ({ night, fiveUsed, tempC, minute });
 
   function frame() {
     fb.fill(null);
-    drawContext(fb, simNow, fiveUsed, simNow / 1000);
-    const colL = RIGHT_X + (opts.margin ? 1 : 0);
-    ({ bx } = drawClawd(fb, simNow, RIGHT_CX - 7, 19, colL, W - 1, night, fiveUsed, opts));
+    drawContext(fb, simNow, env(), simNow / 1000);
+    ({ bx } = drawClawd(fb, simNow, geom(), env(), opts));
     updateReadout();
   }
   function updateReadout() {
@@ -431,17 +768,21 @@ td:first-child { white-space: nowrap; font-weight: 500; }
   }
 
   // ── Controles ────────────────────────────────────────────────────────
-  const minDx = () => RIGHT_X + (opts.margin ? 1 : 0) - (RIGHT_CX - 7);
-  const maxDx = () => (W - 1) - (RIGHT_CX - 7 + 13);
+  const geom = () => {
+    const x0 = RIGHT_CX - 7, colL = RIGHT_X + (opts.margin ? 1 : 0), colR = W - 1;
+    return { x0, y0: CLAWD_Y0, top: CLAWD_TOP, bottom: H - 1, colL, colR, minDx: colL - x0, maxDx: colR - (x0 + 13) };
+  };
   const actsEl = document.getElementById('acts');
-  ['IDLE', 'WAVE', 'WALK', 'HOP', 'DANCE', 'SURPRISED', 'NAP'].forEach(a => {
+  ['IDLE', 'WAVE', 'WALK', 'HOP', 'DANCE', 'SURPRISED', 'NAP', 'THINK', 'HEART', 'SPIN', 'NOD', 'FIREFLY', 'JUGGLE', 'PEEK', 'CODE', 'JACKS', 'SNEEZE'].forEach(a => {
     const b = document.createElement('button');
     b.type = 'button'; b.textContent = NAMES[a]; b.dataset.a = a;
-    b.addEventListener('click', () => { if (night) return; start(a, simNow, minDx(), maxDx()); frame(); paint(); });
+    if (NEW_ACTS.has(a)) { b.classList.add('new'); b.title = 'Propuesta: todavía no está en el firmware'; }
+    b.addEventListener('click', () => { if (night) return; start(a, simNow, geom()); frame(); paint(); });
     actsEl.appendChild(b);
   });
   document.getElementById('night').addEventListener('change', e => { night = e.target.checked; });
   document.getElementById('bump').addEventListener('click', () => { fiveUsed = Math.min(1, fiveUsed + 0.01); });
+  document.getElementById('hour').addEventListener('click', () => { s.lastMinute = 59; minute = 0; });
   const pauseBtn = document.getElementById('pause');
   const togglePause = () => { paused = !paused; pauseBtn.textContent = paused ? 'Seguir' : 'Pausa'; pauseBtn.classList.toggle('on', paused); };
   const stepOnce = () => { if (!paused) togglePause(); simNow += FRAME_MS; frame(); paint(); };
@@ -453,7 +794,7 @@ td:first-child { white-space: nowrap; font-weight: 500; }
   document.querySelectorAll('#view button').forEach(b => b.addEventListener('click', () => {
     view = b.dataset.v; document.querySelectorAll('#view button').forEach(o => o.classList.toggle('on', o === b)); paint();
   }));
-  ['grid', 'hopUp', 'margin'].forEach(id => document.getElementById(id).addEventListener('change', e => { opts[id] = e.target.checked; paint(); }));
+  ['grid', 'margin'].forEach(id => document.getElementById(id).addEventListener('change', e => { opts[id] = e.target.checked; paint(); }));
   document.addEventListener('keydown', e => {
     if (e.target.closest('input, button')) return;
     if (e.code === 'Space') { e.preventDefault(); togglePause(); }
