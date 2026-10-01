@@ -92,6 +92,7 @@ src/
 data/index.html          # placeholder; el HTML real está embebido en IndexHtml.cpp
 tools/clawd-sim.html     # simulador web de las animaciones de Clawd (modo Claude); abrir en el navegador
 tools/sync-clawd-preview.py  # copia la logica de Clawd del simulador a la web (previews de animaciones); ejecutar tras tocar animaciones
+tools/sync-demo-data.py      # genera para la web los datos de las previews de modos (fuente TomThumb, paleta del fuego, sprite Nyan) desde el firmware
 partitions_ota.csv       # 2 slots OTA de 3MB + LittleFS 1.4MB (no usado, ver gotcha 2)
 platformio.ini           # dos envs: matrixportal_s3 (USB) y ota (espota)
 ```

@@ -321,6 +321,8 @@ input[type=file]::file-selector-button{
 .steps li b{color:var(--text);font-weight:600}
 .steps .btn-row{margin-top:8px}
 a.btn{text-decoration:none}
+.demo-card canvas{display:block;width:100%;max-width:640px;height:auto;aspect-ratio:2/1;margin:0 auto;border-radius:12px;background:#050506}
+.demo-card .note{text-align:center}
 .code-box{display:flex;flex-direction:column;gap:8px;align-items:flex-start;padding:16px;border-radius:12px;background:var(--surface-2);border:1px dashed var(--line-2)}
 .code-box a{font-weight:600}
 .code-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -700,6 +702,10 @@ a.btn{text-decoration:none}
   <h1>Game of Life</h1>
   <p>El juego de la vida de Conway en el panel. Si el patrón se estanca, vuelve a empezar solo.</p>
 </header>
+<section class="card demo-card" data-tab="life">
+  <canvas data-demo="life" aria-label="Vista previa del panel"></canvas>
+  <p class="note">Vista previa con tus ajustes, también los que aún no has guardado. La hora y el tiempo son los de la primera ciudad.</p>
+</section>
 <section class="card" data-tab="life" data-save>
   <div class="settings">
     <label class="setting"><div class="t"><b>Arcoíris</b><span>El color avanza unos grados en cada paso</span></div><span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span></label>
@@ -716,6 +722,10 @@ a.btn{text-decoration:none}
   <h1>Llama</h1>
   <p>El fuego del Doom subiendo por el panel, con la hora abajo.</p>
 </header>
+<section class="card demo-card" data-tab="fire">
+  <canvas data-demo="fire" aria-label="Vista previa del panel"></canvas>
+  <p class="note">Vista previa con tus ajustes, también los que aún no has guardado. La hora y el tiempo son los de la primera ciudad.</p>
+</section>
 <section class="card" data-tab="fire" data-save>
   <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
   <div class="settings">
@@ -729,6 +739,10 @@ a.btn{text-decoration:none}
   <h1>Plasma</h1>
   <p>Ondas de color que se mezclan sin parar, con la hora abajo.</p>
 </header>
+<section class="card demo-card" data-tab="plasma">
+  <canvas data-demo="plasma" aria-label="Vista previa del panel"></canvas>
+  <p class="note">Vista previa con tus ajustes, también los que aún no has guardado. La hora y el tiempo son los de la primera ciudad.</p>
+</section>
 <section class="card" data-tab="plasma" data-save>
   <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
   <div class="settings">
@@ -742,6 +756,10 @@ a.btn{text-decoration:none}
   <h1>Moiré</h1>
   <p>Dos series de círculos que se cruzan y crean interferencias, con la hora abajo.</p>
 </header>
+<section class="card demo-card" data-tab="moire">
+  <canvas data-demo="moire" aria-label="Vista previa del panel"></canvas>
+  <p class="note">Vista previa con tus ajustes, también los que aún no has guardado. La hora y el tiempo son los de la primera ciudad.</p>
+</section>
 <section class="card" data-tab="moire" data-save>
   <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
   <div class="settings">
@@ -755,6 +773,10 @@ a.btn{text-decoration:none}
   <h1>Nyan Cat</h1>
   <p>El gato del pop-tart cruzando el panel con su estela arcoíris, con la hora abajo.</p>
 </header>
+<section class="card demo-card" data-tab="nyan">
+  <canvas data-demo="nyan" aria-label="Vista previa del panel"></canvas>
+  <p class="note">Vista previa con tus ajustes, también los que aún no has guardado. La hora y el tiempo son los de la primera ciudad.</p>
+</section>
 <section class="card" data-tab="nyan">
   <div class="card-head"><div><h2>Sin ajustes</h2><p>Los colores son los del original. Llega a él con los botones del panel o prográmalo en Modos.</p></div></div>
 </section>
@@ -1580,6 +1602,7 @@ $('#frame-play-device').addEventListener('click', () => {
 async function loadWeather(){
   try{
     const r = await fetch('/api/weather', {signal: pollSignal()}); const d = await r.json();
+    if (d.cities && d.cities[0]) wx0 = d.cities[0];
     if (d.cities && d.cities[0] && d.utc_now) ledBase = {utc: d.utc_now, at: Date.now(), off: d.cities[0].offset_sec || 0, ok: !!d.cities[0].has_data};
     const tbody = $('#weather').querySelector('tbody');
     tbody.innerHTML = '';
@@ -3066,6 +3089,252 @@ $('#oa-copy').onclick = async () => {
   try { await navigator.clipboard.writeText(code); setMsg('Código copiado', 'ok'); }
   catch (e) { const r = document.createRange(); r.selectNodeContents($('#oa-code')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
 };
+
+// ── Previews de modos a pantalla completa (64x32) ───────────────────────
+// Ports en JS de los efectos del firmware (Display.cpp: renderLife,
+// fireStep, plasmaStep, moireStep, renderNyan y drawCommonBottomRow). Leen
+// los ajustes del formulario en cada frame, asi se ve el cambio antes de
+// guardar. Fuente, paleta del fuego y sprite del Nyan los genera
+// tools/sync-demo-data.py desde el firmware.
+/*DEMO-DATA-BEGIN*/
+const DEMO_FONT = {"-":[3,1,4,0,-3,"111"],"/":[3,5,4,0,-5,"001001010100100"],"0":[3,5,4,0,-5,"011101101101110"],"1":[2,5,3,0,-5,"0111010101"],"2":[3,5,4,0,-5,"110001010100111"],"3":[3,5,4,0,-5,"110001010001110"],"4":[3,5,4,0,-5,"101101111001001"],"5":[3,5,4,0,-5,"111100110001110"],"6":[3,5,4,0,-5,"011100111101111"],"7":[3,5,4,0,-5,"111001010100100"],"8":[3,5,4,0,-5,"111101111101111"],"9":[3,5,4,0,-5,"111101111001110"],":":[1,3,2,0,-4,"101"]};
+const DEMO_FIRE_PAL = ["#070707","#1f0707","#2f0f07","#470f07","#571707","#671f07","#771f07","#8f2707","#9f2f07","#af3f07","#bf4707","#c74707","#df4f07","#df5707","#df5707","#d75f07","#d75f07","#d7670f","#cf6f0f","#cf770f","#cf7f0f","#cf8717","#c78717","#c78f17","#c7971f","#bf9f1f","#bf9f1f","#bfa727","#bfa727","#bfaf2f","#b7af2f","#b7b72f","#b7b737","#cfcf6f","#dfdf9f","#efefc7","#ffffff"];
+const DEMO_NYAN = [["0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111111111125000000","0000000521111111111551131125055000","0000000521111111115445111125544500","0555500521111113115444511125444500","0544550521111111115444455554444500","0554455521113111115444444444444500","0055445521111111354444444444444450","0005544521311111154447544444754450","0000555521111111154445544454554450","0000005521111131154664444444446650","0000000522131111154664544544546650","0000000522211111115444555555544500","0000005552222222222544444444445000","0000054445555555555555555555550000","0000054455054450000054450544500000","0000055550055500000005550055000000","0000000000000000000000000000000000"],["0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111111111125000000","0000000521111111111155131125005500","0000000521111111111544511125054450","0000000521111113111544451125544450","0055000521111111111544445555444450","0544500521113111111544444444444450","0544555521111111315444444444444445","0054444521311111115444754444475445","0005544521111111115444554445455445","0000055521111131115466444444444665","0000000522131111115466454454454665","0000000522211111111544455555554450","0000000552222222222254444444444500","0000005445555555555555555555555000","0000005445054450000005445054450000","0000005550005550000000555005550000","0000000000000000000000000000000000"],["0000000000000000000000000000000000","0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111111111125000000","0000000521111111111155131125005500","0000000521111111111544511125054450","0000000521111113111544451125544450","0000000521111111111544445555444450","0000000521113111111544444444444450","0000005521111111315444444444444445","0005555521311111115444754444475445","0554444521111111115444554445455445","0544455521111131115466444444444665","0055550522131111115466454454454665","0000000522211111111544455555554450","0000000552222222222254444444444500","0000000545555555555555555555555000","0000000544505445000000544505445000","0000000555000555000000055500555000"],["0000000000000000000000000000000000","0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111111111125000000","0000000521111111111155131125005500","0000000521111111111544511125054450","0000000521111113111544451125544450","0000000521111111111544445555444450","0000000521113111111544444444444450","0000055521111111315444444444444445","0005544521311111115444754444475445","0054444521111111115444554445455445","0544555521111131115466444444444665","0544500522131111115466454454454665","0055000522211111111544455555554450","0000000552222222222254444444444500","0000005445555555555555555555555000","0000005445054450000005445054450000","0000005550005550000000555005550000"],["0000000000000000000000000000000000","0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111111111125000000","0000000521111111111551131125055000","0000000521111111115445111125544500","0000000521111113115444511125444500","0555500521111111115444455554444500","5444555521113111115444444444444500","5544445521111111354444444444444450","0055554521311111154447544444754450","0000055521111111154445544454554450","0000000521111131154664444444446650","0000000522131111154664544544546650","0000005522211111115444555555544500","0000055552222222222544444444445000","0000544455555555555555555555550000","0000544505445000000544505445000000","0000555000555000000055500555000000"],["0000000000000000000000000000000000","0000000005555555555555555500000000","0000000052222222222222222250000000","0000000522211111111111112225000000","0000000522111111311311111225000000","0000000521131111111551111125055000","0000000521111111115445131125544500","0000000521111111115444511125444500","0055000521111113115444455554444500","0544500521111111115444444444444500","0544555521113111154444444444444450","0054444521111111354447544444754450","0005544521311111154445544454554450","0000055521111111154664444444446650","0000000521111131154664544544546650","0000000522131111115444555555544500","0000005522211111111544444444445000","0000054552222222222255555555550000","0000544455555555555555555545000000","0000544505445000000544505445000000","0000555005550000000555000555000000"]];
+/*DEMO-DATA-END*/
+let wx0 = null;   // primera ciudad de /api/weather (hora, temperatura, codigo)
+const DW = 64, DH = 32, DTOP = 23;
+
+function demoText(fb, s, x, base, col){
+  for (const ch of s) {
+    const g = DEMO_FONT[ch]; if (!g) { x += 4; continue; }
+    const [w, h, adv, xo, yo, bits] = g;
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++)
+      if (bits[yy * w + xx] === '1') demoPx(fb, x + xo + xx, base + yo + yy, col);
+    x += adv;
+  }
+  return x;
+}
+function demoTextW(s){
+  let w = 0; const cs = [...s];
+  cs.forEach((ch, i) => { const g = DEMO_FONT[ch] || [3, 5, 4, 0, -5, '']; w += i < cs.length - 1 ? g[2] : g[0]; });
+  return w;
+}
+function demoPx(fb, x, y, col){ if (x >= 0 && x < DW && y >= 0 && y < DH) fb[y * DW + x] = col; }
+const lerp = (a, b, k) => Math.round(a + (b - a) * k);
+function tempColor(t){
+  let r, g, b;
+  if (t <= 0) { r = 60; g = 113; b = 247; }
+  else if (t <= 10) { const k = t / 10; r = lerp(60, 172, k); g = lerp(113, 199, k); b = lerp(247, 203, k); }
+  else if (t <= 20) { const k = (t - 10) / 10; r = lerp(172, 247, k); g = lerp(199, 145, k); b = lerp(203, 128, k); }
+  else if (t <= 30) { const k = (t - 20) / 10; r = 247; g = lerp(145, 76, k); b = lerp(128, 41, k); }
+  else if (t <= 40) { const k = (t - 30) / 10; r = 247; g = lerp(76, 0, k); b = lerp(41, 0, k); }
+  else { r = 247; g = 0; b = 0; }
+  return `rgb(${r},${g},${b})`;
+}
+// Codigo WMO de Open-Meteo -> icono (aproximado: el firmware tiene mas casos).
+function wmoIcon(code, day){
+  if (code <= 1) return day ? 'SUN' : 'MOON';
+  if (code === 2) return day ? 'PARTLY' : 'PARTLY_NIGHT';
+  if (code === 3) return 'CLOUD';
+  if (code === 45 || code === 48) return 'FOG';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'SNOW';
+  if (code >= 95) return 'STORM';
+  return 'RAIN';
+}
+function demoBottomRow(fb, nowMs){
+  const base = 29;
+  const hourCol = $('#focus-hour-color').value, dateCol = $('#focus-date-color').value;
+  let secF = (Date.now() / 1000) % 60;
+  if (ledBase && ledBase.ok) {
+    const t = ledBase.utc + (Date.now() - ledBase.at) / 1000 + ledBase.off;
+    secF = (ledBase.utc + (Date.now() - ledBase.at) / 1000) % 60;
+    const d = new Date(Math.floor(t) * 1000);
+    const h = d.getUTCHours(), m = d.getUTCMinutes();
+    const hh = ($('#hour-lz').checked || h >= 10) ? String(h).padStart(2, '0') : String(h);
+    const colonOn = !$('#blink').checked || (t % 1) < 0.5;
+    let x = demoText(fb, hh, 0, base, hourCol);
+    x = demoText(fb, ':', x, base, colonOn ? hourCol : '#222');
+    demoText(fb, String(m).padStart(2, '0'), x, base, hourCol);
+    const dm = String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0');
+    demoText(fb, dm, Math.floor((DW - demoTextW(dm)) / 2), base, dateCol);
+  }
+  if (wx0 && wx0.has_data) {
+    const tnum = String(wx0.temp_c), w = demoTextW(tnum), tc = tempColor(wx0.temp_c);
+    const xStart = DW - (w + 1 + 2);
+    demoText(fb, tnum, xStart, base, tc);
+    for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++) demoPx(fb, xStart + w + 1 + xx, base - 5 + yy, tc);
+    const frames = cfg && cfg.icons && cfg.icons[wmoIcon(wx0.code, wx0.is_day)];
+    if (frames && frames.length) {
+      const total = frames.reduce((a, f) => a + (f.ms || 500), 0);
+      let t = nowMs % total, f = frames[0];
+      for (const fr of frames) { if (t < (fr.ms || 500)) { f = fr; break; } t -= fr.ms || 500; }
+      const pal = (cfg.palette || []).map(intToHex);
+      for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+        const v = f.px[yy][xx]; if (v) demoPx(fb, xStart - 7 + xx, 24 + yy, pal[v]);
+      }
+    }
+  }
+  // Barra de segundos con la cabeza interpolada, como drawSecondsBarSmooth.
+  const endF = secF * DW / 60, endI = Math.floor(endF), frac = endF - endI;
+  for (let x = 0; x < DW; x++) {
+    let col = null;
+    if (x < endI) col = '#303030';
+    else if (x === endI) col = `rgb(${lerp(192, 48, frac)},${lerp(192, 48, frac)},${lerp(192, 48, frac)})`;
+    else if (x === endI + 1) col = `rgb(${lerp(0, 192, frac)},${lerp(0, 192, frac)},${lerp(0, 192, frac)})`;
+    if (col) { demoPx(fb, x, 30, col); demoPx(fb, x, 31, col); }
+  }
+}
+
+// Paleta de 37 colores: la clasica del Doom o negro -> color -> blanco.
+const palCache = {};
+function demoPalette(id){
+  const def = $('#' + id + '-default').checked, color = $('#' + id + '-color').value;
+  const key = def ? 'def' : color;
+  if (palCache[id] && palCache[id].key === key) return palCache[id].pal;
+  let pal;
+  if (def) pal = DEMO_FIRE_PAL.slice();
+  else {
+    const n = hexToInt(color), br = n >> 16 & 255, bg = n >> 8 & 255, bb = n & 255;
+    pal = [];
+    for (let i = 0; i < 37; i++) {
+      const t = i / 36; let r, g, b;
+      if (t < 0.5) { const p = t * 2; r = br * p; g = bg * p; b = bb * p; }
+      else { const p = (t - 0.5) * 2; r = br + (255 - br) * p; g = bg + (255 - bg) * p; b = bb + (255 - bb) * p; }
+      pal.push(`rgb(${r | 0},${g | 0},${b | 0})`);
+    }
+  }
+  palCache[id] = {key, pal};
+  return pal;
+}
+const SIN8 = Array.from({length: 256}, (_, i) => Math.trunc(Math.sin(i * 2 * Math.PI / 256) * 127));
+const sin8 = a => SIN8[a & 255];
+
+const DEMOS = {
+  life: (() => {
+    const g = new Uint8Array(DW * DTOP), n = new Uint8Array(DW * DTOP);
+    let last = 0, hue = 0, hist = [], stuckSince = 0;
+    const seed = () => { for (let i = 0; i < g.length; i++) g[i] = Math.random() * 256 < 80 ? 1 : 0; hist = []; stuckSince = 0; };
+    const hash = () => { let h = 2166136261; for (let i = 0; i < g.length; i++) h = Math.imul(h ^ g[i], 16777619); return h >>> 0; };
+    seed();
+    return (fb, now) => {
+      if (now - last >= (+$('#life-step').value || 150)) {
+        last = now;
+        for (let y = 0; y < DTOP; y++) for (let x = 0; x < DW; x++) {
+          let c = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            c += g[((y + dy + DTOP) % DTOP) * DW + (x + dx + DW) % DW];
+          }
+          const a = g[y * DW + x];
+          n[y * DW + x] = (a && (c === 2 || c === 3)) || (!a && c === 3) ? 1 : 0;
+        }
+        g.set(n);
+        hue = (hue + 3) % 360;
+        const h = hash();
+        if (hist.includes(h)) { if (!stuckSince) stuckSince = now; if (now - stuckSince >= 10000) seed(); }
+        else stuckSince = 0;
+        hist = [h, ...hist].slice(0, 4);
+      }
+      const col = $('#life-rainbow').checked ? `hsl(${hue},100%,50%)` : $('#life-color').value;
+      for (let i = 0; i < g.length; i++) if (g[i]) fb[i] = col;
+    };
+  })(),
+  fire: (() => {
+    const b = new Uint8Array(DW * DTOP);
+    return (fb) => {
+      for (let x = 0; x < DW; x++) b[(DTOP - 1) * DW + x] = 36;
+      for (let x = 0; x < DW; x++) for (let y = 1; y < DTOP; y++) {
+        const src = y * DW + x, p = b[src];
+        if (!p) { b[src - DW] = 0; continue; }
+        const rnd = Math.random() * 4 | 0, rnd2 = (Math.random() * 4 | 0) + (Math.random() * 2 | 0);
+        const dx = Math.min(DW - 1, Math.max(0, x + 1 - rnd));
+        b[(y - 1) * DW + dx] = p > rnd2 ? p - rnd2 : 0;
+      }
+      const pal = demoPalette('fire');
+      for (let i = 0; i < b.length; i++) if (b[i]) fb[i] = pal[b[i]];
+    };
+  })(),
+  plasma: (fb, now) => {
+    const tt = Math.floor(now / 30), pal = demoPalette('plasma');
+    for (let y = 0; y < DTOP; y++) for (let x = 0; x < DW; x++) {
+      const v = sin8(x * 8 + tt) + sin8(y * 8 + tt * 2) + sin8((x + y) * 4 + tt)
+              + sin8(Math.trunc(((x - DW / 2) ** 2 + (y - Math.trunc(DTOP / 2)) ** 2) / 4) + tt);
+      const idx = Math.min(36, Math.max(0, Math.trunc((v + 512) * 37 / 1024)));
+      if (idx) fb[y * DW + x] = pal[idx];
+    }
+  },
+  moire: (fb, now) => {
+    const tt = Math.floor(now / 30), pal = demoPalette('moire');
+    const cx1 = DW / 2 + Math.trunc(sin8(tt) * DW / 256), cy1 = Math.trunc(DTOP / 2) + Math.trunc(sin8(tt + 64) * DTOP / 256);
+    const cx2 = DW / 2 + Math.trunc(sin8(tt + 96) * DW / 256), cy2 = Math.trunc(DTOP / 2) + Math.trunc(sin8(tt + 160) * DTOP / 256);
+    for (let y = 0; y < DTOP; y++) for (let x = 0; x < DW; x++) {
+      const d1 = Math.trunc(((x - cx1) ** 2 + (y - cy1) ** 2) / 4), d2 = Math.trunc(((x - cx2) ** 2 + (y - cy2) ** 2) / 4);
+      const idx = Math.min(36, Math.max(0, Math.trunc((sin8(d1) + sin8(d2) + 256) * 37 / 512)));
+      if (idx) fb[y * DW + x] = pal[idx];
+    }
+  },
+  nyan: (() => {
+    const PAL = [null, '#ff99ff', '#ffcc99', '#ff3399', '#999999', '#000000', '#ff9999', '#ffffff'];
+    const RAINBOW = ['#ff0000', '#ff8800', '#ffe600', '#00c800', '#00a0ff', '#c800ff'];
+    const STAR_Y = [2, 17, 9, 21, 5, 13, 19, 1, 11, 7], STAR_D = [0, 2, 1, 0, 2, 1, 0, 1, 2, 0];
+    const STAR_O = [0, 32, 13, 47, 23, 51, 7, 38, 18, 56], STAR_MS = [280, 150, 80];
+    const STAR_C = ['#1f1f70', '#4040a0', '#80a0e0'];
+    return (fb, now) => {
+      for (let i = 0; i < DW * DTOP; i++) fb[i] = '#000033';
+      for (let i = 0; i < 10; i++) {
+        const d = STAR_D[i];
+        let sx = (STAR_O[i] - Math.floor(now / STAR_MS[d])) % DW; if (sx < 0) sx += DW;
+        demoPx(fb, sx, STAR_Y[i], STAR_C[d]);
+      }
+      const catW = 34, catH = 21, catX = DW - catW - 1, catY = Math.trunc((DTOP - catH) / 2);
+      const frame = DEMO_NYAN[Math.floor(now / 70) % DEMO_NYAN.length];
+      const trailY = catY + Math.trunc(catH / 2) - 6, tShift = Math.floor(now / 60);
+      for (let x = 0; x < catX + 26 && x < DW; x++) {
+        const step = Math.floor((x + tShift) / 4) & 1;
+        for (let b = 0; b < 6; b++) {
+          const y0 = trailY + b * 2 + step;
+          if (y0 < DTOP) demoPx(fb, x, y0, RAINBOW[b]);
+          if (y0 + 1 < DTOP) demoPx(fb, x, y0 + 1, RAINBOW[b]);
+        }
+      }
+      for (let sy = 0; sy < catH; sy++) for (let sx = 0; sx < catW; sx++) {
+        const v = +frame[sy][sx];
+        if (v && catY + sy < DTOP) demoPx(fb, catX + sx, catY + sy, PAL[v]);
+      }
+    };
+  })(),
+};
+
+const demoCanvases = {};
+document.querySelectorAll('canvas[data-demo]').forEach(cv => {
+  const C = 10;
+  cv.width = DW * C; cv.height = DH * C;
+  demoCanvases[cv.dataset.demo] = {cv, ctx: cv.getContext('2d'), fb: new Array(DW * DH).fill(null), C};
+});
+function demoFrame(id, now){
+  const d = demoCanvases[id]; if (!d) return;
+  d.fb.fill(null);
+  DEMOS[id](d.fb, now);
+  demoBottomRow(d.fb, now);
+  const {ctx, C} = d;
+  ctx.fillStyle = '#050506'; ctx.fillRect(0, 0, d.cv.width, d.cv.height);
+  for (let y = 0; y < DH; y++) for (let x = 0; x < DW; x++) {
+    ctx.fillStyle = d.fb[y * DW + x] || '#121318';
+    ctx.beginPath(); ctx.arc(x * C + C / 2, y * C + C / 2, C * 0.42, 0, Math.PI * 2); ctx.fill();
+  }
+}
+{
+  let curDemo = null, last = 0;
+  const pick = t => { curDemo = demoCanvases[t] ? t : null; if (curDemo) demoFrame(curDemo, performance.now()); };
+  document.addEventListener('tabchange', e => pick(e.detail));
+  try { pick(location.hash.slice(1)); } catch (e) {}
+  const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const loop = t => {
+    if (curDemo && !still && !document.hidden && t - last >= 50) { last = t; demoFrame(curDemo, t); }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
 
 renderAnimCards();
 loadOpenAI();
