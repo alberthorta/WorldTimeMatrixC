@@ -125,7 +125,7 @@ void triggerRipple(int slot, int16_t cx, int16_t cy);
 // `value` debe ser 0..1.
 void triggerBrightnessOverlay(float value);
 // Splash de boot: hasta 4 lineas centradas horizontalmente en sus rows.
-// Lineas vacias se omiten. Util para "WorldTime" + estado de WiFi en boot.
+// Lineas vacias se omiten. Util para "Pixelario" + estado de WiFi en boot.
 void drawSplash(const char* const lines[], int nLines);
 
 uint16_t rgb888to565(uint32_t rgb);

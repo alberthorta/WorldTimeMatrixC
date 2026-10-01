@@ -2,7 +2,7 @@
 //
 // Portado del proyecto gizmo (../gizmo/tablet/main/jitter.c, ESP-IDF + esp_hid
 // sobre NimBLE) a Arduino/NimBLE-Arduino. El device se anuncia como raton BLE
-// ("WorldTime Jitter"); macOS lo empareja como raton y, si el jitter esta
+// ("Pixelario Jitter"); macOS lo empareja como raton y, si el jitter esta
 // activo, mueve el cursor un poco cada intervalo (direccion y distancia
 // aleatorias, con recentrado suave) para evitar que el equipo entre en reposo.
 //

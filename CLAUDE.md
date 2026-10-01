@@ -1,6 +1,6 @@
-# CLAUDE.md — WorldTimeMatrixC
+# CLAUDE.md — Pixelario (WorldTimeMatrixC)
 
-Guía operacional para continuar el firmware C++ del WorldTime Matrix sobre Adafruit Matrix Portal S3.
+Guía operacional para continuar el firmware C++ de **Pixelario** (antes WorldTime) sobre Adafruit Matrix Portal S3. El repo y la carpeta siguen llamándose `WorldTimeMatrixC`, la app de Mac `WorldTimeJitter` y el namespace NVS `worldtime` (cambiarlo perdería las credenciales WiFi).
 
 ## Qué es
 
@@ -53,9 +53,9 @@ Si todo lo anterior falla, subir `STABLE_THRESH` en `main.cpp` a 4-5 (a costa de
 | 192.168.53.81 | ? | Placa nueva (sep-2026) que sustituye a la antigua .36: MAC WiFi `58:8c:81:f1:7e:70`, dirección BLE `58:8C:81:F1:7E:71` (el ESP32 deriva la de BT de la de WiFi, +1). Flasheada por USB con v0.16.1: sin botón BOOT, se entra en bootloader con doble RESET. RSSI −79 al arrancar. |
 | ~~192.168.53.36~~ | RBG | Retirada, sustituida por la .81. Era el jiggler BLE de mi Mac (MAC WiFi `58:8c:81:f1:99:9c`, BLE `58:8C:81:F1:99:9D`), con WiFi inestable (RSSI −66…−81, `boot_count` 678). |
 
-AP fallback: SSID `WorldTime-Setup`, password `matrixportal`, IP `192.168.4.1`.
+AP fallback: SSID `Pixelario-Setup`, password `matrixportal`, IP `192.168.4.1`.
 
-mDNS: cada device se anuncia como `WorldTimeXXX.local` donde XXX es el último octeto de su IP (p.ej. `WorldTime62.local`).
+mDNS: cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP (p.ej. `Pixelario62.local`).
 
 ## Build & deploy
 
@@ -80,7 +80,7 @@ pio run -e ota -t upload
 src/
 ├── main.cpp             # setup + loop @100ms + ArduinoOTA.handle + g_pendingReset
 ├── Config.h/cpp         # NVS-backed (cities, brillo, palette, iconos, rgb_order, etc.)
-├── WifiSetup.h/cpp      # STA con fallback AP + mDNS WorldTimeXXX.local
+├── WifiSetup.h/cpp      # STA con fallback AP + mDNS PixelarioXXX.local
 ├── Display.h/cpp        # HUB75-DMA + tom-thumb + per-row icon animation state
 ├── Icons.h/cpp          # 9 iconos × N frames, paleta 16 colores
 ├── Weather.h/cpp        # Open-Meteo fetch en task FreeRTOS + cache NVS

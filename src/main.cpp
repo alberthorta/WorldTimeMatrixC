@@ -267,7 +267,7 @@ static void runAutoUpdateCheck(bool showSearchSplash) {
     if (WifiSetup::currentMode() != WifiSetup::Mode::Sta) return;
     Serial.printf("[autoupd] check (current=%s)\n", FW_VERSION);
     if (showSearchSplash) {
-        const char* lines[] = {"WorldTime", "Checking", "update...", FW_VERSION};
+        const char* lines[] = {"Pixelario", "Checking", "update...", FW_VERSION};
         Display::drawSplash(lines, 4);
     }
     AutoUpdate::ReleaseInfo rel = AutoUpdate::fetchLatestRelease();
@@ -436,7 +436,7 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.println();
-    Serial.println("[boot] WorldTime fw starting (build OTA test)");
+    Serial.println("[boot] Pixelario fw starting");
 
     pinMode(PIN_BUTTON_UP, INPUT_PULLUP);
     // Pinmode inicial segun Config (0=INPUT, 1=INPUT_PULLUP, 2=INPUT_PULLDOWN).
@@ -464,7 +464,7 @@ void setup() {
     Display::begin();
     Display::setBrightness((uint8_t)(Config::cfg.brightness * 255));
     {
-        const char* lines[] = {"WorldTime", "Assigning IP", "", ""};
+        const char* lines[] = {"Pixelario", "Assigning IP", "", ""};
         Display::drawSplash(lines, 2);
     }
     WifiSetup::begin();
@@ -474,7 +474,7 @@ void setup() {
         char ipBuf[20];
         snprintf(ipBuf, sizeof(ipBuf), "%s", WifiSetup::currentIp().c_str());
         {
-            const char* lines[] = {"WorldTime", "IP :", ipBuf, ""};
+            const char* lines[] = {"Pixelario", "IP :", ipBuf, ""};
             Display::drawSplash(lines, 3);
         }
         delay(2000);
@@ -490,13 +490,13 @@ void setup() {
     } else {
         // Modo AP: deja el splash con instrucciones para el usuario. El loop
         // detectara el modo y no pintara el reloj.
-        const char* lines[] = {"WorldTime", "Connect to", "WorldTime-Setup", "to configure"};
+        const char* lines[] = {"Pixelario", "Connect to", "Pixelario-Setup", "to configure"};
         Display::drawSplash(lines, 4);
     }
     if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
         configTime(0, 0, "pool.ntp.org", "time.google.com");
         Serial.println("[time] NTP requested");
-        ArduinoOTA.setHostname("worldtime");
+        ArduinoOTA.setHostname("pixelario");
         ArduinoOTA.setPassword("matrix");
         ArduinoOTA.onStart([]() { Serial.println("[ota] start"); });
         ArduinoOTA.onEnd([]() { Serial.println("\n[ota] end"); });
@@ -505,7 +505,7 @@ void setup() {
         });
         ArduinoOTA.onError([](ota_error_t e) { Serial.printf("[ota] err %u\n", e); });
         ArduinoOTA.begin();
-        Serial.println("[ota] ArduinoOTA up (host=worldtime auth=matrix)");
+        Serial.println("[ota] ArduinoOTA up (host=pixelario auth=matrix)");
     }
     WebApi::begin();
     Weather::taskStart();
@@ -663,7 +663,7 @@ void loop() {
             else if (millis() - btnUpPressedSinceMs >= 3000) {
                 Serial.println("[btn] UP held 3s → switching to AP");
                 WifiSetup::switchToAp();
-                const char* lines[] = {"WorldTime", "Connect to", "WorldTime-Setup", "to configure"};
+                const char* lines[] = {"Pixelario", "Connect to", "Pixelario-Setup", "to configure"};
                 Display::drawSplash(lines, 4);
                 btnUpPressedSinceMs = 0;
             }
@@ -671,7 +671,7 @@ void loop() {
             btnUpPressedSinceMs = 0;
         }
     }
-    // En modo AP el splash de "Connect to WorldTime-Setup..." se queda fijo
+    // En modo AP el splash de "Connect to Pixelario-Setup..." se queda fijo
     // hasta que el user reconfigure y reinicie. Saltamos el render del reloj.
     if (WifiSetup::currentMode() == WifiSetup::Mode::Ap) {
         delay(50);

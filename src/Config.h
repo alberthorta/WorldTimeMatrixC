@@ -41,7 +41,7 @@ struct DemoPalette {
     uint32_t color;           // 0xRRGGBB
 };
 static constexpr int SCHEDULE_MAX = 10;
-static constexpr char   JITTER_NAME_DEFAULT[] = "WorldTime Jitter";
+static constexpr char   JITTER_NAME_DEFAULT[] = "Pixelario Jitter";
 static constexpr size_t JITTER_NAME_MAX = 29;
 
 struct NightMode {

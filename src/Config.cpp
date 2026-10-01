@@ -12,6 +12,8 @@
 namespace Config {
 
 static Preferences prefs;
+// Nombre de antes de llamarse Pixelario: cambiarlo dejaria a los devices sin
+// las credenciales WiFi guardadas.
 static const char* NS = "worldtime";
 
 // Path del fichero donde persistimos la config en LittleFS. Filesystem es

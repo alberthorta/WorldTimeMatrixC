@@ -1,5 +1,5 @@
 // Conecta a WiFi en modo STA usando creds en NVS. Si fallan o no hay,
-// levanta un AP (WorldTime-Setup / matrixportal) para reconfigurar via web.
+// levanta un AP (Pixelario-Setup / matrixportal) para reconfigurar via web.
 #pragma once
 
 #include <Arduino.h>
@@ -28,7 +28,7 @@ Mode begin();                          // Llamar una vez en setup().
 Mode currentMode();
 String currentSsid();                  // SSID activo (vacio en AP/None).
 String currentIp();                    // IP de la interfaz activa.
-String currentHostname();              // "WorldTimeXXX" en STA, vacio en AP/None.
+String currentHostname();              // "PixelarioXXX" en STA, vacio en AP/None.
 ScanReply scan();                      // Escanea redes cercanas (con diagnostico).
 void tickHealth();                     // Llamar desde el loop principal; envia
                                        // beacons UDP broadcast cada 60s para

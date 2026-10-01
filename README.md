@@ -1,6 +1,6 @@
-# WorldTime — Firmware C++ (Arduino / PlatformIO)
+# Pixelario — Firmware C++ (Arduino / PlatformIO)
 
-Reescritura en C++ del firmware del reloj mundial WorldTime para Adafruit Matrix Portal S3, sustituyendo la versión CircuitPython (`firmware/`) por una basada en Arduino + ESP-IDF.
+Pixelario (antes WorldTime) es un reloj mundial en un panel LED 64×32. Reescritura en C++ del firmware para Adafruit Matrix Portal S3, sustituyendo la versión CircuitPython (`firmware/`) por una basada en Arduino + ESP-IDF.
 
 > **Estado actual**: features completas. 6 modos de display, sensores táctiles con menú en pantalla, integración con Claude Code stats, jitter de ratón BLE, auto-update via GitHub releases, IP estática, programaciones, mascot animado, etc. Ver [releases](https://github.com/alberthorta/WorldTimeMatrixC/releases) para la última versión publicada.
 
@@ -150,9 +150,9 @@ Las filas tienen tres estados visuales: **navegada** (barra rellena cian, texto 
 
 ## Jitter — ratón BLE anti-inactividad
 
-El device se anuncia por Bluetooth como ratón HID (`WorldTime Jitter`). Con el jitter activo mueve el cursor unos pocos píxeles cada intervalo (dirección y distancia aleatorias, con recentrado suave) para que el Mac no entre en reposo.
+El device se anuncia por Bluetooth como ratón HID (`Pixelario Jitter`). Con el jitter activo mueve el cursor unos pocos píxeles cada intervalo (dirección y distancia aleatorias, con recentrado suave) para que el Mac no entre en reposo.
 
-- **Emparejar**: macOS → Ajustes → Bluetooth → `WorldTime Jitter`.
+- **Emparejar**: macOS → Ajustes → Bluetooth → `Pixelario Jitter`.
 - **Configuración** (`jitter_enabled`, `jitter_interval_ms` 50–600000, `jitter_max_step` 1–20 px): desde la pestaña *Jitter* de la web, desde el menú en pantalla, o por BLE.
 - **Estado persistente**: si queda activo y el Mac sigue emparejado, al reboot el cursor vuelve a moverse solo.
 - `GET /api/jitter` expone lo runtime que no persiste: si hay un host BLE conectado.
@@ -184,7 +184,7 @@ cd mac && ./build.sh --zip    # además, WorldTimeJitter.zip para la release
 
 El icono lo genera `mac/scripts/make-icon.py` (necesita Pillow): un cursor en pixel art sobre una retícula de LEDs, con la estela del jitter en el mismo cian del menú del panel. El `.icns` resultante va commiteado, así que `build.sh` no depende de Pillow — solo hay que reejecutar el script si se cambia el diseño.
 
-Soporta varios dispositivos compatibles a la vez (el WorldTime Matrix y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
+Soporta varios dispositivos compatibles a la vez (el Pixelario y cualquier otro que exponga el servicio, p.ej. el tablet `Gizmo Jitter`); el menú *Dispositivo* elige a cuál mandar los comandos y recuerda la elección. El protocolo de bytes debe coincidir con `src/Jitter.cpp`.
 
 #### Instalación
 
@@ -347,7 +347,7 @@ Hasta 10 entradas (`schedule[0..9]`) configurables desde la web:
 ├── src/
 │   ├── main.cpp            # setup + loop con render @20fps + máquina de estados del menú
 │   ├── Config.h/.cpp       # persistencia (LittleFS para cfg, NVS para wifi)
-│   ├── WifiSetup.h/.cpp    # STA con fallback AP "WorldTime-Setup" + IP estática
+│   ├── WifiSetup.h/.cpp    # STA con fallback AP "Pixelario-Setup" + IP estática
 │   ├── Display.h/.cpp      # HUB75-DMA + los 6 renders de modo + renderMenu
 │   ├── Icons.h/.cpp        # 9 iconos × N frames, paleta 16 colores
 │   ├── Weather.h/.cpp      # Open-Meteo + Tomorrow.io + WeatherAPI clients
@@ -437,21 +437,21 @@ cd WorldTimeMatrixC
 pio run -e matrixportal_s3 -t upload
 ```
 
-~20 s. Tras el flash la placa reinicia. Sin creds WiFi en NVS, levanta el AP `WorldTime-Setup` (pwd `matrixportal`).
+~20 s. Tras el flash la placa reinicia. Sin creds WiFi en NVS, levanta el AP `Pixelario-Setup` (pwd `matrixportal`).
 
 ### Configurar WiFi
 
-1. Conecta tu Mac/móvil al WiFi `WorldTime-Setup`.
+1. Conecta tu Mac/móvil al WiFi `Pixelario-Setup`.
 2. Abre `http://192.168.4.1/`.
 3. Busca redes → selecciona → password → "Conectar y reiniciar".
 4. La placa reinicia, conecta a tu WiFi.
 
 ### Encontrar la IP
 
-Cada device se anuncia como `WorldTimeXXX.local` donde XXX es el último octeto de su IP. O escanea por mDNS o ARP:
+Cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP. O escanea por mDNS o ARP:
 
 ```bash
-ping -c 1 WorldTime62.local            # si conoces el octeto
+ping -c 1 Pixelario62.local            # si conoces el octeto
 # o por LAN
 for ip in 192.168.X.{50..120}; do
   curl -sS -m 1 "http://$ip/api/status" 2>/dev/null | grep -q wifi_mode && echo "$ip"
@@ -538,7 +538,7 @@ curl -X POST -H "Content-Type: application/json" \
 ## Recuperación de emergencia
 
 - **Reset por USB**: pulsa el botón RESET físico.
-- **Forzar AP**: mantener el botón UP físico del board (GPIO 6) 3 s desde la admin → entra en modo AP `WorldTime-Setup`.
+- **Forzar AP**: mantener el botón UP físico del board (GPIO 6) 3 s desde la admin → entra en modo AP `Pixelario-Setup`.
 - **Recovery via AP**: si las creds WiFi están corruptas o no conecta, al boot levanta el AP. Conéctate y reconfigura.
 - **IP estática rota**: si seteaste IP estática inválida, el firmware hace fallback a DHCP automáticamente. Si aun así no conecta, modo AP por hold de UP.
 - **Wipe completo**: `pio run -t erase` borra TODO incluido NVS — perderás creds WiFi. Tras eso, USB upload y reconfigurar desde AP.

@@ -6,7 +6,7 @@ const char INDEX_HTML[] PROGMEM = R"WTHTML(<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>WorldTime</title>
+<title>Pixelario</title>
 <script>
 // Tema antes de pintar nada, para que no parpadee al recargar en oscuro.
 try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -483,7 +483,7 @@ input[type=file]::file-selector-button{
     <canvas id="led" class="led" width="104" height="36" aria-label="Hora del panel"></canvas>
     <div class="brand-name">
       <div>
-        <b>WorldTime</b>
+        <b>Pixelario</b>
         <div id="brand-host" class="brand-host">—</div>
       </div>
       <span id="brand-fw" class="fw">—</span>
@@ -929,7 +929,7 @@ input[type=file]::file-selector-button{
         <option value="2">2 px</option><option value="3">3 px</option><option value="4">4 px</option><option value="6">6 px</option><option value="10">10 px</option>
       </select>
     </label>
-    <label class="field"><span>Nombre Bluetooth</span><input type="text" id="jitter-name" maxlength="29" placeholder="WorldTime Jitter"/><small>Se aplica al reiniciar. macOS puede mostrar el nombre antiguo hasta que lo olvides y lo vuelvas a emparejar.</small></label>
+    <label class="field"><span>Nombre Bluetooth</span><input type="text" id="jitter-name" maxlength="29" placeholder="Pixelario Jitter"/><small>Se aplica al reiniciar. macOS puede mostrar el nombre antiguo hasta que lo olvides y lo vuelvas a emparejar.</small></label>
   </div>
   <div class="btn-row" style="margin-top:16px"><button id="jitter-apply" class="btn btn-primary">Aplicar</button></div>
 </section>
@@ -1956,7 +1956,7 @@ $('#cfg-export').onclick = async () => {
     const a = document.createElement('a');
     a.href = 'data:application/json;charset=utf-8,'+encodeURIComponent(body);
     const ts = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
-    a.download = `worldtime_config_${ts}.json`;
+    a.download = `pixelario_config_${ts}.json`;
     a.click();
     setMsg('Descargado.', 'ok');
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
@@ -2138,7 +2138,7 @@ $('#jitter-apply').onclick = async () => {
     jitter_enabled: $('#jitter-en').checked,
     jitter_interval_ms: parseInt($('#jitter-interval').value, 10) || 1000,
     jitter_max_step: parseInt($('#jitter-step').value, 10) || 4,
-    jitter_name: $('#jitter-name').value.trim() || 'WorldTime Jitter',
+    jitter_name: $('#jitter-name').value.trim() || 'Pixelario Jitter',
   };
   const nameChanged = patch.jitter_name !== jitterNameLoaded;
   try{
