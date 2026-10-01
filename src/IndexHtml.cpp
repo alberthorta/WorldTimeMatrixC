@@ -4,904 +4,1063 @@ const char INDEX_HTML[] PROGMEM = R"WTHTML(<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
-<title>WorldTime FW</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>WorldTime</title>
+<script>
+// Tema antes de pintar nada, para que no parpadee al recargar en oscuro.
+try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <style>
+/* Instrumento de laboratorio: grafito, ambar de LED como acento y un panel
+   de puntos en la cabecera. Solo fuentes del sistema: en modo AP (sin
+   internet) la pagina tiene que verse igual de terminada. */
 :root{
-  --bg:#020617;
-  --bg-2:#0f172a;
-  --card:rgba(15,23,42,.65);
-  --border:#1e293b;
-  --border-2:#334155;
-  --border-3:#475569;
-  --text:#e2e8f0;
-  --text-2:#cbd5e1;
-  --muted:#94a3b8;
-  --muted-2:#64748b;
-  --accent:#10b981;
-  --accent-hi:#34d399;
-  --accent-deep:#047857;
-  --warn:#fbbf24;
-  --err:#f87171;
-  --danger-bd:#7f1d1d;
+  --bg:#f2f3f5; --surface:#ffffff; --surface-2:#f6f7f9; --surface-3:#eceef2;
+  --line:#e3e6eb; --line-2:#d2d7de;
+  --text:#14181e; --text-2:#323a46; --muted:#646e7e; --muted-2:#8b94a3;
+  --accent:#d98316; --accent-hi:#b86c0b; --accent-ink:#1f1300; --accent-soft:rgba(217,131,22,.12);
+  --ok:#17935c; --ok-soft:rgba(23,147,92,.12);
+  --warn:#b97f00; --warn-soft:rgba(185,127,0,.13);
+  --err:#d23f3f; --err-soft:rgba(210,63,63,.10);
+  --info:#2a73c8;
+  --clawd:#e07a2f;
+  --panel:#07080a; --led-off:#17191e;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+  --shadow-lg:0 12px 32px -8px rgba(16,24,40,.22);
+  --ring:0 0 0 3px rgba(217,131,22,.25);
+  --sans:ui-sans-serif,system-ui,-apple-system,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:14px; --radius-sm:9px;
+  --side-w:252px;
+  color-scheme:light;
 }
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0d10; --surface:#12161b; --surface-2:#171c22; --surface-3:#1e242c;
+    --line:#222932; --line-2:#2d3540;
+    --text:#e8ebf0; --text-2:#c5ccd6; --muted:#8a94a3; --muted-2:#646e7e;
+    --accent:#f4a93b; --accent-hi:#ffc164; --accent-ink:#1f1300; --accent-soft:rgba(244,169,59,.13);
+    --ok:#3ccf8e; --ok-soft:rgba(60,207,142,.12);
+    --warn:#f2c14b; --warn-soft:rgba(242,193,75,.12);
+    --err:#ff6b6b; --err-soft:rgba(255,107,107,.12);
+    --info:#63a8ff;
+    --led-off:#16181d;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+    --shadow-lg:0 16px 40px -10px rgba(0,0,0,.6);
+    --ring:0 0 0 3px rgba(244,169,59,.28);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0d10; --surface:#12161b; --surface-2:#171c22; --surface-3:#1e242c;
+  --line:#222932; --line-2:#2d3540;
+  --text:#e8ebf0; --text-2:#c5ccd6; --muted:#8a94a3; --muted-2:#646e7e;
+  --accent:#f4a93b; --accent-hi:#ffc164; --accent-ink:#1f1300; --accent-soft:rgba(244,169,59,.13);
+  --ok:#3ccf8e; --ok-soft:rgba(60,207,142,.12);
+  --warn:#f2c14b; --warn-soft:rgba(242,193,75,.12);
+  --err:#ff6b6b; --err-soft:rgba(255,107,107,.12);
+  --info:#63a8ff;
+  --led-off:#16181d;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+  --shadow-lg:0 16px 40px -10px rgba(0,0,0,.6);
+  --ring:0 0 0 3px rgba(244,169,59,.28);
+  color-scheme:dark;
+}
+
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
-  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  line-height:1.5;
-  min-height:100vh;
+  font-family:var(--sans);font-size:14px;line-height:1.5;
+  background:var(--bg);color:var(--text);
   -webkit-font-smoothing:antialiased;
 }
-.bg-grad{
-  background-image:
-    radial-gradient(ellipse at 15% -10%,rgba(16,185,129,.10),transparent 55%),
-    radial-gradient(ellipse at 85% 110%,rgba(99,102,241,.08),transparent 55%);
-  min-height:100vh;
+button,input,select{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-3);padding:.08rem .35rem;border-radius:5px;color:var(--text-2)}
+a{color:var(--accent-hi)}
+.hidden,[hidden]{display:none!important}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── Esqueleto: barra lateral + contenido ─────────────────────────── */
+.app{display:grid;grid-template-columns:var(--side-w) minmax(0,1fr);min-height:100vh}
+.sidebar{
+  position:sticky;top:0;height:100vh;overflow-y:auto;min-width:0;
+  display:flex;flex-direction:column;gap:22px;
+  padding:22px 16px 18px;border-right:1px solid var(--line);background:var(--surface);
 }
-.container{
-  max-width:48rem;
-  margin:0 auto;
-  padding:1.25rem 1rem 7.5rem;
+.brand{display:flex;flex-direction:column;gap:12px;padding:0 6px}
+.led{
+  display:block;width:100%;max-width:220px;height:auto;aspect-ratio:26/9;
+  background:var(--panel);border-radius:10px;padding:0;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),0 6px 18px -8px rgba(0,0,0,.5);
+}
+.brand-name{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.brand-name b{font-size:17px;font-weight:650;letter-spacing:-.01em}
+.brand-host{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.fw{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line-2);border-radius:999px;padding:1px 8px;white-space:nowrap}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{
+  display:flex;align-items:center;gap:11px;width:100%;
+  padding:8px 10px;border:0;border-radius:9px;background:transparent;
+  color:var(--text-2);font-size:14px;font-weight:500;text-align:left;cursor:pointer;
+  transition:background .12s,color .12s;
+}
+.nav button svg{width:18px;height:18px;flex:none;color:var(--muted)}
+.nav button:hover{background:var(--surface-3)}
+.nav button.active{background:var(--accent-soft);color:var(--text)}
+.nav button.active svg{color:var(--accent)}
+.nav button:focus-visible{outline:none;box-shadow:var(--ring)}
+.subnav{display:flex;flex-direction:column;gap:2px;margin:0 0 4px 19px;padding-left:10px;border-left:1px solid var(--line-2)}
+.subnav button{padding:6px 10px;font-size:13.5px}
+.subnav button svg{width:16px;height:16px}
+.nav button.open{color:var(--text)}
+.nav button.open svg{color:var(--accent)}
+
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:14px;padding:0 6px}
+.side-status{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:12.5px}
+.side-status dt{color:var(--muted)}
+.side-status dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.theme-switch{display:flex;background:var(--surface-3);border-radius:9px;padding:3px;gap:2px}
+.theme-switch button{flex:1;border:0;background:transparent;border-radius:7px;padding:5px 0;cursor:pointer;color:var(--muted);display:flex;justify-content:center}
+.theme-switch button svg{width:16px;height:16px}
+.theme-switch button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+
+.main{padding:34px 40px 140px;min-width:0}
+.content{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.page-head{margin:0 0 6px}
+.page-head h1{margin:0;font-size:26px;font-weight:680;letter-spacing:-.02em;text-wrap:balance}
+.page-head p{margin:4px 0 0;color:var(--muted);max-width:62ch}
+.group-title{margin:14px 0 -4px;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--muted-2)}
+
+/* ── Movil: cabecera arriba y navegacion en una tira horizontal ──── */
+@media (max-width:899px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
+  .sidebar{
+    position:sticky;top:0;z-index:20;height:auto;overflow:visible;
+    flex-direction:column;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 0 0;
+    border-right:0;border-bottom:1px solid var(--line);
+    background:color-mix(in srgb,var(--surface) 88%,transparent);
+    backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);
+  }
+  .brand{flex-direction:row;align-items:center;gap:12px;padding:0 16px}
+  .led{width:84px;flex:none;border-radius:7px}
+  .brand-name{flex:1;flex-direction:column;align-items:flex-start;gap:0}
+  .brand-name b{font-size:15px}
+  .nav{flex-direction:row;overflow-x:auto;gap:4px;padding:0 12px 10px;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav button{width:auto;flex:none;padding:7px 12px;border-radius:999px;font-size:13.5px;gap:7px}
+  .nav button svg{width:16px;height:16px}
+  .subnav{display:none;flex-direction:row;gap:4px;margin:0;padding:0 0 0 4px;border-left:0;flex:none}
+  .subnav button{background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line)}
+  .nav[data-group="modes"] .subnav[data-parent="modes"],.nav[data-group="weather"] .subnav[data-parent="weather"]{display:flex}
+  .side-foot{display:none}
+  .main{padding:20px 16px 150px}
+  .page-head h1{font-size:22px}
 }
 
-/* Header */
-.header{
-  display:flex;align-items:center;justify-content:space-between;
-  flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem;
-}
-.title{display:flex;align-items:baseline;gap:.5rem}
-.title h1{margin:0;font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
-.badge{
-  padding:.15rem .55rem;font-size:.7rem;font-family:ui-monospace,monospace;
-  border-radius:.4rem;
-  background:rgba(16,185,129,.12);
-  border:1px solid rgba(16,185,129,.35);
-  color:var(--accent-hi);
-}
-.status-line{font-size:.75rem;font-family:ui-monospace,monospace;color:var(--muted)}
-
-/* Cards */
-.tabs-nav{
-  display:flex; gap:.35rem; flex-wrap:wrap;
-  margin-bottom:.9rem; padding-bottom:.5rem;
-  border-bottom:1px solid var(--border);
-}
-.tabs-nav button{
-  background:rgba(255,255,255,.04); color:var(--muted);
-  border:1px solid var(--border); padding:.45rem .9rem;
-  border-radius:.6rem; cursor:pointer; font-size:.92rem;
-  transition:background .15s, color .15s;
-}
-.tabs-nav button:hover{ background:rgba(255,255,255,.08); color:var(--text); }
-.tabs-nav button.active{
-  background:var(--accent); color:#000; border-color:var(--accent); font-weight:600;
-}
-section.card[data-tab].hidden-tab{ display:none; }
+/* ── Tarjetas ──────────────────────────────────────────────────────── */
 .card{
-  background:var(--card);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
-  border:1px solid var(--border);
-  border-radius:1rem;
-  padding:1.15rem;
-  margin-bottom:.9rem;
-  box-shadow:0 4px 14px -4px rgba(0,0,0,.35);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px;box-shadow:var(--shadow);min-width:0;
 }
-.card-head{
-  display:flex;align-items:center;justify-content:space-between;
-  gap:.5rem;margin-bottom:.95rem;flex-wrap:wrap;
-}
-.h-section{
-  margin:0;
-  font-size:.72rem;font-weight:600;
-  text-transform:uppercase;letter-spacing:.09em;
-  color:var(--muted);
-}
-.note{font-size:.72rem;color:var(--muted-2);line-height:1.5;margin:.7rem 0 0}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px}
+.card-head h2{margin:0;font-size:15px;font-weight:620;letter-spacing:-.005em}
+.card-head p{margin:3px 0 0;color:var(--muted);font-size:13px;max-width:60ch}
+.card-head .actions{display:flex;gap:8px;flex:none;align-items:center}
+.card-head:last-child{margin-bottom:0}
+.note{font-size:12.5px;color:var(--muted);margin:12px 0 0;line-height:1.55}
+.split{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
 
-/* Layout */
-.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
-.row-end{display:flex;gap:.65rem;flex-wrap:wrap;align-items:flex-end}
-.col{display:flex;flex-direction:column;gap:.3rem}
-.grid-2{display:grid;gap:.75rem;grid-template-columns:1fr}
-@media (min-width:640px){.grid-2{grid-template-columns:1fr 1fr}}
-.label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:.3rem}
+/* Filas de ajustes: texto a la izquierda, control a la derecha. */
+.settings{display:flex;flex-direction:column}
+.setting{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line)}
+.setting:first-child{border-top:0;padding-top:0}
+.setting:last-child{padding-bottom:0}
+.setting .t{min-width:0}
+.setting .t b{display:block;font-weight:550;font-size:14px}
+.setting .t span{display:block;color:var(--muted);font-size:12.5px}
+.setting > .ctl{flex:none;display:flex;align-items:center;gap:8px}
 
-/* Form controls */
-input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=file]),
-select{
-  background:var(--bg);
-  border:1px solid var(--border-2);
-  color:var(--text);
-  padding:.5rem .7rem;
-  border-radius:.55rem;
-  font-family:ui-monospace,SFMono-Regular,monospace;
-  font-size:.85rem;
-  outline:none;
-  transition:border-color .15s,box-shadow .15s;
-  width:100%;
+/* ── Formularios ───────────────────────────────────────────────────── */
+.fields{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.fields:has(> :only-child){max-width:360px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field > span,.label{font-size:12.5px;font-weight:550;color:var(--text-2)}
+.field small{font-size:12px;color:var(--muted)}
+:where(input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=file]),select){
+  width:100%;height:38px;padding:0 11px;
+  background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--radius-sm);
+  color:var(--text);font-size:14px;outline:none;
+  transition:border-color .12s,box-shadow .12s,background .12s;
 }
-input:focus:not([type=range]):not([type=checkbox]),
-select:focus{
-  border-color:var(--accent);
-  box-shadow:0 0 0 3px rgba(16,185,129,.18);
+input.mono,.mono input,input[type=number],input[type=time]{font-family:var(--mono);font-variant-numeric:tabular-nums}
+:where(input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=file]),select):hover{border-color:var(--muted-2)}
+:where(input:not([type=color]):not([type=range]):not([type=checkbox]):not([type=file]),select):focus{border-color:var(--accent);box-shadow:var(--ring);background:var(--surface)}
+:where(select){
+  appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a94a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center;
 }
-input[type=range]{accent-color:var(--accent);width:100%;height:.45rem;cursor:pointer}
-input[type=checkbox]{accent-color:var(--accent);width:1rem;height:1rem;cursor:pointer}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;margin:0;background:transparent;cursor:pointer;--fill:50%}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(var(--accent),var(--accent)) 0 0/var(--fill) 100% no-repeat,var(--surface-3)}
+input[type=range]::-moz-range-track{height:6px;border-radius:999px;background:var(--surface-3)}
+input[type=range]::-moz-range-progress{height:6px;border-radius:999px;background:var(--accent)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;margin-top:-6px;border-radius:50%;background:#fff;border:2px solid var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--accent)}
+input[type=range]:focus-visible{outline:none}
+input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:var(--ring)}
+input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer;margin:0}
 input[type=color]{
-  padding:0;background:transparent;border:1px solid var(--border-2);
-  border-radius:.4rem;cursor:pointer;width:2.5rem;height:2rem;
+  -webkit-appearance:none;appearance:none;width:38px;height:38px;padding:3px;flex:none;
+  border:1px solid var(--line-2);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;
 }
-input[type=file]{
-  background:var(--bg);border:1px solid var(--border-2);
-  color:var(--text);padding:.4rem;border-radius:.55rem;
-  font-size:.8rem;font-family:inherit;
-}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:0;border-radius:6px}
+input[type=color]::-moz-color-swatch{border:0;border-radius:6px}
+input[type=file]{font-size:13px;color:var(--muted);max-width:100%}
 input[type=file]::file-selector-button{
-  background:#1e293b;border:1px solid var(--border-2);
-  color:var(--text);padding:.35rem .8rem;border-radius:.4rem;
-  font-size:.78rem;margin-right:.65rem;cursor:pointer;
-  font-family:inherit;
+  margin-right:10px;height:34px;padding:0 14px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--surface-3);color:var(--text);font:inherit;font-weight:550;
 }
-input[type=file]::file-selector-button:hover{background:#334155}
-code{
-  background:var(--bg);padding:.1rem .35rem;border-radius:.3rem;
-  font-size:.85em;color:var(--text-2);
-  font-family:ui-monospace,SFMono-Regular,monospace;
-}
+.color-field{display:flex;align-items:center;gap:10px}
+.color-field code{font-size:12px}
 
-/* Buttons */
+/* Interruptor */
+.toggle{position:relative;display:inline-flex;width:40px;height:23px;flex:none;cursor:pointer}
+.toggle input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.toggle-slider{position:absolute;inset:0;background:var(--line-2);border-radius:999px;transition:background .18s}
+.toggle-slider::before{
+  content:"";position:absolute;width:17px;height:17px;left:3px;top:3px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.3,.7,.4,1);
+}
+.toggle input:checked + .toggle-slider{background:var(--accent)}
+.toggle input:checked + .toggle-slider::before{transform:translateX(17px)}
+.toggle input:focus-visible + .toggle-slider{box-shadow:var(--ring)}
+
+/* Botones */
 .btn{
-  display:inline-flex;align-items:center;justify-content:center;
-  gap:.4rem;
-  background:#1e293b;border:1px solid var(--border-2);
-  color:var(--text);padding:.55rem 1rem;
-  border-radius:.55rem;cursor:pointer;
-  font-size:.85rem;font-weight:500;
-  transition:all .15s;font-family:inherit;
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:36px;padding:0 14px;border-radius:var(--radius-sm);
+  border:1px solid var(--line-2);background:var(--surface);color:var(--text);
+  font-size:13.5px;font-weight:560;cursor:pointer;white-space:nowrap;
+  transition:background .12s,border-color .12s,transform .06s,box-shadow .12s;
 }
-.btn:hover{background:#293548;border-color:var(--border-3)}
+.btn:hover{background:var(--surface-3)}
 .btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.btn-sm{padding:.35rem .75rem;font-size:.75rem}
-.btn-primary{
-  background:linear-gradient(180deg,#10b981 0%,#059669 100%);
-  border-color:#0b8a64;color:#022c22;
-  box-shadow:0 1px 0 rgba(255,255,255,.18) inset;
-}
-.btn-primary:hover{
-  background:linear-gradient(180deg,#34d399 0%,#10b981 100%);
-  border-color:#10b981;
-}
-.btn-danger{color:#fca5a5;border-color:var(--danger-bd);background:transparent}
-.btn-danger:hover{background:rgba(127,29,29,.4);color:#fecaca}
+.btn svg{width:16px;height:16px}
+.btn-sm{height:30px;padding:0 11px;font-size:12.5px;border-radius:8px}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{background:var(--accent-hi);border-color:var(--accent-hi)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn-ghost:hover{background:var(--surface-3);color:var(--text)}
+.btn-danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 35%,transparent);background:transparent}
+.btn-danger:hover{background:var(--err-soft)}
+.btn-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 
-/* Toggle switch */
-.toggle{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
-.toggle input{opacity:0;width:0;height:0;position:absolute}
-.toggle-slider{
-  position:absolute;inset:0;background:#334155;
-  border-radius:9999px;cursor:pointer;transition:.2s;
-}
-.toggle-slider:before{
-  content:'';position:absolute;
-  height:18px;width:18px;left:3px;top:3px;
-  background:#fff;border-radius:50%;transition:.2s;
-  box-shadow:0 1px 2px rgba(0,0,0,.4);
-}
-.toggle input:checked+.toggle-slider{background:var(--accent)}
-.toggle input:checked+.toggle-slider:before{transform:translateX(18px)}
-.toggle-row{display:flex;align-items:center;gap:.75rem;cursor:pointer;margin-bottom:1rem}
+/* Pastillas de estado */
+.pill{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 10px;border-radius:999px;font-size:12.5px;font-weight:560;white-space:nowrap}
+.pill-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill-ok{background:var(--ok-soft);color:var(--ok)}
+.pill-warn{background:var(--warn-soft);color:var(--warn)}
+.pill-err{background:var(--err-soft);color:var(--err)}
+.pill-mute{background:var(--surface-3);color:var(--muted)}
+.pill-ok .pill-dot{animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.msg-ok,.text-accent{color:var(--ok)}
+.msg-warn,.text-warn{color:var(--warn)}
+.msg-err{color:var(--err)}
+.text-muted{color:var(--muted)}
+.text-day{color:#e8a317}
+.text-night{color:#8d8ff0}
+.src-om{color:var(--ok)}
+.src-tio{color:var(--info)}
+.src-none{color:var(--muted-2)}
 
-/* Brightness value */
-.bright-val{
-  font-family:ui-monospace,monospace;font-weight:700;font-size:1.4rem;
-  color:var(--accent-hi);font-variant-numeric:tabular-nums;
+/* ── Resumen ───────────────────────────────────────────────────────── */
+.stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);min-width:0}
+.stat .k{font-size:12px;color:var(--muted);font-weight:550;display:flex;align-items:center;gap:6px}
+.stat .k svg{width:15px;height:15px}
+.stat .v{font-size:20px;font-weight:650;letter-spacing:-.015em;margin-top:6px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat .s{font-size:12.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:14px;vertical-align:-1px}
+.bars i{width:3px;border-radius:1px;background:var(--line-2)}
+.bars i:nth-child(1){height:5px}.bars i:nth-child(2){height:8px}.bars i:nth-child(3){height:11px}.bars i:nth-child(4){height:14px}
+.bars[data-l="1"] i:nth-child(-n+1),.bars[data-l="2"] i:nth-child(-n+2),.bars[data-l="3"] i:nth-child(-n+3),.bars[data-l="4"] i:nth-child(-n+4){background:var(--ok)}
+.bars[data-l="1"] i:nth-child(-n+1){background:var(--err)}
+.bars[data-l="2"] i:nth-child(-n+2){background:var(--warn)}
+
+.remote{display:flex;align-items:center;justify-content:center;gap:22px;padding:10px 0 4px}
+.rbtn{
+  width:62px;height:62px;border-radius:50%;cursor:pointer;display:grid;place-items:center;
+  background:radial-gradient(circle at 50% 35%,var(--surface),var(--surface-3));
+  border:1px solid var(--line-2);color:var(--text-2);
+  box-shadow:var(--shadow),inset 0 -2px 0 rgba(0,0,0,.06);
+  transition:transform .08s,box-shadow .12s,color .12s;
 }
-.bright-val-sm{
-  font-family:ui-monospace,monospace;font-weight:700;font-size:.9rem;
-  color:var(--accent-hi);font-variant-numeric:tabular-nums;
+.rbtn svg{width:22px;height:22px}
+.rbtn:hover{color:var(--accent)}
+.rbtn:active{transform:scale(.94)}
+.rbtn:focus-visible{outline:none;box-shadow:var(--ring)}
+.rbtn.center{width:76px;height:76px;border-color:color-mix(in srgb,var(--accent) 55%,var(--line-2));color:var(--accent)}
+.remote-caption{display:flex;justify-content:center;gap:22px;font-size:12px;color:var(--muted);text-align:center}
+.remote-caption span{width:62px}.remote-caption span:nth-child(2){width:76px}
+
+/* ── Claude ────────────────────────────────────────────────────────── */
+.usage{display:flex;align-items:baseline;gap:10px}
+.usage b{font-size:30px;font-weight:680;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.meter{height:8px;border-radius:999px;background:var(--surface-3);overflow:hidden;margin-top:10px}
+.meter > i{display:block;height:100%;width:0;border-radius:inherit;background:var(--clawd);transition:width .4s}
+.anim-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}
+.anim{
+  position:relative;display:flex;flex-direction:column;gap:8px;padding:10px;cursor:pointer;
+  border:1px solid var(--line);border-radius:12px;background:var(--surface-2);
+  transition:border-color .15s,background .15s,opacity .15s;
 }
-.range-marks{
-  display:flex;justify-content:space-between;
-  font-size:.7rem;color:var(--muted-2);
-  margin-top:.55rem;font-family:ui-monospace,monospace;
+.anim:hover{border-color:var(--line-2)}
+.anim canvas{display:block;width:100%;height:auto;aspect-ratio:21/14;border-radius:8px;background:var(--panel);transition:filter .2s,opacity .2s}
+.anim .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.anim b{font-size:13.5px;font-weight:600}
+.anim small{display:block;color:var(--muted);font-size:12px;line-height:1.4}
+.anim:has(input:checked){border-color:color-mix(in srgb,var(--clawd) 45%,var(--line))}
+.anim:not(:has(input:checked)) canvas{filter:grayscale(1);opacity:.35}
+.anim:not(:has(input:checked)) b,.anim:not(:has(input:checked)) small{opacity:.6}
+.anim:has(input:focus-visible){box-shadow:var(--ring)}
+
+/* ── Listas: programaciones, botones, ciudades ─────────────────────── */
+.list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.list-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
+.list-row:first-child{border-top:0}
+.list-row .idx{font-family:var(--mono);font-size:12px;color:var(--muted-2);width:18px;text-align:right;flex:none}
+.list-row input[type=time]{width:112px;flex:none}
+.list-row select{flex:1;min-width:140px}
+.list-row .name{min-width:84px;font-weight:550}
+.list-row:has(.toggle input:not(:checked)) > :not(.toggle):not(.idx):not(.name){opacity:.5}
+.city-head,.city-row{display:grid;grid-template-columns:38px minmax(64px,.8fr) 1fr 1fr;gap:8px;align-items:center}
+.city-head{font-size:12px;color:var(--muted);font-weight:550;padding:0 0 6px}
+#cities{display:flex;flex-direction:column;gap:8px}
+
+/* Tabla meteo */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.weather-tbl{width:100%;border-collapse:collapse;font-size:13px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.weather-tbl th{text-align:left;padding:9px 12px;font-size:11px;font-family:var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--line);white-space:nowrap}
+.weather-tbl td{padding:9px 12px;border-top:1px solid var(--line);white-space:nowrap}
+.weather-tbl tr:first-child td{border-top:0}
+.weather-tbl td:first-child{font-family:var(--sans);font-weight:600}
+.icon-btn{
+  width:26px;height:26px;border-radius:7px;border:1px solid var(--line-2);background:var(--surface);
+  color:var(--text-2);cursor:pointer;font-size:12px;font-family:var(--sans);transition:all .12s;
 }
+.icon-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Editor de iconos */
+.icon-edit{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+#icon-grid{
+  display:grid;grid-template-columns:repeat(5,1fr);gap:3px;padding:8px;flex:none;
+  width:232px;height:232px;background:var(--panel);border-radius:12px;
+}
+#icon-grid button{border:0;padding:0;border-radius:5px;cursor:pointer;transition:transform .08s}
+#icon-grid button:hover{transform:scale(1.06);box-shadow:0 0 0 2px rgba(255,255,255,.6)}
+.transp{background:repeating-conic-gradient(#2a2f37 0 25%,#1d2128 0 50%) 0 0/10px 10px!important}
+.frames{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.frame-tab{
+  display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--surface);font-family:var(--mono);font-size:12px;color:var(--text-2);
+}
+.frame-tab.active{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.frame-tab button{border:0;background:transparent;color:var(--err);cursor:pointer;font-size:15px;line-height:1;padding:0 0 0 2px}
+#palette{display:grid;grid-template-columns:repeat(8,36px);gap:8px}
+.swatch{display:flex;flex-direction:column;align-items:center;gap:4px}
+.swatch button{width:36px;height:36px;border-radius:9px;padding:0;cursor:pointer;border:1px solid var(--line-2);transition:transform .08s}
+.swatch button:hover{transform:scale(1.06)}
+.swatch button.sel{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent)}
+.swatch input[type=color]{width:36px;height:14px;padding:0;border-radius:4px}
+.swatch-tag{font-size:10.5px;color:var(--muted)}
+
+/* Modo imagen */
+.canvas-box{display:flex;flex-direction:column;gap:6px}
+#userimg-src,#userimg-preview{border-radius:10px;background:var(--panel);max-width:100%;height:auto;border:1px solid var(--line)}
+#userimg-src{cursor:move;touch-action:none}
+#userimg-preview{image-rendering:pixelated}
 
 /* WiFi */
-.wifi-status{font-size:.9rem;margin-bottom:.85rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
-#nets{display:flex;flex-direction:column;gap:.3rem;max-height:14rem;overflow-y:auto;margin-bottom:.85rem;padding-right:.2rem}
+#nets{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px;max-height:15rem;overflow-y:auto}
 #nets:empty{display:none}
-.net{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:.55rem .8rem;
-  background:rgba(2,6,23,.6);
-  border:1px solid transparent;
-  border-radius:.5rem;cursor:pointer;font-size:.85rem;transition:all .15s;
-}
-.net:hover{background:#1e293b;border-color:var(--border-2)}
-.net-name{font-family:ui-monospace,monospace;color:var(--text)}
-.net-rssi{font-family:ui-monospace,monospace;font-size:.78rem;font-variant-numeric:tabular-nums}
-.rssi-good{color:var(--accent-hi)}
-.rssi-mid{color:var(--warn)}
-.rssi-bad{color:var(--err)}
-
-/* Status pill */
-.pill{
-  display:inline-flex;align-items:center;gap:.45rem;
-  padding:.22rem .6rem;border-radius:9999px;
-  font-size:.75rem;font-weight:500;
-}
-.pill-ok{background:rgba(16,185,129,.12);color:var(--accent-hi);border:1px solid rgba(16,185,129,.35)}
-.pill-warn{background:rgba(251,191,36,.12);color:var(--warn);border:1px solid rgba(251,191,36,.35)}
-.pill-err{background:rgba(248,113,113,.12);color:var(--err);border:1px solid rgba(248,113,113,.35)}
-.pill-dot{width:.45rem;height:.45rem;border-radius:9999px;background:currentColor;animation:pulse 2s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
-
-/* Cities */
-#cities{display:flex;flex-direction:column;gap:.55rem}
-.city-row{
-  display:grid;
-  grid-template-columns:2.8rem minmax(5rem,5.5rem) 1fr 1fr;
-  gap:.5rem;align-items:center;
-}
-
-/* Icon editor */
-.icon-edit-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1.5rem}
-.icon-edit-right{flex:1;min-width:200px}
-#icon-grid{
-  display:grid;grid-template-columns:repeat(5,1fr);
-  gap:1px;background:var(--border-2);padding:1px;
-  border-radius:.55rem;width:200px;height:200px;
-  flex-shrink:0;box-shadow:inset 0 1px 3px rgba(0,0,0,.5);
-}
-#icon-grid button{padding:0;border:0;border-radius:0;cursor:pointer;transition:transform .08s}
-#icon-grid button:hover{transform:scale(1.07);z-index:1;outline:1px solid #fff;outline-offset:-1px}
-.frame-tab{
-  display:inline-flex;align-items:center;gap:.35rem;
-  padding:.32rem .7rem;border-radius:.45rem;
-  font-size:.75rem;background:var(--bg);
-  border:1px solid var(--border-2);cursor:pointer;
-  font-family:ui-monospace,monospace;transition:all .15s;
-  color:var(--text-2);
-}
-.frame-tab:hover{border-color:var(--border-3);background:#1e293b}
-.frame-tab.active{background:var(--accent-deep);border-color:var(--accent);color:#fff;box-shadow:0 0 0 1px var(--accent)}
-.frame-tab button{padding:0 .15rem;border:0;background:transparent;color:#fca5a5;cursor:pointer;font-size:.95rem;line-height:1}
-#palette{display:grid;grid-template-columns:repeat(8,auto);gap:.5rem;width:fit-content}
-.swatch{display:flex;flex-direction:column;align-items:center;gap:.2rem}
-.swatch button{width:2rem;height:2rem;padding:0;border-radius:.4rem;cursor:pointer;transition:transform .08s}
-.swatch button:hover{transform:scale(1.08)}
-.swatch input[type=color]{width:2rem;height:.7rem;border-radius:0;border:1px solid var(--border-2)}
-.swatch-tag{font-size:.6rem;color:var(--muted-2)}
-
-/* Weather table */
-.tbl-wrap{overflow-x:auto;margin:0 -.25rem}
-.weather-tbl{width:100%;border-collapse:collapse;font-size:.85rem;font-family:ui-monospace,monospace}
-.weather-tbl th{
-  text-align:left;padding:.3rem .55rem;
-  font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;
-  color:var(--muted-2);font-weight:600;
-}
-.weather-tbl td{padding:.4rem .55rem;border-top:1px solid rgba(30,41,59,.7)}
-.text-temp{color:var(--accent-hi)}
-.src-om{color:var(--accent-hi)}        /* Open-Meteo: verde */
-.src-tio{color:#60a5fa}                /* Tomorrow.io: azul */
-.src-none{color:var(--muted-2)}
-.text-day{color:#fcd34d}
-.text-night{color:#a5b4fc}
-.text-muted{color:var(--muted-2)}
-.text-accent{color:var(--accent-hi)}
-.text-warn{color:var(--warn)}
+.net{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-top:1px solid var(--line);transition:background .12s}
+.net:first-child{border-top:0}
+.net:hover{background:var(--surface-2)}
+.net-name{font-weight:550}
+.net-rssi{font-family:var(--mono);font-size:12px}
+.rssi-good{color:var(--ok)}.rssi-mid{color:var(--warn)}.rssi-bad{color:var(--err)}
+.wifi-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;color:var(--text-2)}
 
 /* OTA */
-#ota-progress{height:.5rem;background:var(--bg);border-radius:9999px;overflow:hidden;border:1px solid var(--border)}
-#ota-bar{height:100%;width:0;background:linear-gradient(90deg,#10b981,#34d399);transition:width .1s linear}
+#ota-progress{height:8px;background:var(--surface-3);border-radius:999px;overflow:hidden;margin-top:14px}
+#ota-bar{height:100%;width:0;background:var(--accent);transition:width .1s linear}
 
-/* Save bar */
+.kv{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);font-size:13px}
+.kv .text-muted{flex:none}
+
+/* ── Barra de guardado (solo con cambios) y avisos ─────────────────── */
 .savebar{
-  position:fixed;bottom:0;left:0;right:0;
-  background:rgba(2,6,23,.92);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-top:1px solid var(--border);z-index:10;
+  position:fixed;z-index:40;left:calc(50% + var(--side-w) / 2);bottom:calc(18px + env(safe-area-inset-bottom,0px));
+  transform:translate(-50%,160%);transition:transform .28s cubic-bezier(.3,.7,.3,1);
+  display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;
+  background:var(--surface);border:1px solid var(--line-2);border-radius:999px;box-shadow:var(--shadow-lg);
+  white-space:nowrap;
 }
-.savebar-inner{
-  max-width:48rem;margin:0 auto;
-  padding:.8rem 1rem;
-  display:flex;flex-wrap:wrap;gap:.55rem;
-}
-.btn-save{flex:1;min-width:160px;padding:.7rem 1rem;font-size:.95rem;font-weight:600}
+.savebar.show{transform:translate(-50%,0)}
+.savebar .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.savebar span{font-weight:560;font-size:13.5px;margin-right:6px}
+.savebar .btn{border-radius:999px}
+@media (max-width:899px){.savebar{left:50%;width:calc(100% - 24px);justify-content:flex-end}.savebar span{margin-right:auto}}
 #msg{
-  max-width:48rem;margin:0 auto;
-  padding:0 1rem .55rem;font-size:.85rem;
-  text-align:center;min-height:1.25em;color:var(--muted);
+  position:fixed;z-index:60;top:calc(16px + env(safe-area-inset-top,0px));right:16px;max-width:min(420px,calc(100% - 32px));
+  padding:11px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--line-2);box-shadow:var(--shadow-lg);
+  font-size:13.5px;font-weight:550;color:var(--text);
+  opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .2s,transform .2s;
 }
-.msg-ok{color:var(--accent-hi)}
-.msg-warn{color:var(--warn)}
-.msg-err{color:var(--err)}
+#msg.show{opacity:1;transform:none;pointer-events:auto}
+#msg.msg-ok{border-left:4px solid var(--ok)}
+#msg.msg-err{border-left:4px solid var(--err)}
+#msg.msg-warn{border-left:4px solid var(--warn)}
+@media (max-width:899px){#msg{left:16px;right:16px;max-width:none}}
 
 /* Modal */
-.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px}
 .modal.hidden{display:none}
-.modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.78);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-.modal-card{position:relative;background:#0f172a;border:1px solid var(--border);border-radius:1rem;width:100%;max-width:42rem;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.5)}
-.modal-head{display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.1rem;border-bottom:1px solid var(--border)}
-.modal-head h3{margin:0;font-size:.95rem;font-weight:600}
-.modal-body{padding:1rem 1.1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.85rem}
-.modal-meta{font-size:.75rem;color:var(--muted);font-family:ui-monospace,monospace;display:flex;flex-wrap:wrap;gap:.65rem}
-.modal-meta b{color:var(--text-2);font-weight:600}
-.modal-tabs{display:flex;gap:.3rem;width:100%;margin-bottom:.4rem}
-.modal-tabs button{flex:1;background:var(--bg);border:1px solid var(--border-2);color:var(--muted);padding:.35rem .6rem;border-radius:.4rem;cursor:pointer;font-size:.75rem;font-family:inherit;transition:all .15s}
-.modal-tabs button:hover{border-color:var(--border-3);color:var(--text-2)}
-.modal-tabs button.active{background:var(--accent-deep);border-color:var(--accent);color:#fff}
-.modal-section pre{margin:.3rem 0 0;background:var(--bg);border:1px solid var(--border);border-radius:.5rem;padding:.65rem;font-size:.72rem;line-height:1.45;color:var(--text-2);overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:18rem;overflow-y:auto}
-.icon-btn{background:transparent;border:1px solid var(--border-2);color:var(--text-2);padding:.15rem .45rem;border-radius:.35rem;cursor:pointer;font-size:.7rem;font-family:inherit;transition:all .15s}
-.icon-btn:hover{background:#1e293b;border-color:var(--border-3);color:var(--accent-hi)}
+.modal-backdrop{position:absolute;inset:0;background:rgba(5,7,10,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.modal-card{position:relative;width:100%;max-width:44rem;max-height:86vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-2);border-radius:16px;box-shadow:var(--shadow-lg)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}
+.modal-head h3{margin:0;font-size:15px;font-weight:620}
+.modal-body{padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.modal-meta{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12.5px;color:var(--muted);font-family:var(--mono)}
+.modal-meta b{color:var(--text-2)}
+.modal-tabs{display:flex;gap:4px;width:100%;background:var(--surface-3);padding:3px;border-radius:9px}
+.modal-tabs button{flex:1;border:0;background:transparent;border-radius:7px;padding:6px;cursor:pointer;color:var(--muted);font-size:12.5px;font-family:var(--sans)}
+.modal-tabs button.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.modal-section pre{margin:6px 0 0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--text-2);white-space:pre-wrap;word-break:break-all;max-height:18rem;overflow:auto}
 
-/* Helpers */
-.hidden{display:none}
-.flex-1{flex:1}
-.min-w-200{min-width:200px}
-.mb-3{margin-bottom:.85rem}
-.mb-4{margin-bottom:1rem}
-.gap-1{gap:.3rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
-<div class="bg-grad">
-<div class="container">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></symbol>
+    <symbol id="i-display" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="12" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 9h.01M9 9h.01M12 9h.01M6 12h.01M9 12h.01"/></symbol>
+    <symbol id="i-modes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 8 12 13l9.5-5L12 3Z"/><path d="m2.5 13 9.5 5 9.5-5"/></symbol>
+    <symbol id="i-claude" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/></symbol>
+    <symbol id="i-weather" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 19h9.5a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 10 4.5 4.5 0 0 0 7.5 19Z"/></symbol>
+    <symbol id="i-icons" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></symbol>
+    <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.6 16a5 5 0 0 1 6.8 0"/><path d="M12 19.5h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></symbol>
+    <symbol id="i-life" viewBox="0 0 24 24" fill="currentColor"><rect x="9.5" y="3.5" width="5" height="5" rx="1"/><rect x="15.5" y="9.5" width="5" height="5" rx="1"/><rect x="3.5" y="15.5" width="5" height="5" rx="1"/><rect x="9.5" y="15.5" width="5" height="5" rx="1"/><rect x="15.5" y="15.5" width="5" height="5" rx="1"/></symbol>
+    <symbol id="i-fire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 21c-4 0-6.5-2.7-6.5-6.2 0-3.6 3-5.6 3.5-9.3 2 1.3 3 3.2 3 5 1-.8 1.6-2 1.7-3.3 2.6 1.9 4.8 4.6 4.8 7.6 0 3.5-2.5 6.2-6.5 6.2Z"/></symbol>
+    <symbol id="i-plasma" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8c3-3 6 3 9 0s6-3 9 0M3 13c3-3 6 3 9 0s6-3 9 0M3 18c3-3 6 3 9 0s6-3 9 0"/></symbol>
+    <symbol id="i-moire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="12" r="2.5"/><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="2.5"/><circle cx="15" cy="12" r="6"/></symbol>
+    <symbol id="i-nyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M5 19V6l4 4h6l4-4v13Z"/><path d="M9.5 14h.01M14.5 14h.01"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 16-5-5-9 8.5"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></symbol>
+  </defs>
+</svg>
 
-<header class="header">
-  <div class="title">
-    <h1>WorldTime</h1>
-    <span class="badge">FW</span>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand">
+    <canvas id="led" class="led" width="104" height="36" aria-label="Hora del panel"></canvas>
+    <div class="brand-name">
+      <div>
+        <b>WorldTime</b>
+        <div id="brand-host" class="brand-host">—</div>
+      </div>
+      <span id="brand-fw" class="fw">—</span>
+    </div>
   </div>
-  <div id="status" class="status-line">cargando…</div>
+  <nav class="nav" aria-label="Secciones">
+    <button type="button" data-tab-btn="home"><svg><use href="#i-home"/></svg>Resumen</button>
+    <button type="button" data-tab-btn="display"><svg><use href="#i-display"/></svg>Pantalla</button>
+    <button type="button" data-tab-btn="modes"><svg><use href="#i-modes"/></svg>Modos</button>
+    <div class="subnav" data-parent="modes">
+      <button type="button" data-tab-btn="claude"><svg><use href="#i-claude"/></svg>Claude</button>
+      <button type="button" data-tab-btn="life"><svg><use href="#i-life"/></svg>Game of Life</button>
+      <button type="button" data-tab-btn="fire"><svg><use href="#i-fire"/></svg>Llama</button>
+      <button type="button" data-tab-btn="plasma"><svg><use href="#i-plasma"/></svg>Plasma</button>
+      <button type="button" data-tab-btn="moire"><svg><use href="#i-moire"/></svg>Moiré</button>
+      <button type="button" data-tab-btn="nyan"><svg><use href="#i-nyan"/></svg>Nyan Cat</button>
+      <button type="button" data-tab-btn="image"><svg><use href="#i-image"/></svg>Imagen</button>
+    </div>
+    <button type="button" data-tab-btn="weather"><svg><use href="#i-weather"/></svg>Meteo</button>
+    <div class="subnav" data-parent="weather">
+      <button type="button" data-tab-btn="icons"><svg><use href="#i-icons"/></svg>Iconos</button>
+    </div>
+    <button type="button" data-tab-btn="jitter"><svg><use href="#i-mouse"/></svg>Jitter</button>
+    <button type="button" data-tab-btn="system"><svg><use href="#i-system"/></svg>Sistema</button>
+  </nav>
+  <div class="side-foot">
+    <dl class="side-status">
+      <dt>IP</dt><dd id="sb-ip">—</dd>
+      <dt>Señal</dt><dd id="sb-rssi">—</dd>
+      <dt>Encendido</dt><dd id="sb-up">—</dd>
+      <dt>Memoria</dt><dd id="sb-heap">—</dd>
+    </dl>
+    <div class="theme-switch" role="group" aria-label="Tema">
+      <button type="button" data-theme-btn="auto" title="Automático"><svg><use href="#i-auto"/></svg></button>
+      <button type="button" data-theme-btn="light" title="Claro"><svg><use href="#i-sun"/></svg></button>
+      <button type="button" data-theme-btn="dark" title="Oscuro"><svg><use href="#i-moon"/></svg></button>
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+<div class="content">
+
+<!-- ═════════════════════════ Resumen ═════════════════════════ -->
+<header class="page-head" data-tab="home">
+  <h1>Resumen</h1>
+  <p>Estado del panel en tiempo real y un mando para controlarlo desde aquí.</p>
 </header>
-
-<nav class="tabs-nav">
-  <button type="button" data-tab-btn="system" class="active">Sistema</button>
-  <button type="button" data-tab-btn="display">Pantalla</button>
-  <button type="button" data-tab-btn="modes">Modos</button>
-  <button type="button" data-tab-btn="weather">Meteo</button>
-  <button type="button" data-tab-btn="icons">Iconos</button>
-  <button type="button" data-tab-btn="home">Botones</button>
-  <button type="button" data-tab-btn="jitter">Jitter</button>
-</nav>
-
+<div class="stats" data-tab="home">
+  <div class="stat"><div class="k"><svg><use href="#i-wifi"/></svg>Conexión</div><div class="v" id="ov-conn">—</div><div class="s" id="ov-conn-sub">&nbsp;</div></div>
+  <div class="stat"><div class="k"><svg><use href="#i-tag"/></svg>Dirección</div><div class="v" id="ov-ip">—</div><div class="s" id="ov-host">&nbsp;</div></div>
+  <div class="stat"><div class="k"><svg><use href="#i-clock"/></svg>Encendido</div><div class="v" id="ov-up">—</div><div class="s" id="ov-heap">&nbsp;</div></div>
+  <div class="stat"><div class="k"><svg><use href="#i-chip"/></svg>Firmware</div><div class="v" id="ov-fw">—</div><div class="s" id="ov-fw-sub">&nbsp;</div></div>
+  <div class="stat"><div class="k"><svg><use href="#i-moon"/></svg>Luna</div><div class="v" id="ov-moon">—</div><div class="s" id="ov-moon-sub">&nbsp;</div></div>
+</div>
 <section class="card" data-tab="home">
-  <h2 class="h-section mb-3">Botones (simulacion)</h2>
-  <span class="note">Disparan la misma accion que los TTP223 fisicos y son contextuales. En el reloj: izquierda = modo anterior, centro = abrir menu, derecha = modo siguiente. Dentro del menu: izquierda/derecha navegan o ajustan, centro ejecuta / vuelve.</span>
-  <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
-    <button id="btn-sim-left"   type="button" class="btn">&larr; Izquierda</button>
-    <button id="btn-sim-center" type="button" class="btn">Centro (menu/OK)</button>
-    <button id="btn-sim-right"  type="button" class="btn">Derecha &rarr;</button>
-  </div>
-  <span class="note" style="margin-top:.75rem;display:block">Configuracion del sensor fisico. PULLUP = pulsador a GND (activo LOW). INPUT = sensor push-pull tipo TTP223 (activo HIGH). Si el sensor de un lado dispara solo, desactivalo: los botones de arriba siguen funcionando. Aviso: A1 es strapping pin del ESP32-S3 — usarlo puede impedir el boot si el pin esta en HIGH al encender.</span>
-  <div id="ttp-config" style="margin-top:.5rem"></div>
-</section>
-
-<section class="card" data-tab="jitter">
-  <h2 class="h-section mb-3">Jitter — raton BLE anti-inactividad</h2>
-  <span class="note">El device se anuncia por Bluetooth como raton con el nombre de abajo. Emparejalo desde macOS (Ajustes &rarr; Bluetooth). Con el jitter activo mueve el cursor unos pixeles cada intervalo para que el equipo no entre en reposo. Tambien se controla desde la app de barra de menu (carpeta <code>mac/</code>).</span>
-  <div style="margin-top:.75rem;padding:.5rem .7rem;border:1px solid var(--border-2);border-radius:.4rem;background:var(--bg)">
-    <span class="text-muted">Estado BLE:</span> <span id="jitter-ble-status">—</span>
-  </div>
-  <div style="margin-top:.9rem">
-    <span class="label">Nombre Bluetooth</span>
-    <input type="text" id="jitter-name" class="inp" maxlength="29" placeholder="WorldTime Jitter">
-    <span class="note" style="display:block">Se aplica al reiniciar. macOS puede seguir mostrando el nombre antiguo hasta que olvides el dispositivo y lo vuelvas a emparejar.</span>
-  </div>
-  <label class="row-flex" style="margin-top:.9rem">
-    <input type="checkbox" id="jitter-en">
-    <span>Jitter activo</span>
-  </label>
-  <div style="margin-top:.75rem">
-    <span class="label">Intervalo entre movimientos</span>
-    <select id="jitter-interval" class="inp">
-      <option value="250">250 ms</option>
-      <option value="500">500 ms</option>
-      <option value="1000">1 s</option>
-      <option value="2000">2 s</option>
-      <option value="5000">5 s</option>
-      <option value="10000">10 s</option>
-      <option value="30000">30 s</option>
-      <option value="60000">60 s</option>
-    </select>
-  </div>
-  <div style="margin-top:.75rem">
-    <span class="label">Distancia maxima por movimiento</span>
-    <select id="jitter-step" class="inp">
-      <option value="2">2 px</option>
-      <option value="3">3 px</option>
-      <option value="4">4 px</option>
-      <option value="6">6 px</option>
-      <option value="10">10 px</option>
-    </select>
-  </div>
-  <button id="jitter-apply" class="btn btn-primary" style="margin-top:1rem">Aplicar</button>
-  <span class="note" style="margin-top:.75rem;display:block">El estado se recuerda tras un reboot: si el jitter queda activo y el Mac sigue emparejado, el cursor vuelve a moverse solo al arrancar.</span>
-</section>
-
-<section class="card" data-tab="system">
   <div class="card-head">
-    <h2 class="h-section">WiFi</h2>
-    <button id="scan" class="btn btn-sm">Buscar redes</button>
-  </div>
-  <div id="wifi-status" class="wifi-status">-</div>
-  <div id="nets"></div>
-  <div class="grid-2 mb-3">
-    <label><span class="label">SSID</span><input id="ssid"/></label>
-    <label><span class="label">Password</span><input id="pwd" type="password"/></label>
-  </div>
-  <label class="toggle-row" style="margin-bottom:.5rem">
-    <span class="toggle"><input id="wifi-dhcp" type="checkbox" checked/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Usar DHCP (recomendado). Desmarca para IP estatica.</span>
-  </label>
-  <div id="wifi-static-fields" style="display:none">
-    <div class="grid-2">
-      <label><span class="label">IP</span><input id="wifi-ip" placeholder="192.168.1.50"/></label>
-      <label><span class="label">Gateway</span><input id="wifi-gw" placeholder="192.168.1.1"/></label>
+    <div>
+      <h2>Mando</h2>
+      <p>Hace lo mismo que los botones táctiles del panel. En el reloj: anterior, menú y siguiente. Dentro del menú, las flechas navegan o ajustan y el centro confirma o vuelve.</p>
     </div>
-    <div class="grid-2">
-      <label><span class="label">Subnet</span><input id="wifi-sn" placeholder="255.255.255.0"/></label>
-      <label><span class="label">DNS 1</span><input id="wifi-dns1" placeholder="1.1.1.1"/></label>
+  </div>
+  <div class="remote">
+    <button id="btn-sim-left" type="button" class="rbtn" aria-label="Izquierda"><svg><use href="#i-left"/></svg></button>
+    <button id="btn-sim-center" type="button" class="rbtn center" aria-label="Centro"><svg><use href="#i-dot"/></svg></button>
+    <button id="btn-sim-right" type="button" class="rbtn" aria-label="Derecha"><svg><use href="#i-right"/></svg></button>
+  </div>
+  <div class="remote-caption"><span>Anterior</span><span>Menú / OK</span><span>Siguiente</span></div>
+</section>
+
+<!-- ═════════════════════════ Pantalla ═════════════════════════ -->
+<header class="page-head" data-tab="display">
+  <h1>Pantalla</h1>
+  <p>Brillo, modo noche y cómo se dibuja el reloj.</p>
+</header>
+<section class="card" data-tab="display" data-save>
+  <div class="card-head">
+    <div><h2>Brillo</h2><p>Se aplica al momento mientras mueves el control.</p></div>
+    <span class="usage"><b id="bright-val" style="font-size:24px">50%</b></span>
+  </div>
+  <input id="bright" type="range" min="5" max="100" step="5" aria-label="Brillo"/>
+  <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--line)">
+    <div class="card-head" style="margin-bottom:14px">
+      <div><h2>Modo noche</h2><p>Baja el brillo en una franja horaria. Clawd se va a dormir.</p></div>
+      <label class="toggle"><input id="nm-en" type="checkbox" aria-label="Modo noche"/><span class="toggle-slider"></span></label>
     </div>
-    <label><span class="label">DNS 2 (opcional)</span><input id="wifi-dns2" placeholder=""/></label>
-    <span class="note">Los cambios de IP se aplican al siguiente boot. Si los valores son invalidos, el device vuelve a DHCP automaticamente.</span>
-  </div>
-  <button id="connect" class="btn btn-primary">Conectar y reiniciar</button>
-</section>
-
-<section class="card" data-tab="display">
-  <div class="card-head">
-    <h2 class="h-section">Brillo (día)</h2>
-    <span id="bright-val" class="bright-val">50%</span>
-  </div>
-  <input id="bright" type="range" min="5" max="100" step="5"/>
-  <div class="range-marks"><span>5%</span><span>100%</span></div>
-</section>
-
-<section class="card" data-tab="display">
-  <div class="card-head">
-    <h2 class="h-section">Modo noche</h2>
-    <label class="toggle"><input id="nm-en" type="checkbox"/><span class="toggle-slider"></span></label>
-  </div>
-  <div class="grid-2 mb-3">
-    <label><span class="label">Inicio</span><input id="nm-start" type="time"/></label>
-    <label><span class="label">Fin</span><input id="nm-end" type="time"/></label>
-  </div>
-  <div class="card-head" style="margin-bottom:.4rem">
-    <span class="label" style="margin-bottom:0">Brillo nocturno</span>
-    <span id="nm-bright-val" class="bright-val-sm">10%</span>
-  </div>
-  <input id="nm-bright" type="range" min="5" max="100" step="5"/>
-</section>
-
-<section class="card" data-tab="weather">
-  <h2 class="h-section mb-3">Ciudades</h2>
-  <div id="cities"></div>
-</section>
-
-<section class="card" data-tab="icons">
-  <h2 class="h-section mb-3">Iconos</h2>
-  <div class="row-end mb-3">
-    <label><span class="label">Editar</span><select id="icon-pick" style="min-width:8rem"></select></label>
-    <button id="reset-icon" class="btn btn-danger btn-sm">Restablecer este icono</button>
-  </div>
-  <div class="row mb-3">
-    <div id="icon-frames" class="row gap-1"></div>
-    <button id="frame-add" class="btn btn-sm">+ Frame</button>
-    <button id="frame-play" class="btn btn-sm"><span class="text-accent">▶</span> Play</button>
-    <button id="frame-play-device" class="btn btn-sm" title="Reproduce este icono en la fila 0 del panel real"><span style="color:#60a5fa">📺</span> Device</button>
-  </div>
-  <label style="display:block;margin-bottom:1rem;max-width:10rem">
-    <span class="label">Duración frame (ms)</span>
-    <input id="frame-ms" type="number" min="50" max="5000" step="50"/>
-  </label>
-  <div class="icon-edit-row">
-    <div id="icon-grid"></div>
-    <div class="icon-edit-right">
-      <span class="label">Paleta</span>
-      <div id="palette"></div>
+    <div class="fields">
+      <label class="field"><span>Desde</span><input id="nm-start" type="time"/></label>
+      <label class="field"><span>Hasta</span><input id="nm-end" type="time"/></label>
+      <div class="field">
+        <span style="display:flex;justify-content:space-between">Brillo nocturno <span id="nm-bright-val" class="mono">10%</span></span>
+        <input id="nm-bright" type="range" min="5" max="100" step="5" style="height:38px" aria-label="Brillo nocturno"/>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="card" data-tab="display">
-  <h2 class="h-section mb-3">Otros</h2>
-  <label class="toggle-row">
-    <span class="toggle"><input id="blink" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Dos puntos parpadeando</span>
-  </label>
-  <label class="toggle-row">
-    <span class="toggle"><input id="hour-lz" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Cero a la izquierda en la hora <span class="text-muted">(p.ej. 07:05)</span></span>
-  </label>
-  <label class="toggle-row">
-    <span class="toggle"><input id="date-text" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">$DATE como "8 May" <span class="text-muted">(en lugar de "08/05"; mes en español, día sin cero a la izquierda)</span></span>
-  </label>
-  <label class="toggle-row">
-    <span class="toggle"><input id="om-ind" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Indicador OM en panel <span class="text-muted">(punto gris bajo el º cuando una fila usa Open-Meteo)</span></span>
-  </label>
-  <div class="grid-2 mb-3">
-    <label>
-      <span class="label">Indicador de segundos</span>
+<section class="card" data-tab="display" data-save>
+  <div class="card-head"><div><h2>Reloj</h2></div></div>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Dos puntos parpadeando</b></div><span class="toggle"><input id="blink" type="checkbox"/><span class="toggle-slider"></span></span></label>
+    <label class="setting"><div class="t"><b>Cero a la izquierda</b><span>07:05 en lugar de 7:05</span></div><span class="toggle"><input id="hour-lz" type="checkbox"/><span class="toggle-slider"></span></span></label>
+    <label class="setting"><div class="t"><b>Fecha en texto</b><span>La fila $DATE muestra «8 May» en lugar de «08/05»</span></div><span class="toggle"><input id="date-text" type="checkbox"/><span class="toggle-slider"></span></span></label>
+    <label class="setting"><div class="t"><b>Indicador Open-Meteo</b><span>Punto gris bajo el º cuando una fila usa Open-Meteo</span></div><span class="toggle"><input id="om-ind" type="checkbox"/><span class="toggle-slider"></span></span></label>
+  </div>
+</section>
+
+<section class="card" data-tab="display" data-save>
+  <div class="card-head"><div><h2>Segundero</h2><p>Solo en el modo de 4 filas.</p></div></div>
+  <div class="fields">
+    <label class="field">
+      <span>Indicador</span>
       <select id="sec-indicator">
         <option value="none">Ninguno</option>
-        <option value="marker">Marcador (3 px en fila inferior)</option>
-        <option value="bar">Barra vertical (full-height por detras)</option>
+        <option value="marker">Marcador (3 px en la fila inferior)</option>
+        <option value="bar">Barra vertical (detrás, de arriba abajo)</option>
       </select>
     </label>
-    <label id="sec-bar-color-wrap">
-      <span class="label">Color barra vertical</span>
-      <input id="sec-bar-color" type="color" value="#333333"/>
+    <label class="field" id="sec-bar-color-wrap">
+      <span>Color de la barra</span>
+      <span class="color-field"><input id="sec-bar-color" type="color" value="#333333"/></span>
     </label>
   </div>
-  <div class="grid-2 mb-3" id="sec-bar-extras">
-    <label>
-      <span class="label">Ancho barra (px)</span>
-      <input id="sec-bar-width" type="number" min="1" max="16" step="1" value="1"/>
-    </label>
-    <label class="toggle-row">
-      <span class="toggle"><input id="sec-bar-progress" type="checkbox"/><span class="toggle-slider"></span></span>
-      <span style="font-size:.9rem">Modo progressbar <span class="text-muted">(rellena la zona ya recorrida)</span></span>
-    </label>
+  <div class="fields" id="sec-bar-extras" style="margin-top:14px">
+    <label class="field"><span>Ancho de la barra (px)</span><input id="sec-bar-width" type="number" min="1" max="16" step="1" value="1"/></label>
+    <label class="setting" style="border:0;padding:0;align-self:end;min-height:38px"><div class="t"><b>Rellenar lo recorrido</b><span>Como una barra de progreso</span></div><span class="toggle"><input id="sec-bar-progress" type="checkbox"/><span class="toggle-slider"></span></span></label>
   </div>
-  <label class="toggle-row">
-    <span class="toggle"><input id="trend-en" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Indicador de tendencia <span class="text-muted">(2 px tras el º: verde sube / rojo baja)</span></span>
-  </label>
-  <div class="grid-2 mb-3" id="trend-extras">
-    <label>
-      <span class="label">Horizonte forecast</span>
-      <select id="trend-horizon">
-        <option value="1">1 h</option>
-        <option value="2">2 h</option>
-      </select>
-    </label>
-    <label>
-      <span class="label">Umbrales (°C)</span>
-      <div class="row">
-        <input id="trend-th1" type="number" min="0" max="50" step="0.1" value="0.5" style="flex:1"/>
-        <input id="trend-th2" type="number" min="0" max="50" step="0.1" value="1.5" style="flex:1"/>
-        <input id="trend-th3" type="number" min="0" max="50" step="0.1" value="3" style="flex:1"/>
+</section>
+
+<section class="card" data-tab="display" data-save>
+  <div class="card-head">
+    <div><h2>Tendencia de temperatura</h2><p>2 px tras el º: verde si va a subir, rojo si va a bajar.</p></div>
+    <label class="toggle"><input id="trend-en" type="checkbox"/><span class="toggle-slider"></span></label>
+  </div>
+  <div id="trend-extras">
+    <div class="fields">
+      <label class="field">
+        <span>Horizonte de la previsión</span>
+        <select id="trend-horizon"><option value="1">1 hora</option><option value="2">2 horas</option></select>
+      </label>
+      <div class="field">
+        <span>Umbrales (°C) para 1, 2 y 3 px</span>
+        <div style="display:flex;gap:8px">
+          <input id="trend-th1" type="number" min="0" max="50" step="0.1" value="0.5"/>
+          <input id="trend-th2" type="number" min="0" max="50" step="0.1" value="1.5"/>
+          <input id="trend-th3" type="number" min="0" max="50" step="0.1" value="3"/>
+        </div>
       </div>
-      <span class="note" style="margin-top:.25rem">|Δ| ≥ th1 → 1px, ≥ th2 → 2px, ≥ th3 → 3px</span>
-    </label>
-    <label>
-      <span class="label">Color sube</span>
-      <input id="trend-color-up" type="color" value="#00C000"/>
-    </label>
-    <label>
-      <span class="label">Color baja</span>
-      <input id="trend-color-down" type="color" value="#C00000"/>
-    </label>
-    <label>
-      <span class="label">Color estable (=)</span>
-      <input id="trend-color-stable" type="color" value="#666666"/>
-    </label>
-  </div>
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Modo Imagen (modo 5)</h2>
-  <span class="note">Sube cualquier imagen y ajusta el recorte. El rectangulo naranja (proporcion 64:23) es la zona que se va a usar; arrastralo para moverlo y usa el slider para ajustar el zoom.</span>
-  <div style="margin-top:.5rem">
-    <input id="userimg-file" type="file" accept="image/*"/>
-  </div>
-  <div style="display:flex;gap:.75rem;align-items:flex-start;margin-top:.5rem;flex-wrap:wrap">
-    <div>
-      <div class="note">Original (arrastra el rectangulo):</div>
-      <canvas id="userimg-src" width="320" height="200" style="border:1px solid #444;background:#222;cursor:move;touch-action:none"></canvas>
     </div>
-    <div>
-      <div class="note">Preview (x4):</div>
-      <canvas id="userimg-preview" width="256" height="92" style="image-rendering:pixelated;border:1px solid #444;background:#000"></canvas>
+    <div class="fields" style="margin-top:14px">
+      <label class="field"><span>Sube</span><span class="color-field"><input id="trend-color-up" type="color" value="#00C000"/></span></label>
+      <label class="field"><span>Baja</span><span class="color-field"><input id="trend-color-down" type="color" value="#C00000"/></span></label>
+      <label class="field"><span>Estable</span><span class="color-field"><input id="trend-color-stable" type="color" value="#666666"/></span></label>
     </div>
   </div>
-  <label style="display:block;margin-top:.5rem">
-    <span class="label">Zoom <span id="userimg-zoom-val">100%</span></span>
-    <input id="userimg-zoom" type="range" min="20" max="100" step="1" value="100"/>
-  </label>
-  <div style="margin-top:.5rem">
-    <button id="userimg-upload" type="button" class="btn">Subir imagen al device</button>
-    <span id="userimg-status" class="note"></span>
-  </div>
-
 </section>
 
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Modo Demoscene (modo 6)</h2>
-  <label style="display:block;margin-top:.25rem">
-    <span class="label">Efecto</span>
-    <select id="demoscene-effect">
-      <option value="0">Llama (Doom fire)</option>
-      <option value="1">Plasma</option>
-      <option value="2">Moire</option>
-      <option value="3">Nyan Cat</option>
-    </select>
-  </label>
-  <label class="toggle-row" style="margin-top:.5rem">
-    <span class="toggle"><input id="fire-default" type="checkbox" checked/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Paleta clasica (naranja Doom)</span>
-  </label>
-  <label id="fire-color-row" style="display:block;margin-top:.5rem">
-    <span class="label">Color base</span>
-    <input id="fire-color" type="color" value="#FF6000"/>
-  </label>
-  <span class="note">El color y la paleta se aplican a los 3 efectos. Si desactivas la paleta clasica, la paleta se genera desde el color elegido (negro → color → blanco).</span>
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Modo Game of Life (modo 4)</h2>
-  <label class="toggle-row" style="margin-top:.25rem">
-    <span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span>
-    <span style="font-size:.9rem">Rainbow (el color avanza unos grados en cada step)</span>
-  </label>
-  <label id="life-color-row" style="display:block;margin-top:.25rem">
-    <span class="label">Color de las celulas vivas</span>
-    <input id="life-color" type="color" value="#80C0FF"/>
-  </label>
-  <label style="display:block;margin-top:.25rem">
-    <span class="label">Velocidad (ms por step) <span id="life-step-val">150</span></span>
-    <input id="life-step" type="range" min="50" max="1000" step="10" value="150"/>
-  </label>
-
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Modo al arrancar</h2>
-  <label style="display:block;margin-top:.25rem">
-    <span class="label">Modo activo al boot</span>
-    <select id="startup-mode">
-      <option value="0">1 - 4 filas</option>
-      <option value="1">2 - Focus</option>
-      <option value="2">3 - Claude</option>
-      <option value="3">4 - Life</option>
-      <option value="4">5 - Imagen</option>
-      <option value="5">6 - Demoscene</option>
-    </select>
-  </label>
-  <span class="note">Si seleccionas Claude pero no hay sessionKey configurada, arrancara en 4 filas.</span>
-
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Programaciones (cambio de modo)</h2>
-  <span class="note">Hasta 10 programaciones. A la hora local indicada se cambia automaticamente al modo elegido (1 = 4 filas, 2 = focus, 3 = Claude). La hora local usa el timezone de la primera ciudad.</span>
-  <div id="schedule-list" style="margin-top:.5rem"></div>
-
-</section>
-
-<section class="card" data-tab="display">
-  <h2 class="h-section mb-3">Colores hora y fecha (focus + Claude)</h2>
-  <span class="note">Se aplica al modo focus (modo 2) y al modo Claude (modo 3). Independientes del color de cada ciudad.</span>
-  <div class="grid-2">
-    <label>
-      <span class="label">Color hora</span>
-      <input id="focus-hour-color" type="color" value="#FFFFFF"/>
-    </label>
-    <label>
-      <span class="label">Color fecha</span>
-      <input id="focus-date-color" type="color" value="#AAAAAA"/>
-    </label>
-  </div>
-</section>
-
-<section class="card" data-tab="system">
-  <h2 class="h-section mb-3">Auto-update</h2>
-  <span class="note">El firmware se comprueba con la ultima release publica en GitHub. Si hay una nueva, se descarga y flashea sobre la marcha (con splash en pantalla). El check al boot y los periodicos respetan estos ajustes.</span>
-  <div class="grid-2">
-    <label>
-      <input id="autoupd-en" type="checkbox"/>
-      <span class="label">Auto-update activado</span>
-    </label>
-    <label>
-      <span class="label">Intervalo del check (horas, 1-720)</span>
-      <input id="autoupd-interval" type="number" min="1" max="720" step="1" value="24"/>
-    </label>
-  </div>
-  <div>
-    <button id="autoupd-now" type="button" class="secondary">Buscar update ahora</button>
-    <span id="autoupd-status" class="note"></span>
-  </div>
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Claude stats (modo 3)</h2>
-  <span class="note">Pegar el valor de la cookie <code>sessionKey</code> de <code>claude.ai</code> (DevTools &rarr; Application &rarr; Cookies). Si esta vacio, el modo Claude no aparece en el ciclo del boton central. El <code>orgId</code> se descubre automaticamente al primer fetch exitoso.</span>
-  <div class="grid-2">
-    <label>
-      <span class="label">sessionKey (claude.ai)</span>
-      <input id="claude-session-key" type="text" autocomplete="off" spellcheck="false" placeholder="sk-ant-sid01-...."/>
-    </label>
-    <label>
-      <span class="label">Refresco (segundos, 60-3600)</span>
-      <input id="claude-refresh" type="number" min="60" max="3600" step="30" value="180"/>
-    </label>
-  </div>
-</section>
-
-<section class="card" data-tab="modes">
-  <h2 class="h-section mb-3">Auto &laquo;hola&raquo; (abrir sesion 5h)</h2>
-  <span class="note">A la hora local indicada manda un &laquo;hola&raquo; a claude.ai que abre/renueva la ventana de 5 horas (crea una conversacion, envia el mensaje y la borra). Una vez al dia. La hora local usa el timezone de la primera ciudad. Requiere sessionKey configurada arriba.</span>
-  <label class="row-flex" style="margin-top:.6rem">
-    <input type="checkbox" id="hola-en">
-    <span>Activar auto &laquo;hola&raquo; diario</span>
-  </label>
-  <div class="grid-2" style="margin-top:.6rem">
-    <label>
-      <span class="label">Hora local del disparo</span>
-      <input id="hola-time" type="time"/>
-    </label>
-    <label>
-      <span class="label">&nbsp;</span>
-      <button id="hola-now" type="button" class="btn">Enviar &laquo;hola&raquo; ahora</button>
-    </label>
-  </div>
-  <div style="margin-top:.5rem;padding:.4rem .6rem;border:1px solid var(--border-2);border-radius:.4rem;background:var(--bg)">
-    <span class="text-muted">Ultimo envio:</span> <span id="hola-status">&mdash;</span>
-  </div>
-  <label class="row-flex" style="margin-top:.9rem">
-    <input type="checkbox" id="keepawake-en">
-    <span>Keep awake &mdash; renovar la ventana de 5h en cuanto expire</span>
-  </label>
-  <span class="note">Mientras este activo, cada vez que la ventana de 5h se agota se manda otro &laquo;hola&raquo; para abrir una nueva, manteniendo la sesion viva de forma continua.</span>
-</section>
-
-<section class="card" data-tab="system">
-  <h2 class="h-section mb-3">Otros ajustes</h2>
-  <div class="grid-2">
-    <label>
-      <span class="label">Refresco meteo (segundos)</span>
-      <input id="refresh" type="number" min="30" max="3600" step="30"/>
-    </label>
-    <label>
-      <span class="label">Orden RGB <span class="text-warn">(reinicia al cambiar)</span></span>
+<div class="split" data-tab="display" data-save>
+  <section class="card">
+    <div class="card-head"><div><h2>Colores de hora y fecha</h2><p>Modos Focus y Claude.</p></div></div>
+    <div class="settings">
+      <label class="setting"><div class="t"><b>Hora</b></div><input id="focus-hour-color" type="color" value="#FFFFFF"/></label>
+      <label class="setting"><div class="t"><b>Fecha</b></div><input id="focus-date-color" type="color" value="#AAAAAA"/></label>
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-head"><div><h2>Panel</h2><p>Si el verde y el azul salen cambiados, prueba RBG.</p></div></div>
+    <label class="field">
+      <span>Orden de colores <span class="text-warn">· reinicia al guardar</span></span>
       <select id="rgb-order">
         <option value="RGB">RGB (estándar)</option>
-        <option value="RBG">RBG (G/B intercambiados)</option>
+        <option value="RBG">RBG (verde y azul intercambiados)</option>
       </select>
     </label>
+  </section>
+</div>
+
+<!-- ═════════════════════════ Modos ═════════════════════════ -->
+<header class="page-head" data-tab="modes">
+  <h1>Modos</h1>
+  <p>Con qué modo arranca el panel y cuándo cambia solo. Los ajustes de cada modo están en sus apartados.</p>
+</header>
+<section class="card" data-tab="modes" data-save>
+  <div class="card-head"><div><h2>Al arrancar</h2><p>Si eliges Claude sin sessionKey, arranca en 4 filas.</p></div></div>
+  <div class="fields">
+    <label class="field">
+      <span>Modo inicial</span>
+      <select id="startup-mode"></select>
+    </label>
   </div>
 </section>
 
-<section class="card" data-tab="weather">
-  <h2 class="h-section mb-3">Proveedor meteo</h2>
-  <p class="note" style="margin-top:0">
-    Open-Meteo (default, sin clave) siempre da hora local y día/noche. Si seleccionas
-    Tomorrow.io o WeatherAPI, ese provider se usa para temperatura y código del tiempo;
-    si su último fetch tiene > 1h sin éxito, esa fila cae a Open-Meteo.
-  </p>
-  <label style="margin-top:.85rem">
-    <span class="label">Provider activo</span>
-    <select id="prov-active">
-      <option value="none">Ninguno (solo Open-Meteo)</option>
-      <option value="tomorrow">Tomorrow.io</option>
-      <option value="weatherapi">WeatherAPI</option>
-    </select>
+<section class="card" data-tab="modes" data-save>
+  <div class="card-head"><div><h2>Programaciones</h2><p>A la hora indicada el panel cambia de modo solo. Hora local de la primera ciudad.</p></div></div>
+  <div id="schedule-list" class="list"></div>
+</section>
+
+<!-- ═════════════════════════ Game of Life ═════════════════════════ -->
+<header class="page-head" data-tab="life">
+  <h1>Game of Life</h1>
+  <p>El juego de la vida de Conway en el panel. Si el patrón se estanca, vuelve a empezar solo.</p>
+</header>
+<section class="card" data-tab="life" data-save>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Arcoíris</b><span>El color avanza unos grados en cada paso</span></div><span class="toggle"><input id="life-rainbow" type="checkbox"/><span class="toggle-slider"></span></span></label>
+    <label class="setting" id="life-color-row"><div class="t"><b>Color de las células</b></div><input id="life-color" type="color" value="#80C0FF"/></label>
+    <div class="setting" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;justify-content:space-between"><b style="font-weight:550">Velocidad</b><span class="mono text-muted"><span id="life-step-val">150</span> ms por paso</span></div>
+      <input id="life-step" type="range" min="50" max="1000" step="10" value="150" aria-label="Velocidad"/>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ Llama ═════════════════════════ -->
+<header class="page-head" data-tab="fire">
+  <h1>Llama</h1>
+  <p>El fuego del Doom subiendo por el panel, con la hora abajo.</p>
+</header>
+<section class="card" data-tab="fire" data-save>
+  <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Paleta clásica</b><span>Naranja Doom. Si la quitas, se genera desde tu color (negro → color → blanco).</span></div><span class="toggle"><input id="fire-default" type="checkbox" checked/><span class="toggle-slider"></span></span></label>
+    <label class="setting" id="fire-color-row"><div class="t"><b>Color base</b></div><input id="fire-color" type="color" value="#FF6000"/></label>
+  </div>
+</section>
+
+<!-- ═════════════════════════ Plasma ═════════════════════════ -->
+<header class="page-head" data-tab="plasma">
+  <h1>Plasma</h1>
+  <p>Ondas de color que se mezclan sin parar, con la hora abajo.</p>
+</header>
+<section class="card" data-tab="plasma" data-save>
+  <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Paleta clásica</b><span>Naranja Doom. Si la quitas, se genera desde tu color (negro → color → blanco).</span></div><span class="toggle"><input id="plasma-default" type="checkbox" checked/><span class="toggle-slider"></span></span></label>
+    <label class="setting" id="plasma-color-row"><div class="t"><b>Color base</b></div><input id="plasma-color" type="color" value="#FF6000"/></label>
+  </div>
+</section>
+
+<!-- ═════════════════════════ Moiré ═════════════════════════ -->
+<header class="page-head" data-tab="moire">
+  <h1>Moiré</h1>
+  <p>Dos series de círculos que se cruzan y crean interferencias, con la hora abajo.</p>
+</header>
+<section class="card" data-tab="moire" data-save>
+  <div class="card-head"><div><h2>Paleta</h2><p>Solo para este modo.</p></div></div>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Paleta clásica</b><span>Naranja Doom. Si la quitas, se genera desde tu color (negro → color → blanco).</span></div><span class="toggle"><input id="moire-default" type="checkbox" checked/><span class="toggle-slider"></span></span></label>
+    <label class="setting" id="moire-color-row"><div class="t"><b>Color base</b></div><input id="moire-color" type="color" value="#FF6000"/></label>
+  </div>
+</section>
+
+<!-- ═════════════════════════ Nyan Cat ═════════════════════════ -->
+<header class="page-head" data-tab="nyan">
+  <h1>Nyan Cat</h1>
+  <p>El gato del pop-tart cruzando el panel con su estela arcoíris, con la hora abajo.</p>
+</header>
+<section class="card" data-tab="nyan">
+  <div class="card-head"><div><h2>Sin ajustes</h2><p>Los colores son los del original. Llega a él con los botones del panel o prográmalo en Modos.</p></div></div>
+</section>
+
+<!-- ═════════════════════════ Imagen ═════════════════════════ -->
+<header class="page-head" data-tab="image">
+  <h1>Imagen</h1>
+  <p>Tu propia imagen en el panel. Sube una foto y encuadra la zona (proporción 64:23): arrastra el rectángulo y ajusta el zoom.</p>
+</header>
+<section class="card" data-tab="image">
+  <input id="userimg-file" type="file" accept="image/*"/>
+  <div style="display:flex;gap:16px;align-items:flex-start;margin-top:14px;flex-wrap:wrap">
+    <div class="canvas-box"><span class="label">Original</span><canvas id="userimg-src" width="320" height="200"></canvas></div>
+    <div class="canvas-box"><span class="label">Así se verá</span><canvas id="userimg-preview" width="256" height="92"></canvas></div>
+  </div>
+  <label class="field" style="margin-top:14px;max-width:340px">
+    <span>Zoom · <span id="userimg-zoom-val" class="mono">100%</span></span>
+    <input id="userimg-zoom" type="range" min="20" max="100" step="1" value="100"/>
   </label>
-  <div class="grid-2 mb-3" style="margin-top:.85rem">
-    <label>
-      <span class="label">API key Tomorrow.io</span>
-      <input id="tio-key" type="text" placeholder="pega aquí la api key" autocomplete="off" spellcheck="false"/>
-      <span class="note" id="tio-key-info" style="margin-top:.25rem">-</span>
-    </label>
-    <label>
-      <span class="label">Refresco Tomorrow.io (s) <span class="text-warn">free=25 calls/día</span></span>
-      <input id="tio-refresh" type="number" min="60" max="86400" step="60"/>
-    </label>
+  <div class="btn-row" style="margin-top:14px">
+    <button id="userimg-upload" type="button" class="btn btn-primary">Enviar al panel</button>
+    <span id="userimg-status" class="text-muted"></span>
   </div>
-  <div class="grid-2 mb-3">
-    <label>
-      <span class="label">API key WeatherAPI</span>
-      <input id="wap-key" type="text" placeholder="pega aquí la api key" autocomplete="off" spellcheck="false"/>
-      <span class="note" id="wap-key-info" style="margin-top:.25rem">-</span>
-    </label>
-    <label>
-      <span class="label">Refresco WeatherAPI (s) <span class="text-warn">free=1M/mes</span></span>
-      <input id="wap-refresh" type="number" min="60" max="86400" step="60"/>
-    </label>
+</section>
+
+<!-- ═════════════════════════ Claude ═════════════════════════ -->
+<header class="page-head" data-tab="claude">
+  <h1>Claude</h1>
+  <p>Uso de tu cuenta de claude.ai y el modo con Clawd.</p>
+</header>
+<div class="split" data-tab="claude">
+  <section class="card" data-save>
+    <div class="card-head"><div><h2>Cuenta</h2><p>Cookie <code>sessionKey</code> de claude.ai (DevTools → Application → Cookies). Sin ella, el modo Claude no aparece.</p></div></div>
+    <div class="fields">
+      <label class="field" style="grid-column:1/-1"><span>sessionKey</span><input id="claude-session-key" class="mono" type="text" autocomplete="off" spellcheck="false" placeholder="sk-ant-sid01-…"/></label>
+      <label class="field"><span>Refresco (segundos)</span><input id="claude-refresh" type="number" min="60" max="3600" step="30" value="180"/></label>
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-head"><div><h2>Ventana de 5 horas</h2><p id="cl-use-sub">Esperando datos…</p></div></div>
+    <div class="usage"><b id="cl-use-val">—</b><span class="text-muted">usado</span></div>
+    <div class="meter"><i id="cl-use-bar"></i></div>
+  </section>
+</div>
+
+<section class="card" data-tab="claude" data-save>
+  <div class="card-head">
+    <div><h2>Auto «hola»</h2><p>Manda un «hola» a claude.ai a una hora fija para abrir la ventana de 5 h (crea una conversación y la borra). Una vez al día, hora local de la primera ciudad.</p></div>
+    <label class="toggle"><input type="checkbox" id="hola-en"><span class="toggle-slider"></span></label>
   </div>
-  <button id="prov-save" class="btn btn-primary">Guardar provider</button>
+  <div class="fields">
+    <label class="field"><span>Hora</span><input id="hola-time" type="time"/></label>
+    <div class="field"><span>&nbsp;</span><button id="hola-now" type="button" class="btn">Enviar «hola» ahora</button></div>
+  </div>
+  <div class="kv" style="margin-top:14px"><span class="text-muted">Último envío</span><span id="hola-status">—</span></div>
+  <div class="settings" style="margin-top:14px">
+    <label class="setting"><div class="t"><b>Mantener la sesión despierta</b><span>Cuando la ventana de 5 h se agota, manda otro «hola» para abrir la siguiente.</span></div><span class="toggle"><input type="checkbox" id="keepawake-en"><span class="toggle-slider"></span></span></label>
+  </div>
+</section>
+
+<section class="card" data-tab="claude" data-save>
+  <div class="card-head">
+    <div><h2>Animaciones de Clawd</h2><p>Entre rato y rato de reposo, Clawd elige al azar entre las animaciones activas. Se aplica al guardar, sin reiniciar.</p></div>
+    <div class="actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-anim-all="1">Todas</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-anim-all="0">Ninguna</button>
+    </div>
+  </div>
+  <div class="anim-grid" id="anim-acts"></div>
+  <h3 class="group-title" style="margin:20px 0 12px">Reacciones</h3>
+  <div class="anim-grid" id="anim-reacts"></div>
+</section>
+
+<!-- ═════════════════════════ Meteo ═════════════════════════ -->
+<header class="page-head" data-tab="weather">
+  <h1>Meteo</h1>
+  <p>Las cuatro filas del reloj y de dónde sale el tiempo.</p>
+</header>
+<section class="card" data-tab="weather" data-save>
+  <div class="card-head"><div><h2>Ciudades</h2><p>Nombre de hasta 6 letras. <code>$DATE</code> como nombre muestra la fecha en esa fila.</p></div></div>
+  <div class="city-head"><span>Color</span><span>Nombre</span><span>Latitud</span><span>Longitud</span></div>
+  <div id="cities"></div>
+  <div class="fields" style="margin-top:16px">
+    <label class="field"><span>Refresco Open-Meteo (segundos)</span><input id="refresh" type="number" min="30" max="3600" step="30"/></label>
+  </div>
 </section>
 
 <section class="card" data-tab="weather">
-  <h2 class="h-section mb-3">Logs meteo</h2>
+  <div class="card-head"><div><h2>Estado</h2><p>Ordenado por el próximo refresco del proveedor premium.</p></div></div>
   <div class="tbl-wrap">
     <table id="weather" class="weather-tbl">
       <thead>
-        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Day</th><th>OM</th><th id="th-prem">Prem</th><th title="Orden de refresco automatico del provider premium (1 = proxima)">Ord</th><th></th></tr>
+        <tr><th>Ciudad</th><th>Offset</th><th>Temp</th><th>Code</th><th>Día</th><th>OM</th><th id="th-prem">Prem</th><th title="Orden de refresco del proveedor premium (1 = el próximo)">Ord</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 </section>
 
-<!-- Modal de debug por ciudad: URL llamada y respuesta raw -->
+<section class="card" data-tab="weather">
+  <div class="card-head"><div><h2>Proveedor premium</h2><p>Open-Meteo siempre da la hora local y el día/noche. Con Tomorrow.io o WeatherAPI, la temperatura y el tiempo salen de ahí; si una ciudad lleva más de 1 h sin éxito, vuelve a Open-Meteo.</p></div></div>
+  <label class="field" style="max-width:340px">
+    <span>Proveedor activo</span>
+    <select id="prov-active">
+      <option value="none">Ninguno (solo Open-Meteo)</option>
+      <option value="tomorrow">Tomorrow.io</option>
+      <option value="weatherapi">WeatherAPI</option>
+    </select>
+  </label>
+  <div class="fields" style="margin-top:14px">
+    <label class="field"><span>API key Tomorrow.io</span><input id="tio-key" class="mono" type="text" placeholder="pega aquí la clave" autocomplete="off" spellcheck="false"/><small id="tio-key-info">—</small></label>
+    <label class="field"><span>Refresco Tomorrow.io (s) <span class="text-warn">· gratis: 25/día</span></span><input id="tio-refresh" type="number" min="60" max="86400" step="60"/></label>
+  </div>
+  <div class="fields" style="margin-top:14px">
+    <label class="field"><span>API key WeatherAPI</span><input id="wap-key" class="mono" type="text" placeholder="pega aquí la clave" autocomplete="off" spellcheck="false"/><small id="wap-key-info">—</small></label>
+    <label class="field"><span>Refresco WeatherAPI (s) <span class="text-warn">· gratis: 1M/mes</span></span><input id="wap-refresh" type="number" min="60" max="86400" step="60"/></label>
+  </div>
+  <div class="btn-row" style="margin-top:16px"><button id="prov-save" class="btn btn-primary">Guardar proveedor</button></div>
+</section>
+
 <div id="wx-modal" class="modal hidden">
   <div class="modal-backdrop"></div>
-  <div class="modal-card">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="wx-modal-title">
     <div class="modal-head">
       <h3 id="wx-modal-title">Debug meteo</h3>
-      <button id="wx-modal-close" class="btn btn-sm">×</button>
+      <button id="wx-modal-close" class="btn btn-sm btn-ghost" aria-label="Cerrar">✕</button>
     </div>
     <div class="modal-body">
       <div class="modal-meta" id="wx-modal-meta"></div>
-      <div class="modal-section">
-        <span class="label">URL</span>
-        <pre id="wx-modal-url"></pre>
-      </div>
-      <div class="modal-section">
-        <span class="label">Response body</span>
-        <pre id="wx-modal-body"></pre>
-      </div>
+      <div class="modal-section"><span class="label">URL</span><pre id="wx-modal-url"></pre></div>
+      <div class="modal-section"><span class="label">Respuesta</span><pre id="wx-modal-body"></pre></div>
     </div>
   </div>
 </div>
 
-<section class="card" data-tab="system">
-  <h2 class="h-section mb-3">Actualizar firmware (OTA)</h2>
-  <div class="row mb-3">
-    <input id="ota-file" type="file" accept=".bin" class="flex-1 min-w-200"/>
-    <button id="ota-upload" class="btn btn-primary">Subir y reiniciar</button>
+<!-- ═════════════════════════ Iconos ═════════════════════════ -->
+<header class="page-head" data-tab="icons">
+  <h1>Iconos</h1>
+  <p>Los iconos del tiempo: 5×5 píxeles y tantos fotogramas como quieras.</p>
+</header>
+<section class="card" data-tab="icons" data-save>
+  <div class="card-head">
+    <div class="fields" style="flex:1;max-width:420px">
+      <label class="field"><span>Icono</span><select id="icon-pick" data-nodirty></select></label>
+      <label class="field"><span>Duración del fotograma (ms)</span><input id="frame-ms" type="number" min="50" max="5000" step="50"/></label>
+    </div>
+    <div class="actions"><button id="reset-icon" class="btn btn-sm btn-danger">Restablecer</button></div>
   </div>
-  <div id="ota-progress" class="hidden"><div id="ota-bar"></div></div>
-  <p class="note">
-    Sube el .bin generado con <code>pio run -e matrixportal_s3</code> (en
-    <code>.pio/build/matrixportal_s3/firmware.bin</code>). Tarda ~1 min.
-  </p>
+  <div class="frames" style="margin-bottom:18px">
+    <div id="icon-frames" class="frames"></div>
+    <button id="frame-add" class="btn btn-sm">+ Fotograma</button>
+    <button id="frame-play" class="btn btn-sm">▶ Play</button>
+    <button id="frame-play-device" class="btn btn-sm" title="Reproduce este icono en la primera fila del panel">Ver en el panel</button>
+  </div>
+  <div class="icon-edit">
+    <div id="icon-grid"></div>
+    <div style="min-width:0">
+      <span class="label">Paleta · elige un color y pinta</span>
+      <div id="palette" style="margin-top:10px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ Jitter ═════════════════════════ -->
+<header class="page-head" data-tab="jitter">
+  <h1>Jitter</h1>
+  <p>El panel se anuncia por Bluetooth como un ratón y mueve el cursor unos píxeles para que tu Mac no entre en reposo. También se controla desde la app de la barra de menús (carpeta <code>mac/</code>).</p>
+</header>
+<section class="card" data-tab="jitter">
+  <div class="card-head">
+    <div><h2>Ratón Bluetooth</h2><p>Emparéjalo desde Ajustes → Bluetooth en macOS. El estado se recuerda tras reiniciar.</p></div>
+    <span id="jitter-ble-status" class="pill pill-mute">—</span>
+  </div>
+  <div class="settings">
+    <label class="setting"><div class="t"><b>Jitter activo</b><span>Mueve el cursor cada intervalo</span></div><span class="toggle"><input type="checkbox" id="jitter-en"><span class="toggle-slider"></span></span></label>
+  </div>
+  <div class="fields" style="margin-top:14px">
+    <label class="field"><span>Intervalo</span>
+      <select id="jitter-interval">
+        <option value="250">250 ms</option><option value="500">500 ms</option><option value="1000">1 s</option><option value="2000">2 s</option>
+        <option value="5000">5 s</option><option value="10000">10 s</option><option value="30000">30 s</option><option value="60000">60 s</option>
+      </select>
+    </label>
+    <label class="field"><span>Distancia máxima</span>
+      <select id="jitter-step">
+        <option value="2">2 px</option><option value="3">3 px</option><option value="4">4 px</option><option value="6">6 px</option><option value="10">10 px</option>
+      </select>
+    </label>
+    <label class="field"><span>Nombre Bluetooth</span><input type="text" id="jitter-name" maxlength="29" placeholder="WorldTime Jitter"/><small>Se aplica al reiniciar. macOS puede mostrar el nombre antiguo hasta que lo olvides y lo vuelvas a emparejar.</small></label>
+  </div>
+  <div class="btn-row" style="margin-top:16px"><button id="jitter-apply" class="btn btn-primary">Aplicar</button></div>
+</section>
+
+<!-- ═════════════════════════ Sistema ═════════════════════════ -->
+<header class="page-head" data-tab="system">
+  <h1>Sistema</h1>
+  <p>Red, botones físicos, actualizaciones y copias de seguridad.</p>
+</header>
+<section class="card" data-tab="system">
+  <div class="card-head">
+    <div><h2>WiFi</h2></div>
+    <div class="actions"><button id="scan" class="btn btn-sm">Buscar redes</button></div>
+  </div>
+  <div id="wifi-status" class="wifi-status">—</div>
+  <div id="nets"></div>
+  <div class="fields">
+    <label class="field"><span>Red (SSID)</span><input id="ssid" autocomplete="off"/></label>
+    <label class="field"><span>Contraseña</span><input id="pwd" type="password"/></label>
+  </div>
+  <div class="btn-row" style="margin-top:14px"><button id="connect" class="btn btn-primary">Conectar y reiniciar</button></div>
+  <div data-save style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+    <div class="settings">
+      <label class="setting"><div class="t"><b>DHCP</b><span>Recomendado. Desactívalo para fijar la IP.</span></div><span class="toggle"><input id="wifi-dhcp" type="checkbox" checked/><span class="toggle-slider"></span></span></label>
+    </div>
+    <div id="wifi-static-fields" style="display:none;margin-top:12px">
+      <div class="fields">
+        <label class="field"><span>IP</span><input id="wifi-ip" class="mono" placeholder="192.168.1.50"/></label>
+        <label class="field"><span>Puerta de enlace</span><input id="wifi-gw" class="mono" placeholder="192.168.1.1"/></label>
+        <label class="field"><span>Máscara</span><input id="wifi-sn" class="mono" placeholder="255.255.255.0"/></label>
+        <label class="field"><span>DNS 1</span><input id="wifi-dns1" class="mono" placeholder="1.1.1.1"/></label>
+        <label class="field"><span>DNS 2 (opcional)</span><input id="wifi-dns2" class="mono"/></label>
+      </div>
+      <p class="note">Se aplica en el siguiente arranque. Si algún valor no es válido, vuelve a DHCP solo.</p>
+    </div>
+  </div>
+</section>
+
+<section class="card" data-tab="system" data-save>
+  <div class="card-head"><div><h2>Botones táctiles</h2><p>PULLUP para un pulsador a GND, INPUT para sensores TTP223. Si un lado se dispara solo, desactívalo: el mando de Resumen sigue funcionando. Evita A1: es un pin de arranque del ESP32-S3 y puede impedir que encienda.</p></div></div>
+  <div id="ttp-config" class="list"></div>
 </section>
 
 <section class="card" data-tab="system">
-  <h2 class="h-section mb-3">Backup / Restaurar</h2>
-  <div class="row">
-    <button id="cfg-export" class="btn">Descargar config</button>
-    <button id="cfg-import-btn" class="btn">Cargar config…</button>
-    <input id="cfg-import" type="file" accept="application/json,.json" class="hidden"/>
+  <div class="card-head"><div><h2>Actualizaciones</h2><p>El panel busca la última versión publicada en GitHub y se actualiza solo, con un aviso en pantalla.</p></div></div>
+  <div data-save>
+    <div class="settings">
+      <label class="setting"><div class="t"><b>Actualizar automáticamente</b><span>Al arrancar y cada cierto tiempo</span></div><span class="toggle"><input id="autoupd-en" type="checkbox"/><span class="toggle-slider"></span></span></label>
+    </div>
+    <div class="fields" style="margin-top:12px">
+      <label class="field"><span>Comprobar cada (horas)</span><input id="autoupd-interval" type="number" min="1" max="720" step="1" value="24"/></label>
+    </div>
   </div>
-  <p class="note">El JSON descargado contiene cities, brillo, modo noche, paleta e iconos. NO incluye creds WiFi.</p>
+  <div class="btn-row" style="margin-top:14px">
+    <button id="autoupd-now" type="button" class="btn">Buscar ahora</button>
+    <span id="autoupd-status" class="text-muted" style="font-size:13px"></span>
+  </div>
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+    <span class="label">Subir firmware a mano</span>
+    <div class="btn-row" style="margin-top:8px">
+      <input id="ota-file" type="file" accept=".bin"/>
+      <button id="ota-upload" class="btn btn-primary">Subir y reiniciar</button>
+    </div>
+    <div id="ota-progress" class="hidden"><div id="ota-bar"></div></div>
+    <p class="note">El <code>.bin</code> está en <code>.pio/build/matrixportal_s3/firmware.bin</code>. Tarda alrededor de un minuto.</p>
+  </div>
 </section>
 
-</div>
+<div class="split" data-tab="system">
+  <section class="card">
+    <div class="card-head"><div><h2>Copia de seguridad</h2><p>Ciudades, brillo, modo noche, paleta, iconos y el resto de ajustes. No incluye la contraseña del WiFi.</p></div></div>
+    <div class="btn-row">
+      <button id="cfg-export" class="btn">Descargar</button>
+      <button id="cfg-import-btn" class="btn">Restaurar…</button>
+      <input id="cfg-import" type="file" accept="application/json,.json" class="hidden"/>
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-head"><div><h2>Reiniciar</h2><p>La página se recarga sola cuando el panel vuelve.</p></div></div>
+    <button id="reset-dev" class="btn btn-danger">Reiniciar el panel</button>
+  </section>
 </div>
 
-<div class="savebar">
-  <div class="savebar-inner">
-    <button id="save" class="btn btn-primary btn-save">Guardar cambios</button>
-    <button id="reload" class="btn">Recargar</button>
-    <button id="reset-dev" class="btn btn-danger">Reiniciar device</button>
-  </div>
-  <div id="msg"></div>
+</div>
+</main>
 </div>
 
+<div class="savebar" id="savebar" role="region" aria-label="Cambios sin guardar">
+  <i class="dot"></i><span>Cambios sin guardar</span>
+  <button id="reload" class="btn btn-sm btn-ghost">Descartar</button>
+  <button id="save" class="btn btn-sm btn-primary">Guardar</button>
+</div>
+<div id="msg" role="status" aria-live="polite"></div>
 <script>
 const $ = s => document.querySelector(s);
 
-// ── Pestañas: mostramos solo las sections con data-tab que coincide. La
-// elegida persiste en localStorage para que el reload no resetee.
+// ── Secciones: se muestran los elementos con data-tab de la elegida. La
+// elegida persiste en localStorage; un valor de versiones anteriores que ya
+// no existe cae en Resumen.
+const TABS = ['home','display','modes','claude','life','fire','plasma','moire','nyan','image','weather','icons','jitter','system'];
+// Subapartados: la pestaña padre se marca y, en movil, se despliegan sus hijos.
+const TAB_PARENT = {claude:'modes', life:'modes', fire:'modes', plasma:'modes', moire:'modes', nyan:'modes', image:'modes', icons:'weather'};
+// Indice = valor del modo en el firmware (startup_mode, programaciones).
+const MODE_NAMES = ['4 filas', 'Focus', 'Claude', 'Game of Life', 'Imagen', 'Llama', 'Plasma', 'Moiré', 'Nyan Cat'];
+const modeOptions = sel => MODE_NAMES.map((n, i) => `<option value="${i}" ${i == sel ? 'selected' : ''}>${i + 1} · ${n}</option>`).join('');
+// Efectos con paleta propia: id de los controles = prefijo de las claves de config.
+const DEMO_PALS = ['fire', 'plasma', 'moire'];
 function activateTab(t) {
-  document.querySelectorAll('section.card[data-tab]').forEach(s => {
-    s.classList.toggle('hidden-tab', s.dataset.tab !== t);
+  if (!TABS.includes(t)) t = 'home';
+  document.querySelectorAll('.content [data-tab]').forEach(el => {
+    el.hidden = el.dataset.tab !== t;
   });
-  document.querySelectorAll('.tabs-nav button[data-tab-btn]').forEach(b => {
-    b.classList.toggle('active', b.dataset.tabBtn === t);
+  const group = TAB_PARENT[t] || t;
+  $('.nav').dataset.group = group;
+  document.querySelectorAll('.nav button[data-tab-btn]').forEach(b => {
+    const on = b.dataset.tabBtn === t;
+    b.classList.toggle('active', on);
+    b.classList.toggle('open', !on && b.dataset.tabBtn === group);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    if (on && b.scrollIntoView && window.innerWidth < 900) b.scrollIntoView({block:'nearest', inline:'center'});
   });
   try { localStorage.setItem('activeTab', t); } catch (e) {}
+  if (location.hash !== '#' + t) history.replaceState(null, '', '#' + t);
+  document.dispatchEvent(new CustomEvent('tabchange', {detail: t}));
 }
-document.querySelectorAll('.tabs-nav button[data-tab-btn]').forEach(b => {
-  b.onclick = () => activateTab(b.dataset.tabBtn);
+document.querySelectorAll('.nav button[data-tab-btn]').forEach(b => {
+  b.onclick = () => { activateTab(b.dataset.tabBtn); window.scrollTo({top: 0}); };
 });
 {
-  let initial = 'system';
-  try { initial = localStorage.getItem('activeTab') || 'system'; } catch (e) {}
+  let initial = location.hash.slice(1);
+  if (!TABS.includes(initial)) { try { initial = localStorage.getItem('activeTab') || 'home'; } catch (e) { initial = 'home'; } }
   activateTab(initial);
 }
 
@@ -933,13 +1092,18 @@ function stopPolls() {
   abortPolls();
 }
 
+// Aviso flotante unico: cada llamada lo reemplaza (el OTA lo llama en cada
+// % de progreso). Sin tipo se queda fijo; con tipo se oculta solo.
+let msgTimer = null;
 function setMsg(t, kind){
   const m = $('#msg');
+  clearTimeout(msgTimer);
   m.textContent = t || '';
-  m.className = '';
+  m.className = t ? 'show' : '';
   if (kind === 'ok') m.classList.add('msg-ok');
   else if (kind === 'err') m.classList.add('msg-err');
   else if (kind === 'warn') m.classList.add('msg-warn');
+  if (t && kind) msgTimer = setTimeout(() => m.classList.remove('show'), kind === 'err' ? 7000 : 3500);
 }
 function fmtUp(s){ s=Math.floor(s); if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s'; return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'; }
 function intToHex(n){ return '#'+(n|0).toString(16).padStart(6,'0'); }
@@ -948,20 +1112,41 @@ function minsToHHMM(m){ const h=Math.floor(m/60),mm=m%60; return String(h).padSt
 function hhmmToMins(s){ const [h,m]=s.split(':').map(Number); return h*60+m; }
 function rssiClass(r){ return r >= -60 ? 'rssi-good' : r >= -75 ? 'rssi-mid' : 'rssi-bad'; }
 
+function rssiLevel(r){ return !r ? 0 : r >= -60 ? 4 : r >= -70 ? 3 : r >= -80 ? 2 : 1; }
+const MOON_NAMES = {NEW:'Luna nueva', WAXING:'Creciente', FULL:'Luna llena', WANING:'Menguante'};
+let lastStatus = null;
 async function loadStatus(){
   try{
     const r = await fetch('/api/status', {signal: pollSignal()}); const d = await r.json();
-    $('#status').innerHTML = `<span class="text-accent">${d.ip||'-'}</span> · ${fmtUp(d.uptime_sec)} · heap ${(d.heap_free/1024).toFixed(1)}KB${d.rssi?' · '+d.rssi+'dBm':''}`;
+    lastStatus = d;
+    const bars = `<span class="bars" data-l="${rssiLevel(d.rssi)}"><i></i><i></i><i></i><i></i></span>`;
+    $('#sb-ip').textContent = d.ip || '—';
+    $('#sb-rssi').innerHTML = d.rssi ? `${bars} ${d.rssi} dBm` : '—';
+    $('#sb-up').textContent = fmtUp(d.uptime_sec);
+    $('#sb-heap').textContent = (d.heap_free/1024).toFixed(0) + ' KB';
+    $('#brand-fw').textContent = d.fw_version || '—';
+    $('#ov-ip').textContent = d.ip || '—';
+    $('#ov-up').textContent = fmtUp(d.uptime_sec);
+    $('#ov-heap').textContent = `${(d.heap_free/1024).toFixed(0)} KB de memoria libre`;
+    $('#ov-fw').textContent = d.fw_version || '—';
+    if (d.rssi) $('#ov-conn-sub').innerHTML = `${bars} ${d.rssi} dBm · ${['','débil','justa','buena','excelente'][rssiLevel(d.rssi)]}`;
+    if (d.moon) {
+      $('#ov-moon').textContent = MOON_NAMES[d.moon.phase] || d.moon.phase || '—';
+      $('#ov-moon-sub').textContent = `${Math.round(d.moon.age_days)} días de ${Math.round(d.moon.synodic_days * 10) / 10}`;
+    }
   }catch(e){}
 }
 async function loadWifi(){
   try{
     const r = await fetch('/api/wifi'); const d = await r.json();
     let html = '';
-    if (d.mode === 'sta') html = `<span class="pill pill-ok"><span class="pill-dot"></span>Conectado</span><span>a <code>${d.current_ssid}</code> · IP <code>${d.ip}</code></span>`;
-    else if (d.mode === 'ap') html = `<span class="pill pill-warn"><span class="pill-dot"></span>Modo AP</span><span>SSID <code>${d.ap_ssid}</code> · IP <code>${d.ip}</code></span>`;
+    if (d.mode === 'sta') html = `<span class="pill pill-ok"><span class="pill-dot"></span>Conectado</span><span>a <b>${d.current_ssid}</b> · <code>${d.ip}</code></span>`;
+    else if (d.mode === 'ap') html = `<span class="pill pill-warn"><span class="pill-dot"></span>Punto de acceso</span><span>red <b>${d.ap_ssid}</b> · <code>${d.ip}</code></span>`;
     else html = `<span class="pill pill-err">Sin conexión</span>`;
     $('#wifi-status').innerHTML = html;
+    $('#brand-host').textContent = d.hostname ? d.hostname + '.local' : (d.ip || '');
+    $('#ov-host').textContent = d.hostname ? d.hostname + '.local' : '';
+    $('#ov-conn').textContent = d.mode === 'sta' ? (d.current_ssid || 'WiFi') : d.mode === 'ap' ? 'Punto de acceso' : 'Sin conexión';
     if (d.current_ssid && !$('#ssid').value) $('#ssid').value = d.current_ssid;
   }catch(e){}
 }
@@ -1007,18 +1192,22 @@ async function loadConfig(){
       $('#hola-time').value = hh + ':' + mm;
     }
     $('#keepawake-en').checked = !!cfg.claude_keep_awake_enabled;
+    {
+      const off = new Set(Array.isArray(cfg.claude_anims_off) ? cfg.claude_anims_off : []);
+      document.querySelectorAll('[data-anim]').forEach(cb => { cb.checked = !off.has(cb.dataset.anim); });
+    }
     $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
     $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
-    $('#startup-mode').value = (cfg.startup_mode != null ? cfg.startup_mode : 0);
+    $('#startup-mode').innerHTML = modeOptions(cfg.startup_mode != null ? cfg.startup_mode : 0);
     $('#life-color').value   = intToHex(cfg.life_color != null ? cfg.life_color : 0x80C0FF);
     $('#life-rainbow').checked = !!cfg.life_rainbow;
     $('#life-color-row').style.display = cfg.life_rainbow ? 'none' : '';
-    // Modo Llama
-    const fireDef = cfg.fire_use_default !== false;
-    $('#fire-default').checked = fireDef;
-    $('#fire-color').value = intToHex(cfg.fire_color != null ? cfg.fire_color : 0xFF6000);
-    $('#fire-color-row').style.display = fireDef ? 'none' : '';
-    $('#demoscene-effect').value = cfg.demoscene_effect != null ? cfg.demoscene_effect : 0;
+    DEMO_PALS.forEach(id => {
+      const def = cfg[id + '_use_default'] !== false;
+      $('#' + id + '-default').checked = def;
+      $('#' + id + '-color').value = intToHex(cfg[id + '_color'] != null ? cfg[id + '_color'] : 0xFF6000);
+      $('#' + id + '-color-row').style.display = def ? 'none' : '';
+    });
     const lifeStep = cfg.life_step_ms || 150;
     $('#life-step').value = lifeStep;
     $('#life-step-val').textContent = lifeStep;
@@ -1032,18 +1221,12 @@ async function loadConfig(){
       const s = sched[i] || {enabled:false, hour:0, minute:0, mode:0};
       const hhmm = String(s.hour).padStart(2,'0') + ':' + String(s.minute).padStart(2,'0');
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:.5rem;align-items:center;margin-bottom:.25rem';
+      row.className = 'list-row';
       row.innerHTML = `
-        <input type="checkbox" data-sched="${i}" data-k="enabled" ${s.enabled?'checked':''}/>
-        <input type="time" data-sched="${i}" data-k="time" value="${hhmm}" style="flex:0 0 auto"/>
-        <select data-sched="${i}" data-k="mode" style="flex:1">
-          <option value="0" ${s.mode==0?'selected':''}>1 - 4 filas</option>
-          <option value="1" ${s.mode==1?'selected':''}>2 - Focus</option>
-          <option value="2" ${s.mode==2?'selected':''}>3 - Claude</option>
-          <option value="3" ${s.mode==3?'selected':''}>4 - Life</option>
-          <option value="4" ${s.mode==4?'selected':''}>5 - Imagen</option>
-          <option value="5" ${s.mode==5?'selected':''}>6 - Demoscene</option>
-        </select>
+        <span class="idx">${i+1}</span>
+        <label class="toggle"><input type="checkbox" data-sched="${i}" data-k="enabled" ${s.enabled?'checked':''} aria-label="Activar programación ${i+1}"/><span class="toggle-slider"></span></label>
+        <input type="time" data-sched="${i}" data-k="time" value="${hhmm}"/>
+        <select data-sched="${i}" data-k="mode">${modeOptions(s.mode)}</select>
       `;
       schedList.appendChild(row);
     }
@@ -1056,7 +1239,7 @@ async function loadConfig(){
                 : [1,1,1];
     const ttpLabels = ['Izquierda', 'Centro', 'Derecha'];
     const pinOpts = [
-      {v: 3,  t: 'A1 (GPIO 3) ⚠️ strapping'},
+      {v: 3,  t: 'A1 (GPIO 3) · pin de arranque'},
       {v: 9,  t: 'A2 (GPIO 9)'},
       {v: 10, t: 'A3 (GPIO 10)'},
       {v: 11, t: 'A4 (GPIO 11)'},
@@ -1068,12 +1251,10 @@ async function loadConfig(){
       const pin = ttpPin[i] || [9,10,11][i];
       const pm  = (typeof ttpPm[i] === 'number') ? ttpPm[i] : 1;
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem;flex-wrap:wrap';
+      row.className = 'list-row';
       row.innerHTML = `
-        <label class="toggle-row" style="min-width:120px">
-          <span class="toggle"><input type="checkbox" data-ttp="${i}" data-k="en" ${en?'checked':''}/><span class="toggle-slider"></span></span>
-          <span style="font-size:.9rem">${ttpLabels[i]}</span>
-        </label>
+        <label class="toggle"><input type="checkbox" data-ttp="${i}" data-k="en" ${en?'checked':''} aria-label="Activar botón ${ttpLabels[i]}"/><span class="toggle-slider"></span></label>
+        <span class="name">${ttpLabels[i]}</span>
         <select data-ttp="${i}" data-k="pin">
           ${pinOpts.map(o => `<option value="${o.v}" ${pin==o.v?'selected':''}>${o.t}</option>`).join('')}
         </select>
@@ -1098,6 +1279,7 @@ async function loadConfig(){
     $('#refresh').value = cfg.weather_refresh_sec;
     $('#rgb-order').value = cfg.rgb_order || 'RGB';
     initialRgbOrder = $('#rgb-order').value;
+    syncRanges();
     renderCities();
     renderIconPicker();
     renderPalette();
@@ -1111,10 +1293,10 @@ function renderCities(){
     const row = document.createElement('div');
     row.className = 'city-row';
     row.innerHTML = `
-      <input type="color" data-i="${i}" data-k="color" value="${intToHex(c.color)}"/>
-      <input data-i="${i}" data-k="name" value="${c.name||''}" maxlength="6"/>
-      <input data-i="${i}" data-k="lat" type="number" step="0.000001" value="${c.lat}" placeholder="lat"/>
-      <input data-i="${i}" data-k="lon" type="number" step="0.000001" value="${c.lon}" placeholder="lon"/>`;
+      <input type="color" data-i="${i}" data-k="color" value="${intToHex(c.color)}" aria-label="Color fila ${i+1}"/>
+      <input data-i="${i}" data-k="name" value="${c.name||''}" maxlength="6" class="mono" aria-label="Nombre fila ${i+1}"/>
+      <input data-i="${i}" data-k="lat" type="number" step="0.000001" value="${c.lat}" placeholder="lat" aria-label="Latitud fila ${i+1}"/>
+      <input data-i="${i}" data-k="lon" type="number" step="0.000001" value="${c.lon}" placeholder="lon" aria-label="Longitud fila ${i+1}"/>`;
     box.appendChild(row);
   });
   box.querySelectorAll('input').forEach(el => el.addEventListener('input', e => {
@@ -1160,6 +1342,7 @@ function renderFrames(){
         ev.stopPropagation();
         frames.splice(i, 1);
         if (curFrame >= frames.length) curFrame = frames.length-1;
+        markDirty();
         renderFrames(); renderIconGrid();
       };
       tab.appendChild(del);
@@ -1176,6 +1359,7 @@ $('#frame-add').addEventListener('click', () => {
     : { px: [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]], ms: 500 };
   curFrames().push(newF);
   curFrame = curFrames().length - 1;
+  markDirty();
   renderFrames(); renderIconGrid();
 });
 $('#frame-ms').addEventListener('input', e => {
@@ -1196,11 +1380,8 @@ function renderPalette(){
     const w = document.createElement('div'); w.className = 'swatch';
     const hex = intToHex(c);
     const b = document.createElement('button');
-    b.style.background = i === 0
-      ? 'repeating-linear-gradient(45deg,#334155 0 4px,#1e293b 4px 8px)'
-      : hex;
-    b.style.border = i === curColor ? '2px solid #34d399' : '1px solid #334155';
-    b.style.boxShadow = i === curColor ? '0 0 0 2px rgba(52,211,153,.25)' : 'none';
+    if (i === 0) b.className = 'transp'; else b.style.background = hex;
+    if (i === curColor) b.classList.add('sel');
     b.title = i === 0 ? 'Transparente' : 'Color '+i;
     b.onclick = () => { curColor = i; renderPalette(); };
     w.appendChild(b);
@@ -1210,6 +1391,7 @@ function renderPalette(){
       ed.oninput = e => {
         cfg.palette[i] = hexToInt(e.target.value);
         b.style.background = e.target.value;
+        markDirty();
         renderIconGrid();
       };
       w.appendChild(ed);
@@ -1229,10 +1411,9 @@ function renderIconGrid(){
   for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
     const c = document.createElement('button');
     const v = f.px[y][x];
-    c.style.background = v === 0
-      ? 'repeating-linear-gradient(45deg,#334155 0 4px,#1e293b 4px 8px)'
-      : pal[v];
-    c.onclick = () => { curFrameObj().px[y][x] = curColor; renderIconGrid(); };
+    if (v === 0) c.className = 'transp'; else c.style.background = pal[v];
+    c.setAttribute('aria-label', `Píxel ${x+1},${y+1}`);
+    c.onclick = () => { curFrameObj().px[y][x] = curColor; renderIconGrid(); markDirty(); };
     g.appendChild(c);
   }
 }
@@ -1240,12 +1421,12 @@ function renderIconGrid(){
 function stopPlay(){
   if (playTimer) clearTimeout(playTimer);
   playTimer = null;
-  $('#frame-play').innerHTML = '<span class="text-accent">▶</span> Play';
+  $('#frame-play').textContent = '▶ Play';
 }
 function startPlay(){
   const fr = curFrames();
   if (!fr || fr.length < 2) { stopPlay(); return; }
-  $('#frame-play').innerHTML = '<span class="text-warn">⏸</span> Pausa';
+  $('#frame-play').textContent = '❚❚ Pausa';
   const tick = () => {
     const f = curFrames();
     if (!f || f.length < 2) { stopPlay(); return; }
@@ -1268,7 +1449,7 @@ async function startDevicePlay(){
     const d = await r.json();
     if (!d.ok) throw new Error('preview rechazado');
     devicePlaying = true;
-    $('#frame-play-device').innerHTML = '<span style="color:#f87171">■</span> Stop';
+    $('#frame-play-device').textContent = '■ Parar en el panel';
     setMsg(`Preview en device (${d.frames} frames, ${d.duration_ms/1000}s max)`, 'ok');
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 }
@@ -1277,7 +1458,7 @@ async function stopDevicePlay(){
     await fetch('/api/icons/preview/stop', {method:'POST'});
   }catch(e){}
   devicePlaying = false;
-  $('#frame-play-device').innerHTML = '<span style="color:#60a5fa">📺</span> Device';
+  $('#frame-play-device').textContent = 'Ver en el panel';
   setMsg('Preview detenido', 'ok');
 }
 $('#frame-play-device').addEventListener('click', () => {
@@ -1287,6 +1468,7 @@ $('#frame-play-device').addEventListener('click', () => {
 async function loadWeather(){
   try{
     const r = await fetch('/api/weather', {signal: pollSignal()}); const d = await r.json();
+    if (d.cities && d.cities[0] && d.utc_now) ledBase = {utc: d.utc_now, at: Date.now(), off: d.cities[0].offset_sec || 0, ok: !!d.cities[0].has_data};
     const tbody = $('#weather').querySelector('tbody');
     tbody.innerHTML = '';
     const provider = d.premium_provider || (d.tomorrow_active ? 'tomorrow' : 'none');
@@ -1504,9 +1686,6 @@ $('#save').onclick = async () => {
     life_color:   hexToInt($('#life-color').value),
     life_rainbow: $('#life-rainbow').checked,
     life_step_ms: parseInt($('#life-step').value, 10) || 150,
-    fire_use_default: $('#fire-default').checked,
-    fire_color: hexToInt($('#fire-color').value),
-    demoscene_effect: parseInt($('#demoscene-effect').value, 10) || 0,
     schedule: (function() {
       const rows = document.querySelectorAll('#schedule-list > div');
       const out = [];
@@ -1534,6 +1713,11 @@ $('#save').onclick = async () => {
     },
     palette: cfg.palette,
     icons: cfg.icons,
+    ...Object.fromEntries(DEMO_PALS.flatMap(id => [
+      [id + '_use_default', $('#' + id + '-default').checked],
+      [id + '_color', hexToInt($('#' + id + '-color').value)],
+    ])),
+    claude_anims_off: [...document.querySelectorAll('[data-anim]')].filter(cb => !cb.checked).map(cb => cb.dataset.anim),
   };
   try{
     // rgb_order vive en NVS, endpoint dedicado. Solo lo enviamos si cambio.
@@ -1553,7 +1737,8 @@ $('#save').onclick = async () => {
       body: JSON.stringify(patch)});
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    setMsg('Guardado.' + (d.cities_changed ? ' (refresh meteo en curso)' : ''), 'ok');
+    clearDirty();
+    setMsg('Guardado' + (d.cities_changed ? ' · actualizando el tiempo' : ''), 'ok');
     loadWeather();
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
@@ -1662,7 +1847,7 @@ function loadUserImage(img) {
   cropW = mw; cropH = mh;
   cropX = (img.width  - cropW) / 2;
   cropY = (img.height - cropH) / 2;
-  $('#userimg-zoom').value = 100;
+  $('#userimg-zoom').value = 100; syncRange($('#userimg-zoom'));
   $('#userimg-zoom-val').textContent = '100%';
   redrawUserImg();
 }
@@ -1732,10 +1917,12 @@ $('#life-rainbow').onchange = () => {
 $('#life-step').oninput = () => {
   $('#life-step-val').textContent = $('#life-step').value;
 };
-// Toggle paleta clasica del fuego
-$('#fire-default').onchange = () => {
-  $('#fire-color-row').style.display = $('#fire-default').checked ? 'none' : '';
-};
+// Paleta clasica: oculta el selector de color mientras esta activa.
+DEMO_PALS.forEach(id => {
+  $('#' + id + '-default').onchange = () => {
+    $('#' + id + '-color-row').style.display = $('#' + id + '-default').checked ? 'none' : '';
+  };
+});
 
 // Botones simulados: POST /api/button?b=left|center|right
 async function pressButton(side) {
@@ -1862,7 +2049,15 @@ $('#ota-upload').onclick = () => {
   xhr.send(fd);
 };
 
-$('#reload').onclick = () => location.reload();
+// Descartar: vuelve a cargar la config del panel y deshace el brillo que se
+// haya aplicado en vivo mientras se movia el slider.
+$('#reload').onclick = async () => {
+  await loadConfig();
+  if (cfg) fetch('/api/brightness', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({brightness: cfg.brightness, night_brightness: cfg.night_mode.brightness})}).catch(()=>{});
+  clearDirty();
+  setMsg('Cambios descartados', 'ok');
+};
 $('#reset-dev').onclick = async () => {
   if (!confirm('Reiniciar el device?')) return;
   stopPolls();
@@ -1925,9 +2120,10 @@ async function loadJitter(){
   try{
     const r = await fetch('/api/jitter', {signal: pollSignal()}); const d = await r.json();
     const s = $('#jitter-ble-status');
-    if (s) s.innerHTML = d.ble_connected
-      ? '<span class="msg-ok">Mac conectado</span>'
-      : '<span class="text-muted">esperando emparejamiento…</span>';
+    if (s) {
+      s.className = 'pill ' + (d.ble_connected ? 'pill-ok' : 'pill-mute');
+      s.innerHTML = d.ble_connected ? '<span class="pill-dot"></span>Mac conectado' : 'Esperando emparejamiento';
+    }
     if (!jitterDirty){
       $('#jitter-en').checked = !!d.enabled;
       $('#jitter-name').value = d.name || '';
@@ -1967,6 +2163,7 @@ async function loadHola(){
     const r = await fetch('/api/claude/hola', {signal: pollSignal()}); const d = await r.json();
     const s = $('#hola-status');
     if (!s) return;
+    renderUsage(d);
     if (!d.configured){ s.innerHTML = '<span class="text-muted">sin sessionKey</span>'; return; }
     const map = {
       none:    '<span class="text-muted">sin envios aun</span>',
@@ -1987,6 +2184,678 @@ $('#hola-now').onclick = async () => {
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
+// Parte rellenada de los sliders (WebKit no la pinta solo).
+function syncRange(r){ const min = +r.min || 0, max = +r.max || 100; r.style.setProperty('--fill', ((r.value - min) / (max - min) * 100) + '%'); }
+function syncRanges(){ document.querySelectorAll('input[type=range]').forEach(syncRange); }
+document.addEventListener('input', e => { if (e.target.type === 'range') syncRange(e.target); });
+
+// ── Cambios sin guardar ──────────────────────────────────────────────────
+// Todo lo que va en el POST de "Guardar" vive dentro de un [data-save]; al
+// tocarlo aparece la barra de guardado. Lo que tiene su propio boton
+// (WiFi, proveedor, jitter, imagen, OTA) queda fuera.
+let dirty = false;
+function markDirty(){ dirty = true; $('#savebar').classList.add('show'); }
+function clearDirty(){ dirty = false; $('#savebar').classList.remove('show'); }
+['input','change'].forEach(ev => document.addEventListener(ev, e => {
+  const t = e.target;
+  if (!t.closest || !t.closest('[data-save]') || t.closest('[data-nodirty]') || t.type === 'file') return;
+  markDirty();
+}));
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ── Tema: automatico (sistema), claro u oscuro ───────────────────────────
+function applyTheme(t){
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  document.querySelectorAll('[data-theme-btn]').forEach(b => b.classList.toggle('on', b.dataset.themeBtn === (t || 'auto')));
+  try { if (t === 'light' || t === 'dark') localStorage.setItem('theme', t); else localStorage.removeItem('theme'); } catch (e) {}
+}
+document.querySelectorAll('[data-theme-btn]').forEach(b => b.onclick = () => applyTheme(b.dataset.themeBtn));
+{ let t = 'auto'; try { t = localStorage.getItem('theme') || 'auto'; } catch (e) {} applyTheme(t); }
+
+// ── Reloj LED de la cabecera: hora local de la primera ciudad, como en el
+// panel. Se sincroniza con utc_now de /api/weather y corre con el reloj
+// del navegador entre medias.
+let ledBase = null;
+const LED_FONT = {
+  '0':['111','101','101','101','111'], '1':['010','110','010','010','111'], '2':['111','001','111','100','111'],
+  '3':['111','001','111','001','111'], '4':['101','101','111','001','001'], '5':['111','100','111','001','111'],
+  '6':['111','100','111','101','111'], '7':['111','001','001','010','010'], '8':['111','101','111','101','111'],
+  '9':['111','101','111','001','111'], '-':['000','000','111','000','000'],
+};
+function drawLed(){
+  const c = $('#led'); if (!c) return;
+  const COLS = 26, ROWS = 9, cell = c.width / COLS;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  const on = new Set();
+  let txt = '--:--', colon = true;
+  if (ledBase && ledBase.ok) {
+    const t = ledBase.utc + Math.floor((Date.now() - ledBase.at) / 1000) + ledBase.off;
+    const d = new Date(t * 1000);
+    txt = String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+    colon = (t % 2) === 0;
+  }
+  // HH:MM = 3+1+3+1+1+1+3+1+3 = 17 columnas, centrado.
+  let x = 4;
+  for (const ch of txt) {
+    if (ch === ':') { if (colon) { on.add(x + ',3'); on.add(x + ',5'); } x += 2; continue; }
+    LED_FONT[ch].forEach((r, yy) => [...r].forEach((b, xx) => { if (b === '1') on.add((x + xx) + ',' + (yy + 2)); }));
+    x += 4;
+  }
+  // Segundero: un punto que recorre la ultima fila de izquierda a derecha.
+  const secX = ledBase && ledBase.ok
+    ? Math.floor(((ledBase.utc + Math.floor((Date.now() - ledBase.at) / 1000)) % 60) * COLS / 60) : -1;
+  const amber = '#ffb23e', off = getComputedStyle(document.documentElement).getPropertyValue('--led-off').trim() || '#16181d';
+  for (let yy = 0; yy < ROWS; yy++) for (let xx = 0; xx < COLS; xx++) {
+    const sec = yy === ROWS - 1 && xx === secX;
+    const lit = sec || on.has(xx + ',' + yy);
+    ctx.fillStyle = sec ? '#5aa9f0' : lit ? amber : off;
+    ctx.beginPath();
+    ctx.arc(xx * cell + cell / 2, yy * cell + cell / 2, cell * (lit ? .4 : .32), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+setInterval(drawLed, 1000);
+drawLed();
+
+// ── Ventana de 5h de Claude ──────────────────────────────────────────────
+function renderUsage(d){
+  const fh = d && d.five_hour;
+  if (!d || !d.configured) {
+    $('#cl-use-val').textContent = '—'; $('#cl-use-bar').style.width = '0';
+    $('#cl-use-sub').textContent = 'Configura la sessionKey para ver el uso.';
+    return;
+  }
+  if (!fh || !fh.valid) {
+    $('#cl-use-val').textContent = '0%'; $('#cl-use-bar').style.width = '0';
+    $('#cl-use-sub').textContent = 'Ventana cerrada: se abre con el próximo mensaje.';
+    return;
+  }
+  const pct = Math.max(0, Math.min(100, Math.round(fh.utilization)));
+  $('#cl-use-val').textContent = pct + '%';
+  $('#cl-use-bar').style.width = pct + '%';
+  const left = Math.max(0, (fh.resets_at || 0) - (fh.now || 0));
+  const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60);
+  $('#cl-use-sub').textContent = left > 0 ? `Se renueva en ${h ? h + ' h ' : ''}${m} min.` : 'Renovándose…';
+}
+
+// ── Previews de Clawd ────────────────────────────────────────────────────
+// Cada tarjeta ejecuta la misma logica que el firmware (copiada del
+// simulador por tools/sync-clawd-preview.py) en su propio estado, forzando
+// su animacion en bucle. Solo se anima la seccion visible.
+function makeClawd(px){
+/*CLAWD-LOGIC-BEGIN*/
+  // ── Port de la logica del firmware (src/Display.cpp, drawClawd) ──────
+  // Zona de Clawd: columna derecha x=43..63, filas 18..31. La
+  // barra de segundos se queda en la columna izquierda y Clawd pisa el borde
+  // inferior del panel, con 4 filas libres encima de la cabeza.
+  const CLAWD_ACTS = [
+    { act: 'WAVE', w: 24, min: 3000, max: 6000 },
+    { act: 'WALK', w: 24, min: 0, max: 0 },
+    { act: 'HOP', w: 14, min: 0, max: 0 },
+    { act: 'DANCE', w: 14, min: 0, max: 0 },
+    { act: 'SURPRISED', w: 8, min: 900, max: 900 },
+    { act: 'NAP', w: 16, min: 5000, max: 9000 },
+    { act: 'THINK', w: 12, min: 3000, max: 5000 },
+    { act: 'HEART', w: 10, min: 2400, max: 3600 },
+    { act: 'SPIN', w: 10, min: 0, max: 0 },
+    { act: 'NOD', w: 8, min: 0, max: 0 },
+    { act: 'FIREFLY', w: 8, min: 6000, max: 8000 },
+    { act: 'JUGGLE', w: 8, min: 4000, max: 6000 },
+    { act: 'PEEK', w: 6, min: 0, max: 0 },
+    { act: 'CODE', w: 10, min: 4000, max: 7000 },
+    { act: 'JACKS', w: 8, min: 0, max: 0 },
+    { act: 'SNEEZE', w: 6, min: 2400, max: 2400 },
+  ];
+  const IDLE_MIN = 4000, IDLE_MAX = 9000, STEP_MS = 180, HOP_MS = 600, BEAT_MS = 300;
+  const SPIN_FRAME_MS = 110, NOD_MS = 4500, FLY_MOVE_MS = 160, CATCH_MS = 900;
+  const JUGGLE_CYCLE_MS = 900, JUGGLE_PATH_MS = 630, JACK_MS = 300, TYPE_MS = 110;
+  const PEEK_OUT = 14, PEEK_SHOW = 9, PEEK_HIDE_MS = 1500, PEEK_HOLD_MS = 1600, PEEK_IN_MS = 120;
+  const LEGS_STAND = 0, LEGS_A = 1, LEGS_B = 2, LEGS_TUCKED = 3, LEGS_SIDE_A = 4, LEGS_SIDE_B = 5, LEGS_SPREAD = 6, LEGS_NONE = 7;
+  const NAMES = { IDLE: 'Reposo', WAVE: 'Saludar', WALK: 'Pasear', HOP: 'Saltitos', DANCE: 'Bailar', SURPRISED: 'Sobresalto', NAP: 'Siesta', SLEEP: 'Dormir',
+                  THINK: 'Pensar', HEART: 'Corazón', SPIN: 'Girar', NOD: 'Cabecear', FIREFLY: 'Luciérnaga',
+                  JUGGLE: 'Malabares', PEEK: 'Asomarse', CODE: 'Programar', JACKS: 'Saltos de tijera', SNEEZE: 'Estornudo' };
+  const NEW_ACTS = new Set(CLAWD_ACTS.filter(d => d.isNew).map(d => d.act));
+  // Vuelta completa: frente, reojo, perfil, espalda, perfil, reojo, frente.
+  const SPIN_SEQ = ['front', 'lookR', 'sideR', 'back', 'sideL', 'lookL'];
+
+  const rand = (lo, hi) => hi <= lo ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+  const s = { act: 'IDLE', startMs: 0, durMs: 0, dx: 0, walkTarget: 0, lastStepMs: 0, steps: 0, lastFiveUsed: -1, lastMinute: -1,
+              side: 1, fly: { x: 0, y: 0, lastMove: 0 }, phase: 0, phaseStart: 0, extra: 0 };
+  const look = { next: 0, start: 0, dur: 0, off: 0 };
+  const blinkT = { next: 0, start: 0, rem: 0 };
+
+  function start(act, now, g) {
+    s.act = act; s.startMs = now; s.steps = 0; s.lastStepMs = now;
+    s.phase = 0; s.phaseStart = now; s.extra = 0;
+    const { minDx, maxDx } = g;
+    if (act === 'IDLE') s.durMs = rand(IDLE_MIN, IDLE_MAX);
+    else if (act === 'WALK') {
+      let t = rand(0, maxDx - minDx) + minDx;
+      if (Math.abs(t - s.dx) < 2) t = (s.dx > Math.trunc((minDx + maxDx) / 2)) ? minDx : maxDx;
+      s.walkTarget = t; s.durMs = 0;
+    } else if (act === 'HOP') s.durMs = HOP_MS * rand(2, 3);
+    else if (act === 'SLEEP') s.durMs = 0;
+    else if (act === 'DANCE') { const bar = 4 * BEAT_MS; s.durMs = Math.ceil(rand(3000, 5000) / bar) * bar; }
+    else if (act === 'SPIN') s.durMs = SPIN_SEQ.length * SPIN_FRAME_MS * rand(1, 2);
+    else if (act === 'NOD') s.durMs = NOD_MS;
+    else if (act === 'JACKS') s.durMs = 2 * JACK_MS * rand(4, 6);
+    else if (act === 'PEEK') s.durMs = 0;
+    else { const d = CLAWD_ACTS.find(d => d.act === act); s.durMs = rand(d.min, d.max); }
+    // Lado con sitio para bocadillos (puntos, corazones): el mismo criterio que la z.
+    const bx = g.x0 + s.dx;
+    s.side = (bx + 17 <= g.colR) ? 1 : -1;
+    if (act === 'FIREFLY') {
+      // Aparece arriba del todo, en el lado contrario.
+      s.fly.x = s.side > 0 ? g.colL : g.colR;
+      s.fly.y = g.top; s.fly.lastMove = now;
+    }
+  }
+  function pick(allowNew) {
+    const list = CLAWD_ACTS.filter(d => allowNew || !d.isNew);
+    const total = list.reduce((a, d) => a + d.w, 0);
+    let r = Math.floor(Math.random() * total);
+    for (const d of list) { if (r < d.w) return d.act; r -= d.w; }
+    return 'WAVE';
+  }
+  function lookOffset(now) {
+    if (look.start === 0) {
+      if (look.next === 0) look.next = now + rand(4000, 10000);
+      if (now < look.next) return 0;
+      look.off = Math.random() < .5 ? -1 : 1; look.start = now; look.dur = rand(800, 2300);
+    }
+    if (now - look.start >= look.dur) { look.start = 0; look.next = now + rand(4000, 10000); return 0; }
+    return look.off;
+  }
+  function blinkRows(now) {
+    if (blinkT.start === 0) {
+      if (blinkT.next === 0) blinkT.next = now + rand(6000, 15000);
+      if (now < blinkT.next) return 0;
+      blinkT.rem = 2; blinkT.start = now;
+    }
+    let e = now - blinkT.start;
+    if (e >= 300) {
+      if (--blinkT.rem > 0) { blinkT.start = now; e = 0; }
+      else { blinkT.start = 0; blinkT.next = now + rand(6000, 15000); return 0; }
+    }
+    if (e < 60) return 1; if (e < 180) return 2; if (e < 240) return 1; return 0;
+  }
+
+  // Mueve la luciérnaga un paso al azar sin meterse dentro de Clawd.
+  function moveFly(now, g, bx, by) {
+    if (now - s.fly.lastMove < FLY_MOVE_MS) return;
+    s.fly.lastMove = now;
+    const inside = (x, y) => x >= bx && x <= bx + 13 && y >= by && y <= by + 9;
+    const cand = [];
+    for (let ddx = -1; ddx <= 1; ddx++) for (let ddy = -1; ddy <= 1; ddy++) {
+      const x = s.fly.x + ddx, y = s.fly.y + ddy;
+      if (x < g.colL || x > g.colR || y < g.top || y > g.bottom - 2 || inside(x, y)) continue;
+      cand.push({ x, y, w: ddy < 0 ? 2 : 1 });   // tiende a subir: no se queda en el suelo
+    }
+    if (!cand.length) return;
+    const total = cand.reduce((a, o) => a + o.w, 0);
+    let r = Math.random() * total;
+    for (const o of cand) { if ((r -= o.w) < 0) { s.fly.x = o.x; s.fly.y = o.y; return; } }
+  }
+
+  // Altura de un salto (px hacia arriba) en funcion de u ∈ [0,1]: parabola.
+  const arc = (u, h) => Math.round(h * 4 * u * (1 - u));
+
+  function tick(now, env, g, opts) {
+    const { minDx, maxDx } = g;
+    if (s.startMs === 0) start('IDLE', now, g);
+    if (env.night) { if (s.act !== 'SLEEP') start('SLEEP', now, g); }
+    else if (s.act === 'SLEEP') start('SURPRISED', now, g);
+    if (env.fiveUsed >= 0) {
+      if (s.lastFiveUsed >= 0 && env.fiveUsed > s.lastFiveUsed + 1e-6 && s.act !== 'SLEEP') start('HOP', now, g);
+      s.lastFiveUsed = env.fiveUsed;
+    }
+    if (opts.hourDance) {
+      if (s.lastMinute >= 0 && env.minute === 0 && s.lastMinute !== 0 && s.act !== 'SLEEP') start('DANCE', now, g);
+      s.lastMinute = env.minute;
+    }
+    if (s.act !== 'SLEEP' && s.act !== 'WALK' && s.act !== 'PEEK' && now - s.startMs >= s.durMs)
+      start(s.act === 'IDLE' ? pick(opts.newActs) : 'IDLE', now, g);
+    s.dx = Math.max(minDx, Math.min(maxDx, s.dx));
+    const lk = lookOffset(now);
+
+    // armL/armR: 0 abajo, 1 levantado, 2 muy arriba (mano por encima de la cabeza).
+    const p = { dx: 0, dy: 0, legs: LEGS_STAND, eyeOff: 0, blinkable: false, happy: false, surprised: false, eyesClosed: false,
+                armL: 0, armR: 0, zzz: false, eyesUp: false, halfClosed: false, view: 'front',
+                think: 0, heart: -1, fly: null, extra: 0, eyesDown: false, laptop: false, typeL: false, typeR: false,
+                balls: null, spray: -1, check: false };
+    const e = now - s.startMs;
+    const walkLegs = () => (s.steps & 1) ? LEGS_A : LEGS_B;
+    switch (s.act) {
+      case 'IDLE': p.eyeOff = lk; p.blinkable = true; break;
+      case 'WAVE':
+        // Brazo arriba todo el rato; la mano sube y baja 1 px (saludo).
+        p.happy = true; p.armR = (Math.floor(e / 250) & 1) ? 1 : 2;
+        break;
+      case 'WALK': {
+        const dir = Math.sign(s.walkTarget - s.dx);
+        if (now - s.lastStepMs >= STEP_MS) {
+          if (dir === 0) { start('IDLE', now, g); p.blinkable = true; break; }
+          s.dx += dir; s.steps++; s.lastStepMs = now;
+        }
+        // Balanceo: en cada paso el cuerpo sube 1 px mientras la pata esta en el aire.
+        p.eyeOff = dir; p.legs = walkLegs(); p.blinkable = true;
+        p.dy = (now - s.lastStepMs < STEP_MS / 2) ? -1 : 0;
+        if (p.dy < 0) p.legs = LEGS_STAND;
+        break;
+      }
+      case 'HOP': {
+        const t = e % HOP_MS; p.happy = true;
+        if (t < 120) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (t < 480) { p.dy = -arc((t - 120) / 360, 3); p.legs = LEGS_TUCKED; p.armL = p.armR = 2; }
+        else if (t < 560) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        break;
+      }
+      case 'DANCE': {
+        const beat = Math.floor(e / BEAT_MS) & 3; p.happy = true;
+        const tb = e % BEAT_MS;
+        if (beat === 0 || beat === 2) {
+          // Saltito con un brazo arriba en los tiempos fuertes.
+          if (beat === 0) p.armL = 2; else p.armR = 2;
+          p.dy = -arc(tb / BEAT_MS, 2);
+          p.legs = p.dy < 0 ? LEGS_TUCKED : (beat === 0 ? LEGS_A : LEGS_B);
+        } else { p.dy = 1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1; }
+        break;
+      }
+      case 'SURPRISED':
+        // Bote del susto: se encoge, salta 2 px con los brazos arriba y aterriza.
+        if (e < 100) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        else if (e < 400) { p.dy = -arc((e - 100) / 300, 2); p.legs = LEGS_TUCKED; }
+        p.surprised = true; p.armL = p.armR = e < 400 ? 2 : 1; break;
+      case 'NAP': case 'SLEEP':
+        // Respira: cada 2,4 s se hunde 1 px durante un momento.
+        p.eyesClosed = true; p.zzz = true;
+        if ((now % 2400) > 1600) { p.dy = 1; p.legs = LEGS_TUCKED; }
+        break;
+
+      case 'THINK':
+        // Mira arriba hacia el bocadillo y se rasca la cabeza.
+        p.eyesUp = true; p.eyeOff = s.side;
+        p.think = Math.min(3, Math.floor(e / 400));
+        if (s.side > 0) p.armR = (Math.floor(e / 300) & 1) ? 1 : 2; else p.armL = (Math.floor(e / 300) & 1) ? 1 : 2;
+        break;
+      case 'HEART':
+        // Abrazo (brazos a media altura) y un corazon que late sobre la cabeza.
+        p.happy = true; p.armL = p.armR = 1; p.heart = e; break;
+      case 'SPIN': {
+        // Se da la vuelta pisando en el sitio; al pasar de espaldas da un saltito.
+        const f = Math.floor(e / SPIN_FRAME_MS);
+        p.view = SPIN_SEQ[f % SPIN_SEQ.length];
+        const side = p.view === 'sideR' || p.view === 'sideL';
+        p.legs = side ? ((f & 1) ? LEGS_SIDE_A : LEGS_SIDE_B) : ((f & 1) ? LEGS_A : LEGS_B);
+        if (p.view === 'back') { p.dy = -1; p.legs = LEGS_TUCKED; }
+        break;
+      }
+      case 'NOD': {
+        // Ojos a media asta, dos cabezadas (cada vez mas hondas) y se despierta de un bote.
+        if (e >= NOD_MS - 700) {
+          const t = e - (NOD_MS - 700);
+          p.surprised = true; p.armL = p.armR = 2;
+          if (t < 300) { p.dy = -arc(t / 300, 2); p.legs = LEGS_TUCKED; }
+        } else if (e >= 1500 && ((e - 1500) % 1000) < 400) {
+          p.eyesClosed = true; p.legs = LEGS_TUCKED;
+          p.dy = ((e - 1500) >= 1000) ? 2 : 1;
+          if (p.dy === 2) p.legs = LEGS_NONE;
+        } else p.halfClosed = true;
+        break;
+      }
+      case 'FIREFLY': {
+        const bx = g.x0 + s.dx, by = g.y0, cx = bx + 6.5;
+        const catching = e >= s.durMs - CATCH_MS;
+        if (!catching) {
+          moveFly(now, g, bx, by);
+          const dir = Math.sign(s.fly.x - cx);
+          p.eyeOff = dir; p.eyesUp = s.fly.y < by + 2;
+          if (Math.abs(s.fly.x - cx) > 8 && now - s.lastStepMs >= STEP_MS) {
+            const nd = s.dx + dir;
+            if (nd >= minDx && nd <= maxDx) { s.dx = nd; s.steps++; s.lastStepMs = now; }
+          }
+          p.legs = (now - s.lastStepMs < STEP_MS && s.steps) ? walkLegs() : LEGS_STAND;
+          // Si la tiene justo encima, intenta alcanzarla con la mano.
+          if (s.fly.y < by && Math.abs(s.fly.x - cx) < 5) { if (s.fly.x > cx) p.armR = 2; else p.armL = 2; }
+          p.fly = { x: s.fly.x, y: s.fly.y };
+          p.blinkable = true;
+        } else {
+          // Baja sobre su cabeza y la caza de un salto de 3 px.
+          const t = e - (s.durMs - CATCH_MS);
+          const flyTop = { x: Math.round(cx), y: g.top };
+          if (t < 250) { p.fly = flyTop; p.eyesUp = true; p.dy = 1; p.legs = LEGS_TUCKED; }
+          else if (t < 600) {
+            p.dy = -arc((t - 250) / 350, 3); p.legs = LEGS_TUCKED; p.armL = p.armR = 2; p.happy = true;
+            if (t < 400) p.fly = flyTop;
+          } else p.happy = true;
+        }
+        break;
+      }
+      case 'JUGGLE': {
+        // Cascada tipo "shower": cada bola sale de la mano izquierda en parabola
+        // por encima de la cabeza y cae en la derecha; la vuelta va por detras.
+        p.eyesUp = true; p.balls = [];
+        let lead = null;
+        for (let i = 0; i < 3; i++) {
+          const t = (e + i * (JUGGLE_CYCLE_MS / 3)) % JUGGLE_CYCLE_MS;
+          if (t < 120 || t > JUGGLE_CYCLE_MS - 80) p.armL = 1;
+          if (t >= JUGGLE_PATH_MS - 120 && t < JUGGLE_PATH_MS + 60) p.armR = 1;
+          if (t < JUGGLE_PATH_MS) {
+            const u = t / JUGGLE_PATH_MS;
+            p.balls.push({ u, i });
+            if (lead === null || u > lead) lead = u;
+          }
+        }
+        p.eyeOff = lead === null ? 0 : (lead < 0.4 ? -1 : lead > 0.6 ? 1 : 0);
+        break;
+      }
+      case 'CODE': {
+        p.laptop = true;
+        if (e >= s.durMs - 900) {
+          // Compila a la primera: check verde encima y saltito.
+          const t = e - (s.durMs - 900);
+          p.happy = true; p.armL = p.armR = 2; p.check = true;
+          if (t < 300) { p.dy = -arc(t / 300, 1); }
+        } else {
+          p.eyesDown = true;
+          const k = Math.floor(e / TYPE_MS);
+          const r = (k * 2654435761) >>> 0;   // pseudo-aleatorio estable por tecla
+          p.typeL = (r & 3) !== 0 && (k & 1) === 0;
+          p.typeR = (r & 12) !== 0 && (k & 1) === 1;
+          // De vez en cuando levanta la vista a pensar.
+          if ((e % 2600) > 2100) { p.eyesDown = false; p.eyesUp = true; p.typeL = p.typeR = false; }
+        }
+        break;
+      }
+      case 'JACKS': {
+        // Cada cambio de postura es un saltito de 1 px.
+        const half = Math.floor(e / JACK_MS), t = e % JACK_MS;
+        const open = (half & 1) === 1;
+        if (t < 100) { p.dy = -1; p.legs = LEGS_TUCKED; p.armL = p.armR = 1; }
+        else if (open) { p.armL = p.armR = 2; p.legs = LEGS_SPREAD; }
+        break;
+      }
+      case 'SNEEZE':
+        // a… a… (se echa hacia atras) — ¡ACHÍS! (se encoge de golpe).
+        if (e < 1000) { p.eyesUp = true; p.halfClosed = (Math.floor(e / 250) & 1) === 0; p.eyesClosed = !p.halfClosed; p.dy = e > 500 ? -1 : 0; if (p.dy) p.legs = LEGS_TUCKED; }
+        else if (e < 1300) { p.eyesClosed = true; p.armL = p.armR = 2; p.dy = -2; p.legs = LEGS_TUCKED; }
+        else if (e < 1600) { p.eyesClosed = true; p.dy = 1; p.legs = LEGS_TUCKED; }
+        if (e >= 1300 && e < 1900) p.spray = Math.floor((e - 1300) / 100);
+        break;
+      case 'PEEK': {
+        // Sale por el borde derecho del panel, asoma medio ojo y vuelve.
+        const stepDue = now - s.lastStepMs >= STEP_MS;
+        const next = ph => { s.phase = ph; s.phaseStart = now; s.lastStepMs = now; };
+        const pe = now - s.phaseStart;
+        if (s.phase === 0) {                       // hasta el borde
+          if (s.dx >= maxDx) next(1);
+          else if (stepDue) { s.dx++; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = 1; p.legs = walkLegs();
+        } else if (s.phase === 1) {                // sale del panel
+          if (s.extra >= PEEK_OUT) next(2);
+          else if (stepDue) { s.extra++; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = 1; p.legs = walkLegs();
+        } else if (s.phase === 2) {                // escondido
+          if (pe >= PEEK_HIDE_MS) next(3);
+        } else if (s.phase === 3) {                // asoma
+          if (s.extra <= PEEK_SHOW) next(4);
+          else if (now - s.lastStepMs >= PEEK_IN_MS) { s.extra--; s.lastStepMs = now; }
+          p.eyeOff = -1;
+        } else if (s.phase === 4) {                // mira, parpadea y saluda con la mano
+          p.eyeOff = -1;
+          p.halfClosed = pe > 700 && pe < 820;
+          if (pe > 900) p.armL = (Math.floor(pe / 250) & 1) ? 1 : 2;
+          if (pe >= PEEK_HOLD_MS) next(5);
+        } else {                                   // vuelve a entrar
+          if (s.extra <= 0) { start('IDLE', now, g); p.blinkable = true; break; }
+          if (stepDue) { s.extra--; s.steps++; s.lastStepMs = now; }
+          p.eyeOff = -1; p.legs = walkLegs();
+        }
+        p.extra = s.extra;
+        break;
+      }
+    }
+    p.dx = s.dx;
+    return p;
+  }
+
+  const BODY = [0b00111111111100, 0b00111111111100, 0b00111111111100, 0b00111111111100,
+                0b11111111111111, 0b11111111111111, 0b00111111111100, 0b00111111111100];
+  const LEGS_FULL = 0b00110100101100, LEGS_A_LOW = 0b00000100001100, LEGS_B_LOW = 0b00110000100000;
+  const LEGS_SIDE = 0b00001100110000, LEGS_SIDE_A_LOW = 0b00001100000000, LEGS_SIDE_B_LOW = 0b00000000110000;
+  // Piernas abiertas: las interiores se quedan, las exteriores se abren en diagonal.
+  const LEGS_SPREAD_HI = 0b01100100100110, LEGS_SPREAD_LOW = 0b11000000000011;
+  const ORANGE = '#e07a2f', BLACK = null, ZC = '#5070b0', HEART_C = '#ff4d8d';
+  const FLY_ON = '#f5e663', FLY_DIM = '#6b6420', CLOUD_C = '#c9c9c9', CLOUD_DOT = '#555a63';
+  const BALL_C = ['#e8e8e8', '#5ad1e6', '#ff4d8d'], LAPTOP_C = '#8c93a0', LAPTOP_EDGE_C = '#5d636e', LOGO_C = '#dfe3ea';
+  const SPRAY_C = '#bfe6ff', CHECK_C = '#46c46a';
+
+  function blit(fb, rows, w, x, y, col) {
+    rows.forEach((r, yy) => { for (let xx = 0; xx < w; xx++) if (r & (1 << (w - 1 - xx))) px(fb, x + xx, y + yy, col); });
+  }
+
+  function drawClawd(fb, now, g, env, opts) {
+    const { x0, y0, colR } = g;
+    const p = tick(now, env, g, opts);
+    let blink = blinkRows(now);
+    if (!p.blinkable) blink = 0;
+    if (p.halfClosed) blink = 1;
+    const bx = x0 + p.dx + p.extra, by = y0 + p.dy;
+    const row = (bits, y) => { for (let xx = 0; xx < 14; xx++) if (bits & (0x2000 >> xx)) px(fb, bx + xx, y, ORANGE); };
+    for (let yy = 0; yy < 8; yy++) row(BODY[yy], by + yy);
+    if (p.legs !== LEGS_NONE) {
+      const sideLegs = p.legs === LEGS_SIDE_A || p.legs === LEGS_SIDE_B;
+      row(sideLegs ? LEGS_SIDE : p.legs === LEGS_SPREAD ? LEGS_SPREAD_HI : LEGS_FULL, by + 8);
+      if (p.legs === LEGS_SPREAD) row(LEGS_SPREAD_LOW, by + 9);
+      if (p.legs === LEGS_SIDE_A) row(LEGS_SIDE_A_LOW, by + 9);
+      if (p.legs === LEGS_SIDE_B) row(LEGS_SIDE_B_LOW, by + 9);
+      if (p.legs === LEGS_STAND) row(LEGS_FULL, by + 9);
+      if (p.legs === LEGS_A) row(LEGS_A_LOW, by + 9);
+      if (p.legs === LEGS_B) row(LEGS_B_LOW, by + 9);
+    }
+    // Brazo: nivel 1 = punta en filas 3-4, nivel 2 = punta en filas 2-3.
+    const arm = (lvl, cx) => {
+      if (!lvl) return;
+      px(fb, cx, by + 5, BLACK);
+      if (lvl === 2) { px(fb, cx, by + 4, BLACK); px(fb, cx, by + 2, ORANGE); }
+      px(fb, cx, by + 3, ORANGE);
+    };
+    arm(p.armL, bx); arm(p.armR, bx + 13);
+    // Teclear: la punta de la mano baja a la fila 6, sobre el teclado.
+    if (p.typeL) { px(fb, bx, by + 4, BLACK); px(fb, bx, by + 6, ORANGE); }
+    if (p.typeR) { px(fb, bx + 13, by + 4, BLACK); px(fb, bx + 13, by + 6, ORANGE); }
+
+    // De perfil el brazo del fondo queda oculto tras el cuerpo.
+    if (p.view === 'sideR') for (const y of [4, 5]) { px(fb, bx, by + y, BLACK); px(fb, bx + 1, by + y, BLACK); }
+    if (p.view === 'sideL') for (const y of [4, 5]) { px(fb, bx + 12, by + y, BLACK); px(fb, bx + 13, by + y, BLACK); }
+
+    const eyeShift = p.view === 'lookR' ? 1 : p.view === 'lookL' ? -1 : 0;
+    const eL = bx + 4 + p.eyeOff + eyeShift, eR = bx + 9 + p.eyeOff + eyeShift;
+    if (p.view === 'back') {
+      // de espaldas: sin ojos
+    } else if (p.view === 'sideR' || p.view === 'sideL') {
+      const ex = p.view === 'sideR' ? bx + 10 : bx + 3;
+      px(fb, ex, by + 2, BLACK); px(fb, ex, by + 3, BLACK);
+    } else if (p.eyesClosed) {
+      px(fb, eL - 1, by + 3, BLACK); px(fb, eL, by + 3, BLACK); px(fb, eR, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
+    } else if (p.happy) {
+      px(fb, eL, by + 2, BLACK); px(fb, eR, by + 2, BLACK);
+      px(fb, eL - 1, by + 3, BLACK); px(fb, eL + 1, by + 3, BLACK); px(fb, eR - 1, by + 3, BLACK); px(fb, eR + 1, by + 3, BLACK);
+    } else {
+      const base = p.eyesUp ? 1 : p.eyesDown ? 3 : 2;
+      const top = p.surprised ? 1 : base + (blink >= 1 ? 1 : 0), bottom = blink >= 2 ? base : base + 1;
+      for (let yy = top; yy <= bottom; yy++) { px(fb, eL, by + yy, BLACK); px(fb, eR, by + yy, BLACK); }
+    }
+
+    if (p.laptop) {
+      // Tapa del portatil vista por detras (tapa las patas) y base mas ancha.
+      for (let yy = 6; yy <= 8; yy++) for (let xx = 2; xx <= 11; xx++) px(fb, bx + xx, by + yy, LAPTOP_C);
+      for (let xx = 1; xx <= 12; xx++) px(fb, bx + xx, by + 9, LAPTOP_EDGE_C);
+      px(fb, bx + 6, by + 7, LOGO_C); px(fb, bx + 7, by + 7, LOGO_C);
+    }
+
+    // Todo lo que flota se ancla a la posicion de reposo (y0), no al salto,
+    // para que no se mueva con el cuerpo. Techo: g.top (fila 18).
+    const sideX = s.side > 0 ? bx + 15 : bx - 4;
+    const restTop = y0;
+    if (p.zzz) {
+      // Dos "z" que suben desde la cabeza hasta el techo, desfasadas.
+      for (let k = 0; k < 2; k++) {
+        const ph = (now + k * 1400) % 2800;
+        const zy = restTop + 3 - Math.floor(ph / 350);
+        if (zy >= g.top) blit(fb, [0b111, 0b010, 0b111], 3, sideX, zy, ZC);
+      }
+    }
+    if (p.think) {
+      // Puntito junto a la esquina de la cabeza y nube con "..." que se van
+      // encendiendo, como el indicador de que Claude esta pensando.
+      const dotX = s.side > 0 ? bx + 13 : bx;
+      if (p.think >= 1) px(fb, dotX, restTop - 1, CLOUD_C);
+      if (p.think >= 2) {
+        const cx = s.side > 0 ? bx + 13 : bx - 4;
+        blit(fb, [0b01110, 0b11111, 0b01110], 5, cx, g.top, CLOUD_C);
+        if (p.think >= 3) {
+          const on = Math.floor(now / 250) % 4;
+          for (let i = 0; i < 3; i++) if (i < on) px(fb, cx + 1 + i, g.top + 1, CLOUD_DOT);
+        }
+      }
+    }
+    if (p.heart >= 0) {
+      // Late sobre la cabeza: pequeño, grande, grande, pequeño.
+      const big = (Math.floor(p.heart / 300) % 4) !== 0;
+      const hx = bx + 5;
+      if (big) blit(fb, [0b01010, 0b11111, 0b01110, 0b00100], 5, hx - 1 + 1, g.top, HEART_C);
+      else blit(fb, [0b101, 0b111, 0b010], 3, hx + 1, g.top + 1, HEART_C);
+    }
+    if (p.check) blit(fb, [0b001, 0b001, 0b101, 0b010], 3, bx + 6, g.top, CHECK_C);
+    if (p.balls) for (const b of p.balls) {
+      // Parabola de mano a mano con el pico en el techo (fila 18).
+      const x = bx + Math.round(13 * b.u);
+      const y = (restTop + 2) - arc(b.u, (restTop + 2) - g.top);
+      px(fb, x, y, BALL_C[b.i]);
+    }
+    if (p.spray >= 0) {
+      const F = [[[0, 3]], [[0, 2], [1, 3], [0, 4]], [[1, 1], [2, 3], [1, 5]], [[2, 1], [3, 3], [2, 5]], [[3, 2], [3, 4]], [[3, 3]]];
+      for (const [xx, yy] of (F[p.spray] || [])) {
+        const x = s.side > 0 ? bx + 14 + xx : bx - 1 - xx;
+        px(fb, x, by + yy, SPRAY_C);
+      }
+    }
+    if (p.fly) px(fb, p.fly.x, p.fly.y, (Math.floor(now / 200) % 4) === 3 ? FLY_DIM : FLY_ON);
+    return { bx };
+  }
+
+/*CLAWD-LOGIC-END*/
+  return { start, drawClawd, st: s };
+}
+const CLAWD_ANIMS = [
+  {key:'wave',      act:'WAVE',      name:'Saludar',          desc:'Cara feliz y la mano en alto.'},
+  {key:'walk',      act:'WALK',      name:'Pasear',           desc:'Camina por su rincón mirando hacia donde va.'},
+  {key:'hop',       act:'HOP',       name:'Saltitos',         desc:'Dos o tres saltos con los brazos arriba.'},
+  {key:'dance',     act:'DANCE',     name:'Bailar',           desc:'Saltitos a compás alternando los brazos.'},
+  {key:'surprised', act:'SURPRISED', name:'Sobresalto',       desc:'Bote con los ojos muy abiertos.'},
+  {key:'nap',       act:'NAP',       name:'Siesta',           desc:'Se queda dormido un rato; suben las «z».'},
+  {key:'think',     act:'THINK',     name:'Pensar',           desc:'Se rasca la cabeza bajo una nube con «…».'},
+  {key:'heart',     act:'HEART',     name:'Corazón',          desc:'Un abrazo y un corazón que late encima.'},
+  {key:'spin',      act:'SPIN',      name:'Girar',            desc:'Vuelta completa pisando en el sitio.'},
+  {key:'nod',       act:'NOD',       name:'Cabecear',         desc:'Da cabezadas y se despierta de un bote.'},
+  {key:'firefly',   act:'FIREFLY',   name:'Luciérnaga',       desc:'La persigue con la mirada y la caza.'},
+  {key:'juggle',    act:'JUGGLE',    name:'Malabares',        desc:'Tres bolas por encima de la cabeza.'},
+  {key:'peek',      act:'PEEK',      name:'Asomarse',         desc:'Sale por el borde y asoma un ojo.'},
+  {key:'code',      act:'CODE',      name:'Programar',        desc:'Teclea en un portátil hasta que compila.'},
+  {key:'jacks',     act:'JACKS',     name:'Saltos de tijera', desc:'Brazos arriba y piernas abiertas.'},
+  {key:'sneeze',    act:'SNEEZE',    name:'Estornudo',        desc:'a… a… ¡achís!'},
+];
+const CLAWD_REACTS = [
+  {key:'react_usage', act:'HOP',   name:'Celebrar tu uso', desc:'Da saltitos cuando sube el % de la ventana de 5 h.'},
+  {key:'hour_dance',  act:'DANCE', name:'Hora en punto',   desc:'Baila cuando el reloj llega a :00.'},
+  {key:'night_sleep', act:'SLEEP', name:'Dormir de noche', desc:'Duerme mientras dure el modo noche.', night:true},
+];
+const ZX = 43, ZY = 18, ZW = 21, ZH = 14, CELL = 8;
+const players = [];
+function makePlayer(canvas, def){
+  const fb = new Array(ZW * ZH).fill(null);
+  const c = makeClawd((b, x, y, col) => {
+    x -= ZX; y -= ZY;
+    if (x >= 0 && x < ZW && y >= 0 && y < ZH) fb[y * ZW + x] = col;
+  });
+  const G = {x0: 46, y0: 22, top: 18, bottom: 31, colL: 43, colR: 63, minDx: -3, maxDx: 4};
+  const env = {night: !!def.night, fiveUsed: -1, tempC: 21, minute: 30};
+  const opts = {newActs: true, hourDance: false};
+  // Desfase por tarjeta para que no vayan todas sincronizadas.
+  let now = 100000 + Math.floor(Math.random() * 60000), idleSince = 0;
+  c.start(def.act, now, G);
+  canvas.width = ZW * CELL; canvas.height = ZH * CELL;
+  const ctx = canvas.getContext('2d');
+  const p = {
+    visible: false,
+    step(){
+      now += 50;
+      fb.fill(null);
+      c.drawClawd(fb, now, G, env, opts);
+      if (def.act !== 'SLEEP' && c.st.act !== def.act) {
+        if (!idleSince) idleSince = now;
+        else if (now - idleSince > 900) { c.start(def.act, now, G); idleSince = 0; }
+      }
+    },
+    paint(){
+      ctx.fillStyle = '#07080a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < ZH; y++) for (let x = 0; x < ZW; x++) {
+        const col = fb[y * ZW + x];
+        ctx.fillStyle = col || '#14161a';
+        ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+      }
+    },
+  };
+  for (let i = 0; i < 12; i++) p.step();
+  p.paint();
+  return p;
+}
+function renderAnimCards(){
+  const card = d => `
+    <label class="anim">
+      <canvas aria-hidden="true"></canvas>
+      <span class="row"><b>${d.name}</b><span class="toggle"><input type="checkbox" data-anim="${d.key}" checked aria-label="${d.name}"/><span class="toggle-slider"></span></span></span>
+      <small>${d.desc}</small>
+    </label>`;
+  $('#anim-acts').innerHTML = CLAWD_ANIMS.map(card).join('');
+  $('#anim-reacts').innerHTML = CLAWD_REACTS.map(card).join('');
+  const defs = [...CLAWD_ANIMS, ...CLAWD_REACTS];
+  document.querySelectorAll('.anim canvas').forEach((cv, i) => players.push(Object.assign(makePlayer(cv, defs[i]), {el: cv})));
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(es => es.forEach(e => {
+      const p = players.find(p => p.el === e.target); if (p) p.visible = e.isIntersecting;
+    }));
+    players.forEach(p => io.observe(p.el));
+  } else players.forEach(p => p.visible = true);
+}
+document.querySelectorAll('[data-anim-all]').forEach(b => b.onclick = () => {
+  const on = b.dataset.animAll === '1';
+  document.querySelectorAll('[data-anim]').forEach(cb => cb.checked = on);
+  markDirty();
+});
+{
+  const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let last = performance.now(), acc = 0;
+  const loop = t => {
+    const dt = Math.min(250, t - last); last = t;
+    if (!still && !document.hidden) {
+      acc += dt;
+      let stepped = false;
+      while (acc >= 50) {
+        acc -= 50; stepped = true;
+        players.forEach(p => { if (p.visible) p.step(); });
+      }
+      if (stepped) players.forEach(p => { if (p.visible) p.paint(); });
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
+
+renderAnimCards();
 loadStatus(); loadWifi(); loadConfig(); loadWeather(); loadProvider(); loadJitter(); loadHola();
 startPolls();
 </script>

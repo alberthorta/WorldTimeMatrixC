@@ -186,6 +186,8 @@ td:first-child { white-space: nowrap; font-weight: 500; }
   const W = 64, H = 32, FRAME_MS = 50;
   const LEFT_W = 42, RIGHT_X = 43, RIGHT_CX = 53, CLAWD_Y0 = 22, CLAWD_TOP = 18;
 
+  // CLAWD-LOGIC-BEGIN: tools/sync-clawd-preview.py copia este bloque a la
+  // web de administracion (previews de animaciones en src/IndexHtml.cpp).
   // ── Port de la logica del firmware (src/Display.cpp, drawClawd) ──────
   // Zona de Clawd: columna derecha x=43..63, filas 18..31. La
   // barra de segundos se queda en la columna izquierda y Clawd pisa el borde
@@ -646,6 +648,8 @@ td:first-child { white-space: nowrap; font-weight: 500; }
     if (p.fly) px(fb, p.fly.x, p.fly.y, (Math.floor(now / 200) % 4) === 3 ? FLY_DIM : FLY_ON);
     return { bx };
   }
+
+  // CLAWD-LOGIC-END
 
   // ── Contexto del panel (de ejemplo) ──────────────────────────────────
   const FONT = {

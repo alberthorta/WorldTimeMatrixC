@@ -22,14 +22,23 @@ struct City {
     uint32_t colorRgb;  // 0xRRGGBB
 };
 
-// Programacion: a HH:MM se cambia al `mode` indicado (0=4 filas, 1=focus,
-// 2=claude). Repite cada dia. La hora es local — se calcula con el offset
+// Programacion: a HH:MM se cambia al `mode` indicado (mismos valores que
+// startupMode). Repite cada dia. La hora es local — se calcula con el offset
 // de cities[0], mismo criterio que el modo noche.
 struct ScheduleEntry {
     bool    enabled;
     uint8_t hour;     // 0..23
     uint8_t minute;   // 0..59
-    uint8_t mode;     // 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE
+    uint8_t mode;     // 0..MODE_MAX
+};
+static constexpr uint8_t MODE_MAX = 8;
+
+// Efectos demoscene con paleta propia (el Nyan Cat no usa paleta).
+enum DemoEffect : uint8_t { DEMO_FIRE, DEMO_PLASMA, DEMO_MOIRE, DEMO_PAL_COUNT };
+// Paleta clasica (naranja Doom) o generada desde un color: negro → color → blanco.
+struct DemoPalette {
+    bool     useDefault;
+    uint32_t color;           // 0xRRGGBB
 };
 static constexpr int SCHEDULE_MAX = 10;
 static constexpr char   JITTER_NAME_DEFAULT[] = "WorldTime Jitter";
@@ -107,6 +116,8 @@ struct All {
     // abrir una nueva → mantiene la sesion viva de forma continua. Independiente
     // del auto-hola diario (pueden estar ambos activos).
     bool     claudeKeepAwakeEnabled;
+    // Animaciones de Clawd desactivadas (bit = ClawdAnim). 0 = todas activas.
+    uint32_t claudeAnimOff;
     // Auto-update via GitHub Releases. Si enabled=false, ni se hace el check
     // al boot ni el check periodico. checkIntervalH: cada cuantas horas se
     // intenta despues del primer chequeo. 1..720 (1 mes).
@@ -129,7 +140,8 @@ struct All {
     uint8_t  ttpPinMode[3];
     ScheduleEntry schedule[SCHEDULE_MAX];
     // Modo al arrancar: 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE, 3=LIFE, 4=IMAGE,
-    // 5=FIRE (demoscene). Si CLAUDE pero sessionKey vacia, fallback a FOUR_ROWS.
+    // 5=FIRE, 6=PLASMA, 7=MOIRE, 8=NYAN. Si CLAUDE pero sessionKey vacia,
+    // fallback a FOUR_ROWS.
     uint8_t   startupMode;
     // Color de las celulas vivas en modo Game of Life (RGB 0xRRGGBB).
     uint32_t  lifeColor;
@@ -138,12 +150,7 @@ struct All {
     bool      lifeRainbow;
     // Tiempo entre steps de la simulacion (ms). Range 50..1000.
     uint16_t  lifeStepMs;
-    // Modo Demoscene (modo 6): paleta clasica (naranja Doom) o custom por
-    // color. fireUseDefault/fireColor se aplican a los 3 efectos (llama,
-    // plasma, moire). demosceneEffect: 0=Llama, 1=Plasma, 2=Moire.
-    bool      fireUseDefault;
-    uint32_t  fireColor;
-    uint8_t   demosceneEffect;
+    DemoPalette demoPal[DEMO_PAL_COUNT];
     // Jitter: raton BLE HID anti-inactividad (ver Jitter.h). jitterEnabled
     // persiste el estado — al boot vuelve a moverse si estaba activo y hay un
     // host BLE emparejado. intervalMs 50..600000; maxStep 1..20 px.
@@ -167,6 +174,24 @@ struct All {
 };
 
 extern All cfg;             // Instancia global (poblada por begin()).
+
+// Animaciones de Clawd (modo Claude) que se pueden desactivar desde la web.
+// En cfg.json se guardan por nombre en "claude_anims_off" (solo las
+// desactivadas): un backup se entiende a ojo, reordenar esta lista no cambia
+// nada, y una animacion nueva nace activa sin migrar nada.
+enum ClawdAnim : uint8_t {
+    CLAWD_ANIM_WAVE, CLAWD_ANIM_WALK, CLAWD_ANIM_HOP, CLAWD_ANIM_DANCE,
+    CLAWD_ANIM_SURPRISED, CLAWD_ANIM_NAP, CLAWD_ANIM_THINK, CLAWD_ANIM_HEART,
+    CLAWD_ANIM_SPIN, CLAWD_ANIM_NOD, CLAWD_ANIM_FIREFLY, CLAWD_ANIM_JUGGLE,
+    CLAWD_ANIM_PEEK, CLAWD_ANIM_CODE, CLAWD_ANIM_JACKS, CLAWD_ANIM_SNEEZE,
+    // Reacciones: independientes de que el acto equivalente salga al azar.
+    CLAWD_ANIM_REACT_USAGE,     // saltitos cuando sube el % de 5h
+    CLAWD_ANIM_HOUR_DANCE,      // baile en la hora en punto
+    CLAWD_ANIM_NIGHT_SLEEP,     // dormir durante el modo noche
+    CLAWD_ANIM_COUNT
+};
+extern const char* const CLAWD_ANIM_KEYS[CLAWD_ANIM_COUNT];
+inline bool clawdAnimOn(ClawdAnim a) { return (cfg.claudeAnimOff & (1u << a)) == 0; }
 
 // Snapshot de estado al boot, para diagnostico del flujo de persistencia.
 // Histórico: en versiones previas el `cfg` se guardaba como blob en NVS, y eso

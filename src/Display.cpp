@@ -1262,26 +1262,26 @@ enum class ClawdAct : uint8_t {
     THINK, HEART, SPIN, NOD, FIREFLY, JUGGLE, PEEK, CODE, JACKS, SNEEZE,
 };
 
-struct ClawdActDef { ClawdAct act; uint8_t weight; uint16_t minMs; uint16_t maxMs; };
+struct ClawdActDef { ClawdAct act; Config::ClawdAnim anim; uint8_t weight; uint16_t minMs; uint16_t maxMs; };
 
 // Los que tienen 0/0 calculan su duracion al arrancar (clawdStart).
 static constexpr ClawdActDef CLAWD_ACTS[] = {
-    { ClawdAct::WAVE,      24, 3000, 6000 },
-    { ClawdAct::WALK,      24,    0,    0 },
-    { ClawdAct::HOP,       14,    0,    0 },
-    { ClawdAct::DANCE,     14,    0,    0 },
-    { ClawdAct::SURPRISED,  8,  900,  900 },
-    { ClawdAct::NAP,       16, 5000, 9000 },
-    { ClawdAct::THINK,     12, 3000, 5000 },
-    { ClawdAct::HEART,     10, 2400, 3600 },
-    { ClawdAct::SPIN,      10,    0,    0 },
-    { ClawdAct::NOD,        8,    0,    0 },
-    { ClawdAct::FIREFLY,    8, 6000, 8000 },
-    { ClawdAct::JUGGLE,     8, 4000, 6000 },
-    { ClawdAct::PEEK,       6,    0,    0 },
-    { ClawdAct::CODE,      10, 4000, 7000 },
-    { ClawdAct::JACKS,      8,    0,    0 },
-    { ClawdAct::SNEEZE,     6, 2400, 2400 },
+    { ClawdAct::WAVE,      Config::CLAWD_ANIM_WAVE,      24, 3000, 6000 },
+    { ClawdAct::WALK,      Config::CLAWD_ANIM_WALK,      24,    0,    0 },
+    { ClawdAct::HOP,       Config::CLAWD_ANIM_HOP,       14,    0,    0 },
+    { ClawdAct::DANCE,     Config::CLAWD_ANIM_DANCE,     14,    0,    0 },
+    { ClawdAct::SURPRISED, Config::CLAWD_ANIM_SURPRISED,  8,  900,  900 },
+    { ClawdAct::NAP,       Config::CLAWD_ANIM_NAP,       16, 5000, 9000 },
+    { ClawdAct::THINK,     Config::CLAWD_ANIM_THINK,     12, 3000, 5000 },
+    { ClawdAct::HEART,     Config::CLAWD_ANIM_HEART,     10, 2400, 3600 },
+    { ClawdAct::SPIN,      Config::CLAWD_ANIM_SPIN,      10,    0,    0 },
+    { ClawdAct::NOD,       Config::CLAWD_ANIM_NOD,        8,    0,    0 },
+    { ClawdAct::FIREFLY,   Config::CLAWD_ANIM_FIREFLY,    8, 6000, 8000 },
+    { ClawdAct::JUGGLE,    Config::CLAWD_ANIM_JUGGLE,     8, 4000, 6000 },
+    { ClawdAct::PEEK,      Config::CLAWD_ANIM_PEEK,       6,    0,    0 },
+    { ClawdAct::CODE,      Config::CLAWD_ANIM_CODE,      10, 4000, 7000 },
+    { ClawdAct::JACKS,     Config::CLAWD_ANIM_JACKS,      8,    0,    0 },
+    { ClawdAct::SNEEZE,    Config::CLAWD_ANIM_SNEEZE,     6, 2400, 2400 },
 };
 static constexpr uint32_t CLAWD_IDLE_MIN_MS = 4000;
 static constexpr uint32_t CLAWD_IDLE_MAX_MS = 9000;
@@ -1418,15 +1418,20 @@ static void clawdStart(ClawdAct act, uint32_t now, const ClawdGeom& g) {
     }
 }
 
+// Solo entre los actos activos en la web. Si estan todos desactivados,
+// vuelve a IDLE: se queda quieto parpadeando y mirando de reojo.
 static ClawdAct clawdPickAct() {
     uint32_t total = 0;
-    for (const auto& d : CLAWD_ACTS) total += d.weight;
+    for (const auto& d : CLAWD_ACTS)
+        if (Config::clawdAnimOn(d.anim)) total += d.weight;
+    if (total == 0) return ClawdAct::IDLE;
     uint32_t r = esp_random() % total;
     for (const auto& d : CLAWD_ACTS) {
+        if (!Config::clawdAnimOn(d.anim)) continue;
         if (r < d.weight) return d.act;
         r -= d.weight;
     }
-    return ClawdAct::WAVE;
+    return ClawdAct::IDLE;
 }
 
 // Mirada de reojo: -1/0/+1. Cada 4-10s mira a un lado durante 0.8-2.3s.
@@ -1503,7 +1508,7 @@ static void clawdMoveFly(uint32_t now, const ClawdGeom& g, int bx, int by) {
 static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute, const ClawdGeom& g) {
     if (s_clawd.startMs == 0) clawdStart(ClawdAct::IDLE, now, g);
 
-    if (night) {
+    if (night && Config::clawdAnimOn(Config::CLAWD_ANIM_NIGHT_SLEEP)) {
         if (s_clawd.act != ClawdAct::SLEEP) clawdStart(ClawdAct::SLEEP, now, g);
     } else if (s_clawd.act == ClawdAct::SLEEP) {
         clawdStart(ClawdAct::SURPRISED, now, g);   // se despierta de golpe
@@ -1513,14 +1518,14 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
     // celebra con unos saltitos (incluso si estaba echando la siesta).
     if (fiveUsed >= 0) {
         if (s_clawd.lastFiveUsed >= 0 && fiveUsed > s_clawd.lastFiveUsed + 1e-6 &&
-            s_clawd.act != ClawdAct::SLEEP) {
+            s_clawd.act != ClawdAct::SLEEP && Config::clawdAnimOn(Config::CLAWD_ANIM_REACT_USAGE)) {
             clawdStart(ClawdAct::HOP, now, g);
         }
         s_clawd.lastFiveUsed = fiveUsed;
     }
     if (minute >= 0) {
         if (s_clawd.lastMinute >= 0 && minute == 0 && s_clawd.lastMinute != 0 &&
-            s_clawd.act != ClawdAct::SLEEP) {
+            s_clawd.act != ClawdAct::SLEEP && Config::clawdAnimOn(Config::CLAWD_ANIM_HOUR_DANCE)) {
             clawdStart(ClawdAct::DANCE, now, g);     // baile en la hora en punto
         }
         s_clawd.lastMinute = minute;
@@ -2658,7 +2663,6 @@ static void fireInit() {
     for (int x = 0; x < FIRE_W; x++) {
         s_fireBuf[(FIRE_H - 1) * FIRE_W + x] = FIRE_PAL - 1;
     }
-    initFirePalette();
     s_fireInited = true;
 }
 
@@ -2746,34 +2750,32 @@ static void moireStep(uint32_t t) {
     }
 }
 
-void renderDemoscene(const Row& wRow, float secondOfMinuteF) {
-    renderFire(wRow, secondOfMinuteF);
-}
-
-void renderFire(const Row& wRow, float secondOfMinuteF) {
+// Llama, plasma y moire comparten buffer de indices y paleta; cada uno tiene
+// su paleta configurable, que se regenera al cambiar de efecto o de ajustes.
+static void renderPaletteEffect(Config::DemoEffect eff, const Row& wRow, float secondOfMinuteF) {
     if (!dma) return;
-    // Nyan es un efecto totalmente distinto (sprite + arcoiris, no usa el
-    // buffer de paleta). Si esta seleccionado, delegamos.
-    if (Config::cfg.demosceneEffect == 3) {
-        renderNyan(wRow, secondOfMinuteF);
-        return;
-    }
-    if (!s_fireInited) fireInit();
     initSinTable();
-    // Re-genera la paleta si cambia la config (toggle clasica / color).
-    static bool     s_lastUseDefault = true;
-    static uint32_t s_lastColor      = 0xFF6000;
-    if (Config::cfg.fireUseDefault != s_lastUseDefault ||
-        (!Config::cfg.fireUseDefault && Config::cfg.fireColor != s_lastColor)) {
-        if (Config::cfg.fireUseDefault) initFirePalette();
-        else                            buildFirePaletteFromColor(Config::cfg.fireColor);
-        s_lastUseDefault = Config::cfg.fireUseDefault;
-        s_lastColor      = Config::cfg.fireColor;
+    static int      s_palEff = -1;
+    static bool     s_palDefault = true;
+    static uint32_t s_palColor = 0;
+    const Config::DemoPalette& pal = Config::cfg.demoPal[eff];
+    if (eff != s_palEff || pal.useDefault != s_palDefault ||
+        (!pal.useDefault && pal.color != s_palColor)) {
+        if (pal.useDefault) initFirePalette();
+        else                buildFirePaletteFromColor(pal.color);
+        // El fuego evoluciona sobre el buffer anterior: si venimos del plasma
+        // o del moire, arrancaria con sus restos en vez de desde la base.
+        if (eff != s_palEff && eff == Config::DEMO_FIRE) s_fireInited = false;
+        s_palEff = eff;
+        s_palDefault = pal.useDefault;
+        s_palColor = pal.color;
     }
-    uint8_t eff = Config::cfg.demosceneEffect;
-    if (eff == 1)      plasmaStep(millis());
-    else if (eff == 2) moireStep(millis());
-    else               fireStep();
+    if (eff == Config::DEMO_PLASMA)     plasmaStep(millis());
+    else if (eff == Config::DEMO_MOIRE) moireStep(millis());
+    else {
+        if (!s_fireInited) fireInit();
+        fireStep();
+    }
     dma->clearScreen();
     for (int y = 0; y < FIRE_H; y++) {
         for (int x = 0; x < FIRE_W; x++) {
@@ -2786,6 +2788,16 @@ void renderFire(const Row& wRow, float secondOfMinuteF) {
     drawActiveRipples();
     drawBrightnessOverlay();
     dma->flipDMABuffer();
+}
+
+void renderFire(const Row& wRow, float secondOfMinuteF) {
+    renderPaletteEffect(Config::DEMO_FIRE, wRow, secondOfMinuteF);
+}
+void renderPlasma(const Row& wRow, float secondOfMinuteF) {
+    renderPaletteEffect(Config::DEMO_PLASMA, wRow, secondOfMinuteF);
+}
+void renderMoire(const Row& wRow, float secondOfMinuteF) {
+    renderPaletteEffect(Config::DEMO_MOIRE, wRow, secondOfMinuteF);
 }
 
 // ── Modo Nyan Cat ──────────────────────────────────────────────────────

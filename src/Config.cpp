@@ -23,6 +23,20 @@ static const char* CFG_TMP = "/cfg.json.tmp";
 
 All cfg;
 
+// "fire_*" son las claves de cuando habia un solo modo Demoscene: se
+// mantienen para que los backups antiguos sigan cargando la paleta.
+static const char* const DEMO_PAL_KEYS[DEMO_PAL_COUNT][2] = {
+    { "fire_use_default",   "fire_color"   },
+    { "plasma_use_default", "plasma_color" },
+    { "moire_use_default",  "moire_color"  },
+};
+
+const char* const CLAWD_ANIM_KEYS[CLAWD_ANIM_COUNT] = {
+    "wave", "walk", "hop", "dance", "surprised", "nap", "think", "heart",
+    "spin", "nod", "firefly", "juggle", "peek", "code", "jacks", "sneeze",
+    "react_usage", "hour_dance", "night_sleep",
+};
+
 DiagInfo diag;
 
 static void captureNvsStats() {
@@ -115,6 +129,7 @@ static All defaults() {
     a.claudeAutoHolaMinute   = 0;
     a.claudeAutoHolaLastDate = 0;
     a.claudeKeepAwakeEnabled = false;
+    a.claudeAnimOff          = 0;
     a.autoUpdateEnabled    = true;
     a.autoUpdateCheckIntervalH = 24;
     a.ttpEnabled[0]        = true;
@@ -133,9 +148,7 @@ static All defaults() {
     a.lifeColor   = 0x80C0FF;   // azul claro por defecto
     a.lifeRainbow = false;
     a.lifeStepMs       = 150;
-    a.fireUseDefault   = true;
-    a.fireColor        = 0xFF6000;
-    a.demosceneEffect  = 0;
+    for (int i = 0; i < DEMO_PAL_COUNT; i++) a.demoPal[i] = {true, 0xFF6000};
     a.jitterEnabled    = false;
     a.jitterIntervalMs = 1000;
     a.jitterMaxStep    = 4;
@@ -187,6 +200,9 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_auto_hola_minute"]  = cfg.claudeAutoHolaMinute;
     doc["claude_auto_hola_last_date"] = cfg.claudeAutoHolaLastDate;
     doc["claude_keep_awake_enabled"]  = cfg.claudeKeepAwakeEnabled;
+    JsonArray animOff = doc["claude_anims_off"].to<JsonArray>();
+    for (int i = 0; i < CLAWD_ANIM_COUNT; i++)
+        if (cfg.claudeAnimOff & (1u << i)) animOff.add(CLAWD_ANIM_KEYS[i]);
     doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
     doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
     JsonArray ttpArr = doc["ttp_enabled"].to<JsonArray>();
@@ -199,9 +215,10 @@ static void buildJson(JsonDocument& doc) {
     doc["life_color"]   = cfg.lifeColor;
     doc["life_rainbow"] = cfg.lifeRainbow;
     doc["life_step_ms"]    = cfg.lifeStepMs;
-    doc["fire_use_default"] = cfg.fireUseDefault;
-    doc["fire_color"]       = cfg.fireColor;
-    doc["demoscene_effect"] = cfg.demosceneEffect;
+    for (int i = 0; i < DEMO_PAL_COUNT; i++) {
+        doc[DEMO_PAL_KEYS[i][0]] = cfg.demoPal[i].useDefault;
+        doc[DEMO_PAL_KEYS[i][1]] = cfg.demoPal[i].color;
+    }
     doc["jitter_enabled"]     = cfg.jitterEnabled;
     doc["jitter_interval_ms"] = cfg.jitterIntervalMs;
     doc["jitter_max_step"]    = cfg.jitterMaxStep;
@@ -359,6 +376,18 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["claude_keep_awake_enabled"].is<bool>()) {
         cfg.claudeKeepAwakeEnabled = doc["claude_keep_awake_enabled"];
     }
+    // Clave ausente = no tocar; array presente (aunque vacio) = lista completa
+    // de desactivadas. Nombres desconocidos se ignoran.
+    if (doc["claude_anims_off"].is<JsonArrayConst>()) {
+        uint32_t mask = 0;
+        for (JsonVariantConst v : doc["claude_anims_off"].as<JsonArrayConst>()) {
+            const char* k = v.as<const char*>();
+            if (!k) continue;
+            for (int i = 0; i < CLAWD_ANIM_COUNT; i++)
+                if (strcmp(k, CLAWD_ANIM_KEYS[i]) == 0) mask |= (1u << i);
+        }
+        cfg.claudeAnimOff = mask;
+    }
     if (doc["auto_update_enabled"].is<bool>()) {
         cfg.autoUpdateEnabled = doc["auto_update_enabled"];
     }
@@ -407,7 +436,7 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["startup_mode"].is<int>()) {
         int m = doc["startup_mode"];
         if (m < 0) m = 0;
-        if (m > 5) m = 5;
+        if (m > MODE_MAX) m = MODE_MAX;
         cfg.startupMode = (uint8_t)m;
     }
     applyColor("life_color", cfg.lifeColor);
@@ -418,13 +447,9 @@ static bool applyJson(JsonDocument& doc) {
         if (v > 1000) v = 1000;
         cfg.lifeStepMs = (uint16_t)v;
     }
-    if (doc["fire_use_default"].is<bool>()) cfg.fireUseDefault = doc["fire_use_default"];
-    applyColor("fire_color", cfg.fireColor);
-    if (doc["demoscene_effect"].is<int>()) {
-        int e = doc["demoscene_effect"];
-        if (e < 0) e = 0;
-        if (e > 3) e = 3;
-        cfg.demosceneEffect = (uint8_t)e;
+    for (int i = 0; i < DEMO_PAL_COUNT; i++) {
+        if (doc[DEMO_PAL_KEYS[i][0]].is<bool>()) cfg.demoPal[i].useDefault = doc[DEMO_PAL_KEYS[i][0]];
+        applyColor(DEMO_PAL_KEYS[i][1], cfg.demoPal[i].color);
     }
     if (doc["jitter_enabled"].is<bool>()) cfg.jitterEnabled = doc["jitter_enabled"];
     if (doc["jitter_interval_ms"].is<int>() || doc["jitter_interval_ms"].is<unsigned>()) {
@@ -466,7 +491,7 @@ static bool applyJson(JsonDocument& doc) {
             int md = o["mode"] | 0;
             if (h < 0)  h = 0;  if (h > 23) h = 23;
             if (m < 0)  m = 0;  if (m > 59) m = 59;
-            if (md < 0) md = 0; if (md > 5) md = 5;
+            if (md < 0) md = 0; if (md > MODE_MAX) md = MODE_MAX;
             s.hour = (uint8_t)h;
             s.minute = (uint8_t)m;
             s.mode = (uint8_t)md;
@@ -517,6 +542,22 @@ static bool applyJson(JsonDocument& doc) {
     }
     JsonObjectConst icons = doc["icons"].as<JsonObjectConst>();
     if (!icons.isNull()) Icons::deserializeAll(icons);
+    // Config de antes de separar la Demoscene en un modo por efecto: el modo
+    // 5 era "Demoscene" con el efecto en demoscene_effect (0 llama, 1 plasma,
+    // 2 moire, 3 nyan), que ahora son los modos 5..8. La paleta era comun a
+    // todos, asi que se copia a plasma y moire.
+    if (doc["demoscene_effect"].is<int>()) {
+        int e = doc["demoscene_effect"];
+        if (e < 0) e = 0;
+        if (e > 3) e = 3;
+        if (cfg.startupMode == 5) cfg.startupMode = (uint8_t)(5 + e);
+        for (int i = 0; i < SCHEDULE_MAX; i++)
+            if (cfg.schedule[i].mode == 5) cfg.schedule[i].mode = (uint8_t)(5 + e);
+        if (!doc["plasma_use_default"].is<bool>()) {
+            cfg.demoPal[DEMO_PLASMA] = cfg.demoPal[DEMO_FIRE];
+            cfg.demoPal[DEMO_MOIRE]  = cfg.demoPal[DEMO_FIRE];
+        }
+    }
     // rgb_order NO se aplica desde aqui — es identidad per-device almacenada
     // en NVS. Se setea via setRgbOrder() (endpoint dedicado /api/rgb_order),
     // asi un restore desde backup no la sobreescribe accidentalmente.

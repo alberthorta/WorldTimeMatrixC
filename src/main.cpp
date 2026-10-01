@@ -22,7 +22,11 @@ volatile bool g_pendingReset = false;
 //   FOUR_ROWS: render normal con las 4 ciudades.
 //   FOCUS:     una sola ciudad (cities[0]) ocupando los 64x32 con HH:MM
 //              grande, temp grande, icono x2 y barra de segundera.
-enum class DisplayMode : uint8_t { FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4, FIRE = 5 };
+// Mismos valores que Config::cfg.startupMode y las programaciones.
+enum class DisplayMode : uint8_t {
+    FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4,
+    FIRE = 5, PLASMA = 6, MOIRE = 7, NYAN = 8,
+};
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 
@@ -203,7 +207,10 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
         case DisplayMode::CLAUDE:    return DisplayMode::LIFE;
         case DisplayMode::LIFE:      return DisplayMode::IMAGE;
         case DisplayMode::IMAGE:     return DisplayMode::FIRE;
-        case DisplayMode::FIRE:      return DisplayMode::FOUR_ROWS;
+        case DisplayMode::FIRE:      return DisplayMode::PLASMA;
+        case DisplayMode::PLASMA:    return DisplayMode::MOIRE;
+        case DisplayMode::MOIRE:     return DisplayMode::NYAN;
+        case DisplayMode::NYAN:      return DisplayMode::FOUR_ROWS;
     }
     return DisplayMode::FOUR_ROWS;
 }
@@ -212,7 +219,7 @@ static DisplayMode nextDisplayMode(DisplayMode m) {
 // si no hay sessionKey, se salta.
 static DisplayMode prevDisplayMode(DisplayMode m) {
     switch (m) {
-        case DisplayMode::FOUR_ROWS: return DisplayMode::FIRE;
+        case DisplayMode::FOUR_ROWS: return DisplayMode::NYAN;
         case DisplayMode::FOCUS:     return DisplayMode::FOUR_ROWS;
         case DisplayMode::CLAUDE:    return DisplayMode::FOCUS;
         case DisplayMode::LIFE:
@@ -220,6 +227,9 @@ static DisplayMode prevDisplayMode(DisplayMode m) {
                                                : DisplayMode::FOCUS;
         case DisplayMode::IMAGE:     return DisplayMode::LIFE;
         case DisplayMode::FIRE:      return DisplayMode::IMAGE;
+        case DisplayMode::PLASMA:    return DisplayMode::FIRE;
+        case DisplayMode::MOIRE:     return DisplayMode::PLASMA;
+        case DisplayMode::NYAN:      return DisplayMode::MOIRE;
     }
     return DisplayMode::FOUR_ROWS;
 }
@@ -231,6 +241,9 @@ static const char* modeName(DisplayMode m) {
         case DisplayMode::LIFE:   return "LIFE";
         case DisplayMode::IMAGE:  return "IMAGE";
         case DisplayMode::FIRE:   return "FIRE";
+        case DisplayMode::PLASMA: return "PLASMA";
+        case DisplayMode::MOIRE:  return "MOIRE";
+        case DisplayMode::NYAN:   return "NYAN";
         default:                  return "FOUR_ROWS";
     }
 }
@@ -895,6 +908,12 @@ void loop() {
         Display::renderImage(rows[0], secondOfMinuteF);
     } else if (g_displayMode == DisplayMode::FIRE) {
         Display::renderFire(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::PLASMA) {
+        Display::renderPlasma(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::MOIRE) {
+        Display::renderMoire(rows[0], secondOfMinuteF);
+    } else if (g_displayMode == DisplayMode::NYAN) {
+        Display::renderNyan(rows[0], secondOfMinuteF);
     } else {
         Display::renderRows(rows, secondOfMinuteF);
     }

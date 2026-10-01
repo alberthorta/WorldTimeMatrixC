@@ -89,6 +89,7 @@ src/
 └── (no Server.h: el nombre colisiona con clase del Arduino core)
 data/index.html          # placeholder; el HTML real está embebido en IndexHtml.cpp
 tools/clawd-sim.html     # simulador web de las animaciones de Clawd (modo Claude); abrir en el navegador
+tools/sync-clawd-preview.py  # copia la logica de Clawd del simulador a la web (previews de animaciones); ejecutar tras tocar animaciones
 partitions_ota.csv       # 2 slots OTA de 3MB + LittleFS 1.4MB (no usado, ver gotcha 2)
 platformio.ini           # dos envs: matrixportal_s3 (USB) y ota (espota)
 ```
