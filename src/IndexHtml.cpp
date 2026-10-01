@@ -314,6 +314,17 @@ input[type=file]::file-selector-button{
 .usage b{font-size:30px;font-weight:680;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .meter{height:8px;border-radius:999px;background:var(--surface-3);overflow:hidden;margin-top:10px}
 .meter > i{display:block;height:100%;width:0;border-radius:inherit;background:var(--clawd);transition:width .4s}
+.meter.gpt > i{background:#10a37f}
+.steps{margin:0;padding:0;list-style:none;counter-reset:step;display:flex;flex-direction:column;gap:14px}
+.steps li{counter-increment:step;position:relative;padding-left:38px;color:var(--muted);font-size:13.5px;line-height:1.5}
+.steps li::before{content:counter(step);position:absolute;left:0;top:-1px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-hi);font-weight:700;font-size:13px}
+.steps li b{color:var(--text);font-weight:600}
+.steps .btn-row{margin-top:8px}
+a.btn{text-decoration:none}
+.code-box{display:flex;flex-direction:column;gap:8px;align-items:flex-start;padding:16px;border-radius:12px;background:var(--surface-2);border:1px dashed var(--line-2)}
+.code-box a{font-weight:600}
+.code-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.code-row b{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:.08em}
 .anim-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}
 .anim{
   position:relative;display:flex;flex-direction:column;gap:8px;padding:10px;cursor:pointer;
@@ -326,6 +337,7 @@ input[type=file]::file-selector-button{
 .anim b{font-size:13.5px;font-weight:600}
 .anim small{display:block;color:var(--muted);font-size:12px;line-height:1.4}
 .anim:has(input:checked){border-color:color-mix(in srgb,var(--clawd) 45%,var(--line))}
+.anim-grid.gpt .anim:has(input:checked){border-color:color-mix(in srgb,#3a9bff 45%,var(--line))}
 .anim:not(:has(input:checked)) canvas{filter:grayscale(1);opacity:.35}
 .anim:not(:has(input:checked)) b,.anim:not(:has(input:checked)) small{opacity:.6}
 .anim:has(input:focus-visible){box-shadow:var(--ring)}
@@ -472,6 +484,7 @@ input[type=file]::file-selector-button{
     <symbol id="i-plasma" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8c3-3 6 3 9 0s6-3 9 0M3 13c3-3 6 3 9 0s6-3 9 0M3 18c3-3 6 3 9 0s6-3 9 0"/></symbol>
     <symbol id="i-moire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="12" r="2.5"/><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="2.5"/><circle cx="15" cy="12" r="6"/></symbol>
     <symbol id="i-nyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M5 19V6l4 4h6l4-4v13Z"/><path d="M9.5 14h.01M14.5 14h.01"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 5.5h16v10H10l-4.5 3.5v-3.5H4Z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></symbol>
     <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 16-5-5-9 8.5"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></symbol>
   </defs>
@@ -495,6 +508,7 @@ input[type=file]::file-selector-button{
     <button type="button" data-tab-btn="modes"><svg><use href="#i-modes"/></svg>Modos</button>
     <div class="subnav" data-parent="modes">
       <button type="button" data-tab-btn="claude"><svg><use href="#i-claude"/></svg>Claude</button>
+      <button type="button" data-tab-btn="chatgpt"><svg><use href="#i-chat"/></svg>ChatGPT</button>
       <button type="button" data-tab-btn="life"><svg><use href="#i-life"/></svg>Game of Life</button>
       <button type="button" data-tab-btn="fire"><svg><use href="#i-fire"/></svg>Llama</button>
       <button type="button" data-tab-btn="plasma"><svg><use href="#i-plasma"/></svg>Plasma</button>
@@ -667,7 +681,7 @@ input[type=file]::file-selector-button{
   <p>Con qué modo arranca el panel y cuándo cambia solo. Los ajustes de cada modo están en sus apartados.</p>
 </header>
 <section class="card" data-tab="modes" data-save>
-  <div class="card-head"><div><h2>Al arrancar</h2><p>Si eliges Claude sin sessionKey, arranca en 4 filas.</p></div></div>
+  <div class="card-head"><div><h2>Al arrancar</h2><p>Si eliges Claude o ChatGPT sin cuenta configurada, arranca en 4 filas.</p></div></div>
   <div class="fields">
     <label class="field">
       <span>Modo inicial</span>
@@ -812,6 +826,90 @@ input[type=file]::file-selector-button{
   <div class="anim-grid" id="anim-acts"></div>
   <h3 class="group-title" style="margin:20px 0 12px">Reacciones</h3>
   <div class="anim-grid" id="anim-reacts"></div>
+</section>
+
+<!-- ═════════════════════════ ChatGPT ═════════════════════════ -->
+<header class="page-head" data-tab="chatgpt">
+  <h1>ChatGPT</h1>
+  <p>Los límites de Codex de tu cuenta de ChatGPT: la ventana de 5 horas y la semanal. El modo aparece justo después de Claude cuando hay una cuenta conectada.</p>
+</header>
+<section class="card" data-tab="chatgpt">
+  <div class="card-head">
+    <div><h2>Cuenta</h2><p id="oa-sub">Cargando…</p></div>
+    <span id="oa-pill" class="pill pill-mute">—</span>
+  </div>
+  <div id="oa-none">
+    <ol class="steps">
+      <li><b>Permite el inicio de sesión con código.</b> En ChatGPT → Configuración → Seguridad, activa «Inicio de sesión con código de dispositivo». Solo hace falta una vez.
+        <div class="btn-row"><a class="btn btn-sm" href="https://chatgpt.com/#settings/Security" target="_blank" rel="noopener">Abrir la seguridad de ChatGPT ↗</a></div></li>
+      <li><b>Pide un código.</b> El panel lo genera y te lo enseña aquí.
+        <div class="btn-row"><button id="oa-connect" type="button" class="btn btn-primary">Conectar con ChatGPT</button></div></li>
+      <li><b>Confírmalo en OpenAI.</b> Introduces el código con tu cuenta y el panel queda conectado. Renueva la sesión solo; no tendrás que repetirlo.</li>
+    </ol>
+  </div>
+  <div id="oa-waiting" hidden>
+    <div class="code-box">
+      <span class="label">Tu código</span>
+      <div class="code-row"><b id="oa-code">····-·····</b><button id="oa-copy" type="button" class="btn btn-sm">Copiar</button></div>
+      <small id="oa-expire" class="text-muted"></small>
+      <div class="btn-row" style="margin-top:6px">
+        <a id="oa-link" class="btn btn-primary" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener">Abrir la página de OpenAI ↗</a>
+        <button id="oa-cancel" type="button" class="btn btn-ghost">Cancelar</button>
+      </div>
+    </div>
+    <p class="note">Inicia sesión con tu cuenta de ChatGPT y pega el código. Si OpenAI te dice que actives el inicio de sesión con código de dispositivo, haz el paso 1 (<a href="https://chatgpt.com/#settings/Security" target="_blank" rel="noopener">seguridad de ChatGPT</a>) y vuelve a pedir un código.</p>
+  </div>
+  <div id="oa-connected" hidden>
+    <div class="btn-row"><button id="oa-logout" type="button" class="btn btn-danger">Desconectar</button></div>
+  </div>
+</section>
+
+<section class="card" data-tab="chatgpt" data-save>
+  <div class="card-head">
+    <div><h2>Auto «hola»</h2><p>Manda un «hola» a Codex a una hora fija para abrir la ventana de 5 h. Una vez al día, hora local de la primera ciudad. Gasta lo mínimo: un mensaje de una palabra.</p></div>
+    <label class="toggle"><input type="checkbox" id="gpt-hola-en" aria-label="Auto hola de ChatGPT"><span class="toggle-slider"></span></label>
+  </div>
+  <div class="fields">
+    <label class="field"><span>Hora</span><input id="gpt-hola-time" type="time"/></label>
+    <div class="field"><span>&nbsp;</span><button id="gpt-hola-now" type="button" class="btn">Enviar «hola» ahora</button></div>
+  </div>
+  <div class="kv" style="margin-top:14px"><span class="text-muted">Último envío</span><span id="gpt-hola-status">—</span></div>
+  <div class="settings" style="margin-top:14px">
+    <label class="setting"><div class="t"><b>Mantener la sesión despierta</b><span>Cuando la ventana de 5 h se agota, manda otro «hola» para abrir la siguiente.</span></div><span class="toggle"><input type="checkbox" id="gpt-keepawake-en"><span class="toggle-slider"></span></span></label>
+  </div>
+</section>
+
+<div class="split" data-tab="chatgpt">
+  <section class="card">
+    <div class="card-head"><div><h2>Ventana de 5 horas</h2><p id="oa-5-sub">Sin datos todavía.</p></div></div>
+    <div class="usage"><b id="oa-5-val">—</b><span class="text-muted">usado</span></div>
+    <div class="meter gpt"><i id="oa-5-bar"></i></div>
+  </section>
+  <section class="card">
+    <div class="card-head"><div><h2>Semana</h2><p id="oa-w-sub">Sin datos todavía.</p></div></div>
+    <div class="usage"><b id="oa-w-val">—</b><span class="text-muted">usado</span></div>
+    <div class="meter gpt"><i id="oa-w-bar"></i></div>
+  </section>
+</div>
+
+<section class="card" data-tab="chatgpt" data-save>
+  <div class="card-head">
+    <div><h2>Animaciones de Clawd</h2><p>En este modo Clawd sale en azul y tiene su propia selección: lo que actives aquí no cambia el modo Claude. Se aplica al guardar, sin reiniciar.</p></div>
+    <div class="actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-anim-all="1" data-anim-group="gpt">Todas</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-anim-all="0" data-anim-group="gpt">Ninguna</button>
+    </div>
+  </div>
+  <div class="anim-grid gpt" id="gpt-anim-acts"></div>
+  <h3 class="group-title" style="margin:20px 0 12px">Reacciones</h3>
+  <div class="anim-grid gpt" id="gpt-anim-reacts"></div>
+</section>
+
+<section class="card" data-tab="chatgpt" data-save>
+  <div class="card-head"><div><h2>Refresco</h2></div></div>
+  <div class="fields">
+    <label class="field"><span>Cada (segundos)</span><input id="openai-refresh" type="number" min="60" max="3600" step="30" value="180"/></label>
+  </div>
 </section>
 
 <!-- ═════════════════════════ Meteo ═════════════════════════ -->
@@ -1029,12 +1127,16 @@ const $ = s => document.querySelector(s);
 // ── Secciones: se muestran los elementos con data-tab de la elegida. La
 // elegida persiste en localStorage; un valor de versiones anteriores que ya
 // no existe cae en Resumen.
-const TABS = ['home','display','modes','claude','life','fire','plasma','moire','nyan','image','weather','icons','jitter','system'];
+const TABS = ['home','display','modes','claude','chatgpt','life','fire','plasma','moire','nyan','image','weather','icons','jitter','system'];
 // Subapartados: la pestaña padre se marca y, en movil, se despliegan sus hijos.
-const TAB_PARENT = {claude:'modes', life:'modes', fire:'modes', plasma:'modes', moire:'modes', nyan:'modes', image:'modes', icons:'weather'};
-// Indice = valor del modo en el firmware (startup_mode, programaciones).
-const MODE_NAMES = ['4 filas', 'Focus', 'Claude', 'Game of Life', 'Imagen', 'Llama', 'Plasma', 'Moiré', 'Nyan Cat'];
-const modeOptions = sel => MODE_NAMES.map((n, i) => `<option value="${i}" ${i == sel ? 'selected' : ''}>${i + 1} · ${n}</option>`).join('');
+const TAB_PARENT = {claude:'modes', chatgpt:'modes', life:'modes', fire:'modes', plasma:'modes', moire:'modes', nyan:'modes', image:'modes', icons:'weather'};
+// En el orden de los botones del panel; v = valor del modo en el firmware
+// (startup_mode, programaciones), que no sigue ese orden.
+const MODES = [
+  {v:0, n:'4 filas'}, {v:1, n:'Focus'}, {v:2, n:'Claude'}, {v:9, n:'ChatGPT'}, {v:3, n:'Game of Life'},
+  {v:4, n:'Imagen'}, {v:5, n:'Llama'}, {v:6, n:'Plasma'}, {v:7, n:'Moiré'}, {v:8, n:'Nyan Cat'},
+];
+const modeOptions = sel => MODES.map((m, i) => `<option value="${m.v}" ${m.v == sel ? 'selected' : ''}>${i + 1} · ${m.n}</option>`).join('');
 // Efectos con paleta propia: id de los controles = prefijo de las claves de config.
 const DEMO_PALS = ['fire', 'plasma', 'moire'];
 function activateTab(t) {
@@ -1078,7 +1180,9 @@ function abortPolls() { pollAborter.abort(); pollAborter = new AbortController()
 let statusTimer = null, weatherTimer = null;
 let jitterTimer = null;
 let holaTimer = null;
+let openaiTimer = null;
 function startPolls() {
+  if (!openaiTimer) openaiTimer = setInterval(loadOpenAI, 4000);
   if (!statusTimer) statusTimer = setInterval(loadStatus, 5000);
   if (!weatherTimer) weatherTimer = setInterval(loadWeather, 10000);
   if (!jitterTimer) jitterTimer = setInterval(loadJitter, 4000);
@@ -1089,6 +1193,7 @@ function stopPolls() {
   if (weatherTimer) { clearInterval(weatherTimer); weatherTimer = null; }
   if (jitterTimer) { clearInterval(jitterTimer); jitterTimer = null; }
   if (holaTimer) { clearInterval(holaTimer); holaTimer = null; }
+  if (openaiTimer) { clearInterval(openaiTimer); openaiTimer = null; }
   abortPolls();
 }
 
@@ -1192,9 +1297,16 @@ async function loadConfig(){
       $('#hola-time').value = hh + ':' + mm;
     }
     $('#keepawake-en').checked = !!cfg.claude_keep_awake_enabled;
+    $('#openai-refresh').value = cfg.openai_refresh_sec || 180;
+    $('#gpt-hola-en').checked = !!cfg.chatgpt_auto_hola_enabled;
+    $('#gpt-hola-time').value = String(cfg.chatgpt_auto_hola_hour != null ? cfg.chatgpt_auto_hola_hour : 9).padStart(2, '0') + ':' +
+                                String(cfg.chatgpt_auto_hola_minute || 0).padStart(2, '0');
+    $('#gpt-keepawake-en').checked = !!cfg.chatgpt_keep_awake_enabled;
     {
-      const off = new Set(Array.isArray(cfg.claude_anims_off) ? cfg.claude_anims_off : []);
-      document.querySelectorAll('[data-anim]').forEach(cb => { cb.checked = !off.has(cb.dataset.anim); });
+      ANIM_GROUPS.forEach(g => {
+        const off = new Set(Array.isArray(cfg[g.key]) ? cfg[g.key] : []);
+        animInputs(g).forEach(cb => { cb.checked = !off.has(animKey(g, cb)); });
+      });
     }
     $('#autoupd-en').checked = cfg.auto_update_enabled !== false;
     $('#autoupd-interval').value = cfg.auto_update_check_interval_h || 24;
@@ -1717,7 +1829,12 @@ $('#save').onclick = async () => {
       [id + '_use_default', $('#' + id + '-default').checked],
       [id + '_color', hexToInt($('#' + id + '-color').value)],
     ])),
-    claude_anims_off: [...document.querySelectorAll('[data-anim]')].filter(cb => !cb.checked).map(cb => cb.dataset.anim),
+    openai_refresh_sec: parseInt($('#openai-refresh').value, 10) || 180,
+    chatgpt_auto_hola_enabled: $('#gpt-hola-en').checked,
+    chatgpt_auto_hola_hour:    parseInt(($('#gpt-hola-time').value || '09:00').split(':')[0], 10) || 0,
+    chatgpt_auto_hola_minute:  parseInt(($('#gpt-hola-time').value || '09:00').split(':')[1], 10) || 0,
+    chatgpt_keep_awake_enabled: $('#gpt-keepawake-en').checked,
+    ...Object.fromEntries(ANIM_GROUPS.map(g => [g.key, animInputs(g).filter(cb => !cb.checked).map(cb => animKey(g, cb))])),
   };
   try{
     // rgb_order vive en NVS, endpoint dedicado. Solo lo enviamos si cambio.
@@ -2775,10 +2892,14 @@ const CLAWD_REACTS = [
 ];
 const ZX = 43, ZY = 18, ZW = 21, ZH = 14, CELL = 8;
 const players = [];
-function makePlayer(canvas, def){
+// El bloque de logica pinta el cuerpo en el naranja de Claude; el modo
+// ChatGPT lo recolorea igual que el firmware.
+const CLAWD_ORANGE = '#e07a2f', CLAWD_BLUE = '#3a9bff';
+function makePlayer(canvas, def, body){
   const fb = new Array(ZW * ZH).fill(null);
   const c = makeClawd((b, x, y, col) => {
     x -= ZX; y -= ZY;
+    if (body && col === CLAWD_ORANGE) col = body;
     if (x >= 0 && x < ZW && y >= 0 && y < ZH) fb[y * ZW + x] = col;
   });
   const G = {x0: 46, y0: 22, top: 18, bottom: 31, colL: 43, colR: 63, minDx: -3, maxDx: 4};
@@ -2813,17 +2934,28 @@ function makePlayer(canvas, def){
   p.paint();
   return p;
 }
+// attr: data-anim (Claude) o data-anim-gpt (ChatGPT); cada grupo se guarda
+// en su propia lista de desactivadas.
+const ANIM_GROUPS = [
+  {acts:'#anim-acts', reacts:'#anim-reacts', attr:'anim', key:'claude_anims_off', body:null},
+  {acts:'#gpt-anim-acts', reacts:'#gpt-anim-reacts', attr:'anim-gpt', key:'chatgpt_anims_off', body:CLAWD_BLUE},
+];
+const animInputs = g => [...document.querySelectorAll(`[data-${g.attr}]`)];
+const animKey = (g, cb) => cb.getAttribute('data-' + g.attr);
 function renderAnimCards(){
-  const card = d => `
-    <label class="anim">
-      <canvas aria-hidden="true"></canvas>
-      <span class="row"><b>${d.name}</b><span class="toggle"><input type="checkbox" data-anim="${d.key}" checked aria-label="${d.name}"/><span class="toggle-slider"></span></span></span>
-      <small>${d.desc}</small>
-    </label>`;
-  $('#anim-acts').innerHTML = CLAWD_ANIMS.map(card).join('');
-  $('#anim-reacts').innerHTML = CLAWD_REACTS.map(card).join('');
-  const defs = [...CLAWD_ANIMS, ...CLAWD_REACTS];
-  document.querySelectorAll('.anim canvas').forEach((cv, i) => players.push(Object.assign(makePlayer(cv, defs[i]), {el: cv})));
+  ANIM_GROUPS.forEach(g => {
+    const card = d => `
+      <label class="anim">
+        <canvas aria-hidden="true"></canvas>
+        <span class="row"><b>${d.name}</b><span class="toggle"><input type="checkbox" data-${g.attr}="${d.key}" checked aria-label="${d.name}"/><span class="toggle-slider"></span></span></span>
+        <small>${d.desc}</small>
+      </label>`;
+    $(g.acts).innerHTML = CLAWD_ANIMS.map(card).join('');
+    $(g.reacts).innerHTML = CLAWD_REACTS.map(card).join('');
+    const defs = [...CLAWD_ANIMS, ...CLAWD_REACTS];
+    [...$(g.acts).querySelectorAll('canvas'), ...$(g.reacts).querySelectorAll('canvas')]
+      .forEach((cv, i) => players.push(Object.assign(makePlayer(cv, defs[i], g.body), {el: cv})));
+  });
   if ('IntersectionObserver' in window) {
     const io = new IntersectionObserver(es => es.forEach(e => {
       const p = players.find(p => p.el === e.target); if (p) p.visible = e.isIntersecting;
@@ -2833,7 +2965,8 @@ function renderAnimCards(){
 }
 document.querySelectorAll('[data-anim-all]').forEach(b => b.onclick = () => {
   const on = b.dataset.animAll === '1';
-  document.querySelectorAll('[data-anim]').forEach(cb => cb.checked = on);
+  const g = ANIM_GROUPS[b.dataset.animGroup === 'gpt' ? 1 : 0];
+  animInputs(g).forEach(cb => cb.checked = on);
   markDirty();
 });
 {
@@ -2855,7 +2988,87 @@ document.querySelectorAll('[data-anim-all]').forEach(b => b.onclick = () => {
   requestAnimationFrame(loop);
 }
 
+// ── ChatGPT / Codex ──────────────────────────────────────────────────────
+function fmtLeft(s){
+  if (s <= 0) return 'renovándose…';
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+}
+function renderOAWindow(prefix, w, now){
+  const ok = w && w.valid;
+  const pct = ok ? Math.max(0, Math.min(100, Math.round(w.used))) : 0;
+  $(`#oa-${prefix}-val`).textContent = ok ? pct + '%' : '—';
+  $(`#oa-${prefix}-bar`).style.width = pct + '%';
+  $(`#oa-${prefix}-sub`).textContent = ok && w.resets_at ? `Se renueva en ${fmtLeft(w.resets_at - now)}.` : 'Sin datos todavía.';
+}
+let oaLogin = null;
+async function loadOpenAI(){
+  try{
+    const r = await fetch('/api/openai/status', {signal: pollSignal()}); const d = await r.json();
+    const st = d.login;
+    $('#oa-none').hidden = !(st === 'none' || st === 'error');
+    $('#oa-waiting').hidden = st !== 'waiting';
+    $('#oa-connected').hidden = st !== 'connected';
+    const pill = $('#oa-pill');
+    if (st === 'connected') {
+      pill.className = 'pill pill-ok'; pill.innerHTML = '<span class="pill-dot"></span>Conectado';
+      $('#oa-sub').textContent = [d.email, d.plan && ('plan ' + d.plan.charAt(0).toUpperCase() + d.plan.slice(1))].filter(Boolean).join(' · ');
+    } else if (st === 'waiting') {
+      pill.className = 'pill pill-warn'; pill.textContent = 'Esperando el código';
+      $('#oa-sub').textContent = 'Cuando lo confirmes, el panel se conecta solo.';
+      $('#oa-code').textContent = d.user_code || 'pidiendo código…';
+      const left = d.code_expires_at && d.now ? d.code_expires_at - d.now : 0;
+      $('#oa-expire').textContent = left > 0 ? `Caduca en ${fmtLeft(left)}.` : '';
+    } else if (st === 'error') {
+      pill.className = 'pill pill-err'; pill.textContent = 'Desconectado';
+      $('#oa-sub').textContent = d.error || 'Algo ha fallado.';
+    } else {
+      pill.className = 'pill pill-mute'; pill.textContent = 'Sin conectar';
+      $('#oa-sub').textContent = 'Conecta tu cuenta para ver los límites en el panel.';
+    }
+    if (oaLogin === 'waiting' && st === 'connected') setMsg('ChatGPT conectado', 'ok');
+    oaLogin = st;
+    {
+      const map = {
+        none:    '<span class="text-muted">sin envíos aún</span>',
+        pending: '<span class="msg-warn">enviando…</span>',
+        ok:      '<span class="msg-ok">OK — ventana abierta</span>',
+        fail:    '<span class="msg-err">error: ' + (d.hola_error || 'desconocido') + '</span>',
+      };
+      $('#gpt-hola-status').innerHTML = st !== 'connected' ? '<span class="text-muted">sin cuenta conectada</span>' : (map[d.hola_status] || '—');
+    }
+    renderOAWindow('5', d.five_hour, d.now);
+    renderOAWindow('w', d.weekly, d.now);
+  }catch(e){}
+}
+$('#oa-connect').onclick = async () => {
+  try { await fetch('/api/openai/login', {method:'POST'}); } catch (e) {}
+  $('#oa-none').hidden = true; $('#oa-waiting').hidden = false;
+  $('#oa-code').textContent = 'pidiendo código…';
+  setTimeout(loadOpenAI, 1500); setTimeout(loadOpenAI, 3500);
+};
+$('#gpt-hola-now').onclick = async () => {
+  try {
+    const r = await fetch('/api/openai/hola', {method:'POST'}); const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    setMsg('Enviando «hola» a ChatGPT…', 'ok');
+    setTimeout(loadOpenAI, 1500); setTimeout(loadOpenAI, 6000);
+  } catch (e) { setMsg('Error: ' + e.message, 'err'); }
+};
+$('#oa-cancel').onclick = async () => { try { await fetch('/api/openai/logout', {method:'POST'}); } catch (e) {} loadOpenAI(); };
+$('#oa-logout').onclick = async () => {
+  if (!confirm('¿Desconectar la cuenta de ChatGPT del panel?')) return;
+  try { await fetch('/api/openai/logout', {method:'POST'}); } catch (e) {}
+  setMsg('ChatGPT desconectado', 'ok'); loadOpenAI();
+};
+$('#oa-copy').onclick = async () => {
+  const code = $('#oa-code').textContent;
+  try { await navigator.clipboard.writeText(code); setMsg('Código copiado', 'ok'); }
+  catch (e) { const r = document.createRange(); r.selectNodeContents($('#oa-code')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+};
+
 renderAnimCards();
+loadOpenAI();
 loadStatus(); loadWifi(); loadConfig(); loadWeather(); loadProvider(); loadJitter(); loadHola();
 startPolls();
 </script>

@@ -8,6 +8,7 @@
 
 #include "AutoUpdate.h"
 #include "ClaudeStats.h"
+#include "OpenAIStats.h"
 #include "Config.h"
 #include "Display.h"
 #include "IndexHtml.h"
@@ -572,6 +573,72 @@ void begin() {
         // considera que no hay ventana y manda un hola.
         five["alive"] = w.valid && w.resetsAt > 0 && now > 0 && now < w.resetsAt;
         sendJson(req, doc);
+    });
+    // ── ChatGPT / Codex ──────────────────────────────────────────────────
+    // GET /api/openai/status: sesion (o codigo pendiente) y ultimo uso.
+    server.on("/api/openai/status", HTTP_GET, [](AsyncWebServerRequest* req) {
+        OpenAIStats::Status st = OpenAIStats::status();
+        const OpenAIStats::Usage& u = OpenAIStats::usage;
+        JsonDocument doc;
+        const char* login = "none";
+        switch (st.login) {
+            case OpenAIStats::Login::WAITING_USER: login = "waiting"; break;
+            case OpenAIStats::Login::CONNECTED:    login = "connected"; break;
+            case OpenAIStats::Login::ERROR:        login = "error"; break;
+            default: break;
+        }
+        doc["login"]            = login;
+        doc["user_code"]        = st.userCode;
+        doc["verification_url"] = "https://auth.openai.com/codex/device";
+        doc["code_expires_at"]  = (uint32_t)st.codeExpiresAt;
+        doc["email"]            = st.email;
+        doc["plan"]             = st.plan;
+        doc["error"]            = st.error;
+        doc["last_ok_age_s"]    = st.lastOkAtMs ? (int32_t)((millis() - st.lastOkAtMs) / 1000) : -1;
+        doc["now"]              = (uint32_t)time(nullptr);
+        const char* hola = "none";
+        switch (st.hola) {
+            case ClaudeStats::HolaStatus::PENDING: hola = "pending"; break;
+            case ClaudeStats::HolaStatus::OK:      hola = "ok";      break;
+            case ClaudeStats::HolaStatus::FAIL:    hola = "fail";    break;
+            default: break;
+        }
+        doc["hola_status"] = hola;
+        doc["hola_error"]  = st.holaError;
+        auto win = [](JsonObject o, const ClaudeStats::UsageWindow& w, long secs) {
+            o["valid"]     = w.valid;
+            o["used"]      = w.utilization;
+            o["resets_at"] = (uint32_t)w.resetsAt;
+            o["window_s"]  = secs;
+        };
+        doc["has_data"] = u.hasData;
+        win(doc["five_hour"].to<JsonObject>(), u.fiveHour, u.fiveWindowSec);
+        win(doc["weekly"].to<JsonObject>(), u.weekly, u.weeklyWindowSec);
+        sendJson(req, doc);
+    });
+    // POST /api/openai/login: pide un codigo de dispositivo. La web lo lee
+    // despues en /api/openai/status (la peticion la hace la task, no esto).
+    server.on("/api/openai/login", HTTP_POST, [](AsyncWebServerRequest* req) {
+        OpenAIStats::requestLogin();
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+    server.on("/api/openai/hola", HTTP_POST, [](AsyncWebServerRequest* req) {
+        if (!OpenAIStats::isConfigured()) {
+            req->send(400, "application/json", "{\"error\":\"sin cuenta de ChatGPT\"}");
+            return;
+        }
+        OpenAIStats::requestOpenWindow();
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+    server.on("/api/openai/logout", HTTP_POST, [](AsyncWebServerRequest* req) {
+        OpenAIStats::logout();
+        req->send(200, "application/json", "{\"ok\":true}");
+    });
+    // GET /api/openai/debug: ultima respuesta cruda de wham/usage (no lleva
+    // tokens), para ver que devuelve la API si algo no cuadra.
+    server.on("/api/openai/debug", HTTP_GET, [](AsyncWebServerRequest* req) {
+        String raw = OpenAIStats::lastRawUsage();
+        req->send(200, "application/json", raw.length() ? raw : String("{}"));
     });
     // /api/wifi/scan ANTES que /api/wifi: el matcher de ESPAsyncWebServer hace
     // startsWith con barra, asi que /api/wifi atraparia /api/wifi/scan.

@@ -6,6 +6,7 @@
 
 #include "AutoUpdate.h"
 #include "ClaudeStats.h"
+#include "OpenAIStats.h"
 #include "Config.h"
 #include "Display.h"
 #include "Icons.h"
@@ -25,7 +26,7 @@ volatile bool g_pendingReset = false;
 // Mismos valores que Config::cfg.startupMode y las programaciones.
 enum class DisplayMode : uint8_t {
     FOUR_ROWS = 0, FOCUS = 1, CLAUDE = 2, LIFE = 3, IMAGE = 4,
-    FIRE = 5, PLASMA = 6, MOIRE = 7, NYAN = 8,
+    FIRE = 5, PLASMA = 6, MOIRE = 7, NYAN = 8, CHATGPT = 9,
 };
 static DisplayMode g_displayMode = DisplayMode::FOUR_ROWS;
 static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
@@ -140,6 +141,7 @@ static void handleButtonAction(int idx, const char* source) {
                                        : prevDisplayMode(g_displayMode);
             Serial.printf("[%s] displayMode -> %s\n", source, modeName(g_displayMode));
             if (g_displayMode == DisplayMode::CLAUDE) ClaudeStats::requestRefresh();
+            if (g_displayMode == DisplayMode::CHATGPT) OpenAIStats::requestRefresh();
         }
         break;
 
@@ -196,43 +198,34 @@ static void handleButtonAction(int idx, const char* source) {
     }
 }
 
-// Avanza al siguiente modo del toggle (boton central). CLAUDE solo si hay
-// sessionKey configurada — sino se salta directamente.
-static DisplayMode nextDisplayMode(DisplayMode m) {
-    switch (m) {
-        case DisplayMode::FOUR_ROWS: return DisplayMode::FOCUS;
-        case DisplayMode::FOCUS:
-            return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
-                                                : DisplayMode::LIFE;
-        case DisplayMode::CLAUDE:    return DisplayMode::LIFE;
-        case DisplayMode::LIFE:      return DisplayMode::IMAGE;
-        case DisplayMode::IMAGE:     return DisplayMode::FIRE;
-        case DisplayMode::FIRE:      return DisplayMode::PLASMA;
-        case DisplayMode::PLASMA:    return DisplayMode::MOIRE;
-        case DisplayMode::MOIRE:     return DisplayMode::NYAN;
-        case DisplayMode::NYAN:      return DisplayMode::FOUR_ROWS;
-    }
-    return DisplayMode::FOUR_ROWS;
+// Orden en el que los botones recorren los modos. No coincide con el valor
+// numerico: CHATGPT se anadio al final del enum para no cambiar los valores
+// ya guardados en startup_mode y en las programaciones.
+static constexpr DisplayMode MODE_ORDER[] = {
+    DisplayMode::FOUR_ROWS, DisplayMode::FOCUS, DisplayMode::CLAUDE, DisplayMode::CHATGPT,
+    DisplayMode::LIFE, DisplayMode::IMAGE, DisplayMode::FIRE, DisplayMode::PLASMA,
+    DisplayMode::MOIRE, DisplayMode::NYAN,
+};
+static constexpr int MODE_ORDER_LEN = sizeof(MODE_ORDER) / sizeof(MODE_ORDER[0]);
+
+// CLAUDE y CHATGPT solo tienen sentido con su sesion configurada.
+static bool modeAvailable(DisplayMode m) {
+    if (m == DisplayMode::CLAUDE)  return ClaudeStats::isConfigured();
+    if (m == DisplayMode::CHATGPT) return OpenAIStats::isConfigured();
+    return true;
 }
 
-// Inverso de nextDisplayMode (boton izquierdo). Mismo criterio con CLAUDE:
-// si no hay sessionKey, se salta.
-static DisplayMode prevDisplayMode(DisplayMode m) {
-    switch (m) {
-        case DisplayMode::FOUR_ROWS: return DisplayMode::NYAN;
-        case DisplayMode::FOCUS:     return DisplayMode::FOUR_ROWS;
-        case DisplayMode::CLAUDE:    return DisplayMode::FOCUS;
-        case DisplayMode::LIFE:
-            return ClaudeStats::isConfigured() ? DisplayMode::CLAUDE
-                                               : DisplayMode::FOCUS;
-        case DisplayMode::IMAGE:     return DisplayMode::LIFE;
-        case DisplayMode::FIRE:      return DisplayMode::IMAGE;
-        case DisplayMode::PLASMA:    return DisplayMode::FIRE;
-        case DisplayMode::MOIRE:     return DisplayMode::PLASMA;
-        case DisplayMode::NYAN:      return DisplayMode::MOIRE;
+static DisplayMode stepDisplayMode(DisplayMode m, int dir) {
+    int i = 0;
+    while (i < MODE_ORDER_LEN && MODE_ORDER[i] != m) i++;
+    for (int n = 0; n < MODE_ORDER_LEN; n++) {
+        i = (i + dir + MODE_ORDER_LEN) % MODE_ORDER_LEN;
+        if (modeAvailable(MODE_ORDER[i])) return MODE_ORDER[i];
     }
     return DisplayMode::FOUR_ROWS;
 }
+static DisplayMode nextDisplayMode(DisplayMode m) { return stepDisplayMode(m, +1); }
+static DisplayMode prevDisplayMode(DisplayMode m) { return stepDisplayMode(m, -1); }
 
 static const char* modeName(DisplayMode m) {
     switch (m) {
@@ -244,6 +237,7 @@ static const char* modeName(DisplayMode m) {
         case DisplayMode::PLASMA: return "PLASMA";
         case DisplayMode::MOIRE:  return "MOIRE";
         case DisplayMode::NYAN:   return "NYAN";
+        case DisplayMode::CHATGPT: return "CHATGPT";
         default:                  return "FOUR_ROWS";
     }
 }
@@ -346,9 +340,17 @@ static float& activeBrightnessTarget() {
 // (offset de cities[0], mismo criterio que modo noche y schedule). Se marca el
 // dia local en cfg para no re-disparar tras un reboot. Portado de
 // ClaudeStatsPortable (checkAutoOpen), aqui en local time.
-static void checkAutoHola() {
-    if (!Config::cfg.claudeAutoHolaEnabled) return;
-    if (!ClaudeStats::isConfigured()) return;
+struct HolaTarget {
+    const char* tag;
+    bool        enabled;
+    bool        configured;
+    uint8_t     hour, minute;
+    uint32_t*   lastDate;
+    void      (*fire)();
+};
+
+static void checkAutoHola(const HolaTarget& t) {
+    if (!t.enabled || !t.configured) return;
     time_t utc = time(nullptr);
     if (utc <= TIME_VALID_THRESHOLD) return;        // NTP aun no sincronizado
 
@@ -359,20 +361,28 @@ static void checkAutoHola() {
     uint32_t today = (uint32_t)(tm.tm_year + 1900) * 10000u
                    + (uint32_t)(tm.tm_mon + 1) * 100u
                    + (uint32_t)tm.tm_mday;
-    if (today == Config::cfg.claudeAutoHolaLastDate) return;   // ya disparado hoy
+    if (today == *t.lastDate) return;               // ya disparado hoy
 
     uint16_t nowMins  = tm.tm_hour * 60 + tm.tm_min;
-    uint16_t fireMins = Config::cfg.claudeAutoHolaHour * 60 + Config::cfg.claudeAutoHolaMinute;
+    uint16_t fireMins = t.hour * 60 + t.minute;
     if (nowMins < fireMins) return;                 // aun no es la hora
 
-    Serial.printf("[hola] auto-disparo %04u-%02u-%02u %02u:%02u local\n",
-                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                  Config::cfg.claudeAutoHolaHour, Config::cfg.claudeAutoHolaMinute);
-    ClaudeStats::requestOpenWindow();
+    Serial.printf("[hola:%s] auto-disparo %04u-%02u-%02u %02u:%02u local\n", t.tag,
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, t.hour, t.minute);
+    t.fire();
     // Marcar el dia hecho pase lo que pase (un fallo transitorio no debe
-    // spammear claude.ai). Un intento al dia.
-    Config::cfg.claudeAutoHolaLastDate = today;
+    // spammear el servicio). Un intento al dia.
+    *t.lastDate = today;
     Config::save();
+}
+
+static void checkAutoHolas() {
+    checkAutoHola({"claude", Config::cfg.claudeAutoHolaEnabled, ClaudeStats::isConfigured(),
+                   Config::cfg.claudeAutoHolaHour, Config::cfg.claudeAutoHolaMinute,
+                   &Config::cfg.claudeAutoHolaLastDate, ClaudeStats::requestOpenWindow});
+    checkAutoHola({"chatgpt", Config::cfg.chatgptAutoHolaEnabled, OpenAIStats::isConfigured(),
+                   Config::cfg.chatgptAutoHolaHour, Config::cfg.chatgptAutoHolaMinute,
+                   &Config::cfg.chatgptAutoHolaLastDate, OpenAIStats::requestOpenWindow});
 }
 
 // Keep-awake: mantiene viva la sesion de Claude re-abriendo la ventana de 5h
@@ -390,34 +400,65 @@ static void checkAutoHola() {
 // el futuro. Cualquier otra cosa (sin five_hour, sin resets_at, o resets_at ya
 // pasado) cuenta como que no hay ventana y toca abrir una.
 static constexpr uint32_t KEEPAWAKE_RETRY_MS = 5 * 60 * 1000;   // reintento si no abre
-static uint32_t g_keepAwakeNextTryMs = 0;   // 0 = armado, dispara en cuanto toque
 
-static void checkKeepAwake() {
-    if (!Config::cfg.claudeKeepAwakeEnabled) return;
-    if (!ClaudeStats::isConfigured()) return;
-    if (ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::PENDING) return;
+struct KeepAwakeTarget {
+    const char* tag;
+    bool        enabled, configured, pending, hasData;
+    const ClaudeStats::UsageWindow& fiveHour;
+    uint32_t*   nextTryMs;      // 0 = armado, dispara en cuanto toque
+    void      (*fire)();
+};
+
+static void checkKeepAwake(const KeepAwakeTarget& t) {
+    if (!t.enabled || !t.configured || t.pending) return;
     time_t now = time(nullptr);
     if (now <= TIME_VALID_THRESHOLD) return;                // NTP aun no listo
     // Sin ningun dato (ni fetch ni cache) no sabemos si hay ventana; no
-    // disparamos a ciegas, que si no un arranque con claude.ai caido mandaria
-    // un hola por cada reboot.
-    if (!ClaudeStats::data.hasData) return;
+    // disparamos a ciegas, que si no un arranque con el servicio caido
+    // mandaria un hola por cada reboot.
+    if (!t.hasData) return;
 
-    const auto& w = ClaudeStats::data.fiveHour;
+    const auto& w = t.fiveHour;
     if (w.valid && w.resetsAt > 0 && now < w.resetsAt) {
-        g_keepAwakeNextTryMs = 0;      // ventana viva: rearmar para la proxima
+        *t.nextTryMs = 0;      // ventana viva: rearmar para la proxima
         return;
     }
 
     // Cooldown: si el hola no consigue abrir ventana (o falla), reintentamos
     // cada KEEPAWAKE_RETRY_MS en vez de en cada vuelta del loop.
-    if (g_keepAwakeNextTryMs != 0 &&
-        (int32_t)(millis() - g_keepAwakeNextTryMs) < 0) return;
+    if (*t.nextTryMs != 0 && (int32_t)(millis() - *t.nextTryMs) < 0) return;
 
-    Serial.printf("[keepawake] sin ventana 5h activa (valid=%d reset=%ld) -> hola\n",
-                  (int)w.valid, (long)w.resetsAt);
-    ClaudeStats::requestOpenWindow();
-    g_keepAwakeNextTryMs = millis() + KEEPAWAKE_RETRY_MS;
+    Serial.printf("[keepawake:%s] sin ventana 5h activa (valid=%d reset=%ld) -> hola\n",
+                  t.tag, (int)w.valid, (long)w.resetsAt);
+    t.fire();
+    *t.nextTryMs = millis() + KEEPAWAKE_RETRY_MS;
+}
+
+// Codex devuelve la ventana de 5h aunque no haya empezado (reset_after fijo
+// en 18000 y reset_at = ahora + 5h), asi que "ventana viva" por resets_at
+// futuro no vale: con 0% de uso y el reset a ~5h exactas, no hay ventana.
+static ClaudeStats::UsageWindow chatgptLiveWindow() {
+    ClaudeStats::UsageWindow w = OpenAIStats::usage.fiveHour;
+    time_t now = time(nullptr);
+    if (w.valid && w.utilization <= 0.0 && w.resetsAt > 0 &&
+        w.resetsAt - now >= OpenAIStats::usage.fiveWindowSec - 120) {
+        w.valid = false;
+    }
+    return w;
+}
+
+static uint32_t g_keepAwakeNextTryMs = 0;
+static uint32_t g_keepAwakeGptNextTryMs = 0;
+
+static void checkKeepAwakes() {
+    checkKeepAwake({"claude", Config::cfg.claudeKeepAwakeEnabled, ClaudeStats::isConfigured(),
+                    ClaudeStats::data.holaStatus == ClaudeStats::HolaStatus::PENDING,
+                    ClaudeStats::data.hasData, ClaudeStats::data.fiveHour,
+                    &g_keepAwakeNextTryMs, ClaudeStats::requestOpenWindow});
+    ClaudeStats::UsageWindow gpt = chatgptLiveWindow();
+    checkKeepAwake({"chatgpt", Config::cfg.chatgptKeepAwakeEnabled, OpenAIStats::isConfigured(),
+                    OpenAIStats::holaPending(), OpenAIStats::usage.hasData, gpt,
+                    &g_keepAwakeGptNextTryMs, OpenAIStats::requestOpenWindow});
 }
 
 static float effectiveBrightness(time_t utc, int referenceOffsetSec) {
@@ -454,9 +495,7 @@ void setup() {
     // un modo sin contenido.
     {
         DisplayMode want = (DisplayMode)Config::cfg.startupMode;
-        if (want == DisplayMode::CLAUDE && !ClaudeStats::isConfigured()) {
-            want = DisplayMode::FOUR_ROWS;
-        }
+        if (!modeAvailable(want)) want = DisplayMode::FOUR_ROWS;
         g_displayMode = want;
     }
     Weather::loadCache();   // muestra ultima meteo conocida mientras NTP/fetch arrancan
@@ -511,6 +550,8 @@ void setup() {
     Weather::taskStart();
     ClaudeStats::loadCache();
     ClaudeStats::taskStart();
+    OpenAIStats::begin();
+    OpenAIStats::taskStart();
     // Raton BLE HID + servicio de control del jitter. Se inicializa siempre
     // (coexiste con WiFi STA o AP); el motor solo mueve el cursor si el jitter
     // esta activo en config Y hay un host BLE emparejado. Va el ultimo para no
@@ -646,10 +687,10 @@ void loop() {
         Serial.println("[menu] auto-cierre por inactividad");
     }
 
-    // Auto-"hola" diario (abre la ventana de 5h de Claude a la hora fijada).
-    checkAutoHola();
-    // Keep-awake: re-abre la ventana en cuanto expira.
-    checkKeepAwake();
+    // Auto-"hola" diario (abre la ventana de 5h a la hora fijada) y
+    // keep-awake (la re-abre en cuanto expira), de Claude y de ChatGPT.
+    checkAutoHolas();
+    checkKeepAwakes();
 
     // Botón UP mantenido 3s → forzar modo AP. Util para reconfigurar WiFi
     // sin tener que esperar a que falle STA. Edge-detect: pressedSinceMs
@@ -727,15 +768,16 @@ void loop() {
                 if (!s.enabled) continue;
                 if ((int)(s.hour * 60 + s.minute) != curMin) continue;
                 DisplayMode want = (DisplayMode)s.mode;
-                if (want == DisplayMode::CLAUDE && !ClaudeStats::isConfigured()) {
-                    Serial.printf("[sched] %02u:%02u CLAUDE skipped (no sessionKey)\n",
-                                  s.hour, s.minute);
+                if (!modeAvailable(want)) {
+                    Serial.printf("[sched] %02u:%02u %s skipped (sin sesion)\n",
+                                  s.hour, s.minute, modeName(want));
                     continue;
                 }
                 Serial.printf("[sched] %02u:%02u -> mode %u\n",
                               s.hour, s.minute, s.mode);
                 g_displayMode = want;
                 if (want == DisplayMode::CLAUDE) ClaudeStats::requestRefresh();
+                if (want == DisplayMode::CHATGPT) OpenAIStats::requestRefresh();
             }
         }
     }
@@ -900,6 +942,40 @@ void loop() {
             cv.fableColor      = pf.color;
             cv.night           = rows[0].hasTime &&
                                  inNightWindow(rows[0].hour * 60 + rows[0].minute);
+            cv.mascot          = 0;
+            Display::renderClaude(rows[0], cv, secondOfMinuteF);
+        }
+    } else if (g_displayMode == DisplayMode::CHATGPT) {
+        // Mismo layout que CLAUDE con las ventanas de Codex. La duracion de
+        // cada ventana viene de la API (limit_window_seconds).
+        if (!OpenAIStats::isConfigured()) {
+            g_displayMode = DisplayMode::FOUR_ROWS;
+            Display::renderRows(rows, secondOfMinuteF);
+        } else {
+            const OpenAIStats::Usage& u = OpenAIStats::usage;
+            time_t now = utc;
+            ClaudeStats::Pace p5 = ClaudeStats::computePace(u.fiveHour, u.fiveWindowSec, now);
+            ClaudeStats::Pace p7 = ClaudeStats::computePace(u.weekly, u.weeklyWindowSec, now);
+            Display::ClaudeView cv = {};
+            cv.hasData          = u.hasData;
+            cv.fiveValid        = u.fiveHour.valid;
+            cv.fiveUsed         = p5.used;
+            cv.fiveElapsed      = p5.elapsed;
+            cv.fiveRemainingSec = (long)(u.fiveHour.resetsAt - now);
+            if (cv.fiveRemainingSec < 0) cv.fiveRemainingSec = 0;
+            cv.fiveColor        = p5.color;
+            cv.fiveLabel        = p5.label;
+            cv.sevenValid       = u.weekly.valid;
+            cv.sevenUsed        = p7.used;
+            cv.sevenElapsed     = p7.elapsed;
+            cv.sevenRemainingSec = (long)(u.weekly.resetsAt - now);
+            if (cv.sevenRemainingSec < 0) cv.sevenRemainingSec = 0;
+            cv.sevenColor       = p7.color;
+            cv.sevenLabel       = p7.label;
+            cv.fableValid       = false;
+            cv.night            = rows[0].hasTime &&
+                                  inNightWindow(rows[0].hour * 60 + rows[0].minute);
+            cv.mascot           = 1;
             Display::renderClaude(rows[0], cv, secondOfMinuteF);
         }
     } else if (g_displayMode == DisplayMode::LIFE) {

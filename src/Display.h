@@ -90,6 +90,9 @@ struct ClaudeView {
     uint32_t fableColor;
     // Ventana de modo noche activa: Clawd se echa a dormir.
     bool night;
+    // 0 = Clawd naranja (modo Claude), 1 = Clawd azul (modo ChatGPT). Cada
+    // uno tiene su estado y su seleccion de animaciones.
+    uint8_t mascot;
 };
 void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMinuteF = -1.0f);
 // Modo Game of Life: simulacion de Conway en la parte superior (y=0..23) +

@@ -132,6 +132,13 @@ static All defaults() {
     a.claudeAutoHolaLastDate = 0;
     a.claudeKeepAwakeEnabled = false;
     a.claudeAnimOff          = 0;
+    a.chatgptAnimOff         = 0;
+    a.openaiRefreshSec       = 180;
+    a.chatgptAutoHolaEnabled  = false;
+    a.chatgptAutoHolaHour     = 9;
+    a.chatgptAutoHolaMinute   = 0;
+    a.chatgptAutoHolaLastDate = 0;
+    a.chatgptKeepAwakeEnabled = false;
     a.autoUpdateEnabled    = true;
     a.autoUpdateCheckIntervalH = 24;
     a.ttpEnabled[0]        = true;
@@ -202,9 +209,19 @@ static void buildJson(JsonDocument& doc) {
     doc["claude_auto_hola_minute"]  = cfg.claudeAutoHolaMinute;
     doc["claude_auto_hola_last_date"] = cfg.claudeAutoHolaLastDate;
     doc["claude_keep_awake_enabled"]  = cfg.claudeKeepAwakeEnabled;
-    JsonArray animOff = doc["claude_anims_off"].to<JsonArray>();
-    for (int i = 0; i < CLAWD_ANIM_COUNT; i++)
-        if (cfg.claudeAnimOff & (1u << i)) animOff.add(CLAWD_ANIM_KEYS[i]);
+    doc["openai_refresh_sec"]         = cfg.openaiRefreshSec;
+    doc["chatgpt_auto_hola_enabled"]   = cfg.chatgptAutoHolaEnabled;
+    doc["chatgpt_auto_hola_hour"]      = cfg.chatgptAutoHolaHour;
+    doc["chatgpt_auto_hola_minute"]    = cfg.chatgptAutoHolaMinute;
+    doc["chatgpt_auto_hola_last_date"] = cfg.chatgptAutoHolaLastDate;
+    doc["chatgpt_keep_awake_enabled"]  = cfg.chatgptKeepAwakeEnabled;
+    auto writeAnimOff = [&](const char* key, uint32_t mask) {
+        JsonArray arr = doc[key].to<JsonArray>();
+        for (int i = 0; i < CLAWD_ANIM_COUNT; i++)
+            if (mask & (1u << i)) arr.add(CLAWD_ANIM_KEYS[i]);
+    };
+    writeAnimOff("claude_anims_off", cfg.claudeAnimOff);
+    writeAnimOff("chatgpt_anims_off", cfg.chatgptAnimOff);
     doc["auto_update_enabled"]          = cfg.autoUpdateEnabled;
     doc["auto_update_check_interval_h"] = cfg.autoUpdateCheckIntervalH;
     JsonArray ttpArr = doc["ttp_enabled"].to<JsonArray>();
@@ -378,18 +395,37 @@ static bool applyJson(JsonDocument& doc) {
     if (doc["claude_keep_awake_enabled"].is<bool>()) {
         cfg.claudeKeepAwakeEnabled = doc["claude_keep_awake_enabled"];
     }
+    if (doc["chatgpt_auto_hola_enabled"].is<bool>()) cfg.chatgptAutoHolaEnabled = doc["chatgpt_auto_hola_enabled"];
+    if (doc["chatgpt_auto_hola_hour"].is<int>()) {
+        int h = doc["chatgpt_auto_hola_hour"];
+        cfg.chatgptAutoHolaHour = (uint8_t)(h < 0 ? 0 : (h > 23 ? 23 : h));
+    }
+    if (doc["chatgpt_auto_hola_minute"].is<int>()) {
+        int m = doc["chatgpt_auto_hola_minute"];
+        cfg.chatgptAutoHolaMinute = (uint8_t)(m < 0 ? 0 : (m > 59 ? 59 : m));
+    }
+    if (doc["chatgpt_auto_hola_last_date"].is<uint32_t>() || doc["chatgpt_auto_hola_last_date"].is<int>())
+        cfg.chatgptAutoHolaLastDate = doc["chatgpt_auto_hola_last_date"].as<uint32_t>();
+    if (doc["chatgpt_keep_awake_enabled"].is<bool>()) cfg.chatgptKeepAwakeEnabled = doc["chatgpt_keep_awake_enabled"];
+    if (doc["openai_refresh_sec"].is<int>()) {
+        int v = doc["openai_refresh_sec"];
+        cfg.openaiRefreshSec = (uint16_t)(v < 60 ? 60 : (v > 3600 ? 3600 : v));
+    }
     // Clave ausente = no tocar; array presente (aunque vacio) = lista completa
     // de desactivadas. Nombres desconocidos se ignoran.
-    if (doc["claude_anims_off"].is<JsonArrayConst>()) {
+    auto readAnimOff = [&](const char* key, uint32_t& dst) {
+        if (!doc[key].is<JsonArrayConst>()) return;
         uint32_t mask = 0;
-        for (JsonVariantConst v : doc["claude_anims_off"].as<JsonArrayConst>()) {
+        for (JsonVariantConst v : doc[key].as<JsonArrayConst>()) {
             const char* k = v.as<const char*>();
             if (!k) continue;
             for (int i = 0; i < CLAWD_ANIM_COUNT; i++)
                 if (strcmp(k, CLAWD_ANIM_KEYS[i]) == 0) mask |= (1u << i);
         }
-        cfg.claudeAnimOff = mask;
-    }
+        dst = mask;
+    };
+    readAnimOff("claude_anims_off", cfg.claudeAnimOff);
+    readAnimOff("chatgpt_anims_off", cfg.chatgptAnimOff);
     if (doc["auto_update_enabled"].is<bool>()) {
         cfg.autoUpdateEnabled = doc["auto_update_enabled"];
     }

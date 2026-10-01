@@ -85,6 +85,8 @@ src/
 ├── Icons.h/cpp          # 9 iconos × N frames, paleta 16 colores
 ├── Weather.h/cpp        # Open-Meteo fetch en task FreeRTOS + cache NVS
 ├── WebApi.h/cpp         # AsyncWebServer + endpoints
+├── ClaudeStats.h/cpp    # uso de claude.ai (sessionKey)
+├── OpenAIStats.h/cpp    # límites de Codex de ChatGPT: login por código de dispositivo (auth.openai.com) + chatgpt.com/backend-api/wham/usage; sesión en /openai.json (fuera de cfg.json y backups)
 ├── IndexHtml.h/cpp      # UI completa embebida en flash
 └── (no Server.h: el nombre colisiona con clase del Arduino core)
 data/index.html          # placeholder; el HTML real está embebido en IndexHtml.cpp
@@ -119,6 +121,10 @@ platformio.ini           # dos envs: matrixportal_s3 (USB) y ota (espota)
 | POST | `/api/reset` | Reinicia (`g_pendingReset = true`) |
 | GET | `/debug/fs` | Estado de LittleFS (lista de ficheros) |
 | GET | `/api/diag/nvs` | Snapshot de NVS + FS: bootCount, sizes, lastSave, etc. (debug del bug histórico de OTA-reseta-config) |
+| GET | `/api/openai/status` | Sesión de ChatGPT (o código pendiente) y uso de Codex 5h/semanal |
+| POST | `/api/openai/login` / `/api/openai/logout` | Login por código de dispositivo / borrar sesión |
+| POST | `/api/openai/hola` | Manda un «hola» a Codex (abre la ventana de 5h) |
+| GET | `/api/openai/debug` | Última respuesta cruda de `wham/usage` |
 
 ## Persistencia: NVS + LittleFS
 

@@ -31,7 +31,7 @@ struct ScheduleEntry {
     uint8_t minute;   // 0..59
     uint8_t mode;     // 0..MODE_MAX
 };
-static constexpr uint8_t MODE_MAX = 8;
+static constexpr uint8_t MODE_MAX = 9;
 
 // Efectos demoscene con paleta propia (el Nyan Cat no usa paleta).
 enum DemoEffect : uint8_t { DEMO_FIRE, DEMO_PLASMA, DEMO_MOIRE, DEMO_PAL_COUNT };
@@ -116,8 +116,18 @@ struct All {
     // abrir una nueva → mantiene la sesion viva de forma continua. Independiente
     // del auto-hola diario (pueden estar ambos activos).
     bool     claudeKeepAwakeEnabled;
+    // Refresco del uso de Codex/ChatGPT (la sesion vive en OpenAIStats, no aqui).
+    uint16_t openaiRefreshSec;             // 60..3600, default 180
+    // Auto-"hola" y keep-awake de ChatGPT: mismo funcionamiento que los de
+    // Claude, pero abren la ventana de 5h de Codex.
+    bool     chatgptAutoHolaEnabled;
+    uint8_t  chatgptAutoHolaHour;
+    uint8_t  chatgptAutoHolaMinute;
+    uint32_t chatgptAutoHolaLastDate;
+    bool     chatgptKeepAwakeEnabled;
     // Animaciones de Clawd desactivadas (bit = ClawdAnim). 0 = todas activas.
     uint32_t claudeAnimOff;
+    uint32_t chatgptAnimOff;               // igual, para el Clawd azul del modo ChatGPT
     // Auto-update via GitHub Releases. Si enabled=false, ni se hace el check
     // al boot ni el check periodico. checkIntervalH: cada cuantas horas se
     // intenta despues del primer chequeo. 1..720 (1 mes).
@@ -140,8 +150,8 @@ struct All {
     uint8_t  ttpPinMode[3];
     ScheduleEntry schedule[SCHEDULE_MAX];
     // Modo al arrancar: 0=FOUR_ROWS, 1=FOCUS, 2=CLAUDE, 3=LIFE, 4=IMAGE,
-    // 5=FIRE, 6=PLASMA, 7=MOIRE, 8=NYAN. Si CLAUDE pero sessionKey vacia,
-    // fallback a FOUR_ROWS.
+    // 5=FIRE, 6=PLASMA, 7=MOIRE, 8=NYAN, 9=CHATGPT. Si CLAUDE o CHATGPT no
+    // tienen sesion, fallback a FOUR_ROWS.
     uint8_t   startupMode;
     // Color de las celulas vivas en modo Game of Life (RGB 0xRRGGBB).
     uint32_t  lifeColor;
@@ -191,7 +201,6 @@ enum ClawdAnim : uint8_t {
     CLAWD_ANIM_COUNT
 };
 extern const char* const CLAWD_ANIM_KEYS[CLAWD_ANIM_COUNT];
-inline bool clawdAnimOn(ClawdAnim a) { return (cfg.claudeAnimOff & (1u << a)) == 0; }
 
 // Snapshot de estado al boot, para diagnostico del flujo de persistencia.
 // Histórico: en versiones previas el `cfg` se guardaba como blob en NVS, y eso

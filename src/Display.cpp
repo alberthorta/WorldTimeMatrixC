@@ -1333,7 +1333,7 @@ struct ClawdPose {
     uint8_t ballIdx[3];
 };
 
-static struct {
+struct ClawdState {
     ClawdAct act = ClawdAct::IDLE;
     uint32_t startMs = 0;
     uint32_t durMs = 0;
@@ -1349,7 +1349,17 @@ static struct {
     uint8_t  phase = 0;
     uint32_t phaseStart = 0;
     int      extra = 0;         // desplazamiento fuera del panel (PEEK)
-} s_clawd;
+};
+
+// Un Clawd por modo (0 Claude, 1 ChatGPT): cada uno sigue el uso de su
+// servicio. Compartido, al pasar de un modo a otro veria "subir" el % y
+// celebraria sin motivo. drawClawd() elige el activo y su mascara de
+// animaciones antes de tocar nada.
+static ClawdState  s_clawdStates[2];
+static ClawdState* s_clawd = &s_clawdStates[0];
+static uint32_t    s_clawdAnimOff = 0;
+
+static bool clawdOn(Config::ClawdAnim a) { return (s_clawdAnimOff & (1u << a)) == 0; }
 
 static uint32_t clawdRand(uint32_t lo, uint32_t hi) {
     return (hi <= lo) ? lo : lo + (esp_random() % (hi - lo + 1));
@@ -1361,60 +1371,60 @@ static int clawdArc(float u, int h) {
 }
 
 static void clawdStart(ClawdAct act, uint32_t now, const ClawdGeom& g) {
-    s_clawd.act = act;
-    s_clawd.startMs = now;
-    s_clawd.steps = 0;
-    s_clawd.lastStepMs = now;
-    s_clawd.phase = 0;
-    s_clawd.phaseStart = now;
-    s_clawd.extra = 0;
+    s_clawd->act = act;
+    s_clawd->startMs = now;
+    s_clawd->steps = 0;
+    s_clawd->lastStepMs = now;
+    s_clawd->phase = 0;
+    s_clawd->phaseStart = now;
+    s_clawd->extra = 0;
     switch (act) {
     case ClawdAct::IDLE:
-        s_clawd.durMs = clawdRand(CLAWD_IDLE_MIN_MS, CLAWD_IDLE_MAX_MS);
+        s_clawd->durMs = clawdRand(CLAWD_IDLE_MIN_MS, CLAWD_IDLE_MAX_MS);
         break;
     case ClawdAct::WALK: {
         int t = (int)clawdRand(0, g.maxDx - g.minDx) + g.minDx;
         // Un paseo de 0-1 px no se percibe: vamos al extremo opuesto.
-        if (abs(t - s_clawd.dx) < 2) t = (s_clawd.dx > (g.minDx + g.maxDx) / 2) ? g.minDx : g.maxDx;
-        s_clawd.walkTarget = (int8_t)t;
-        s_clawd.durMs = 0;
+        if (abs(t - s_clawd->dx) < 2) t = (s_clawd->dx > (g.minDx + g.maxDx) / 2) ? g.minDx : g.maxDx;
+        s_clawd->walkTarget = (int8_t)t;
+        s_clawd->durMs = 0;
         break;
     }
     case ClawdAct::HOP:
-        s_clawd.durMs = CLAWD_HOP_MS * clawdRand(2, 3);
+        s_clawd->durMs = CLAWD_HOP_MS * clawdRand(2, 3);
         break;
     case ClawdAct::DANCE: {
         // Compas completo: cortar en un beat de agachado da un "pop" a de pie.
         const uint32_t bar = 4 * CLAWD_BEAT_MS;
-        s_clawd.durMs = ((clawdRand(3000, 5000) + bar - 1) / bar) * bar;
+        s_clawd->durMs = ((clawdRand(3000, 5000) + bar - 1) / bar) * bar;
         break;
     }
     case ClawdAct::SPIN:
-        s_clawd.durMs = CLAWD_SPIN_LEN * CLAWD_SPIN_FRAME_MS * clawdRand(1, 2);
+        s_clawd->durMs = CLAWD_SPIN_LEN * CLAWD_SPIN_FRAME_MS * clawdRand(1, 2);
         break;
     case ClawdAct::NOD:
-        s_clawd.durMs = CLAWD_NOD_MS;
+        s_clawd->durMs = CLAWD_NOD_MS;
         break;
     case ClawdAct::JACKS:
-        s_clawd.durMs = 2 * CLAWD_JACK_MS * clawdRand(4, 6);
+        s_clawd->durMs = 2 * CLAWD_JACK_MS * clawdRand(4, 6);
         break;
     case ClawdAct::SLEEP:
     case ClawdAct::PEEK:
-        s_clawd.durMs = 0;
+        s_clawd->durMs = 0;
         break;
     default:
         for (const auto& d : CLAWD_ACTS)
-            if (d.act == act) s_clawd.durMs = clawdRand(d.minMs, d.maxMs);
+            if (d.act == act) s_clawd->durMs = clawdRand(d.minMs, d.maxMs);
         break;
     }
     // Mismo criterio que la z: a la derecha si caben 3 px + 1 de hueco.
-    int bx = g.x0 + s_clawd.dx;
-    s_clawd.side = (bx + 17 <= g.colR) ? 1 : -1;
+    int bx = g.x0 + s_clawd->dx;
+    s_clawd->side = (bx + 17 <= g.colR) ? 1 : -1;
     if (act == ClawdAct::FIREFLY) {
         // Aparece arriba del todo, en el lado contrario.
-        s_clawd.flyX = s_clawd.side > 0 ? g.colL : g.colR;
-        s_clawd.flyY = g.top;
-        s_clawd.flyLastMove = now;
+        s_clawd->flyX = s_clawd->side > 0 ? g.colL : g.colR;
+        s_clawd->flyY = g.top;
+        s_clawd->flyLastMove = now;
     }
 }
 
@@ -1423,11 +1433,11 @@ static void clawdStart(ClawdAct act, uint32_t now, const ClawdGeom& g) {
 static ClawdAct clawdPickAct() {
     uint32_t total = 0;
     for (const auto& d : CLAWD_ACTS)
-        if (Config::clawdAnimOn(d.anim)) total += d.weight;
+        if (clawdOn(d.anim)) total += d.weight;
     if (total == 0) return ClawdAct::IDLE;
     uint32_t r = esp_random() % total;
     for (const auto& d : CLAWD_ACTS) {
-        if (!Config::clawdAnimOn(d.anim)) continue;
+        if (!clawdOn(d.anim)) continue;
         if (r < d.weight) return d.act;
         r -= d.weight;
     }
@@ -1484,12 +1494,12 @@ static int clawdBlinkRows(uint32_t now) {
 // Mueve la luciernaga un paso al azar sin meterse dentro de Clawd. Tiende a
 // subir (peso doble) para que no se quede pegada al suelo.
 static void clawdMoveFly(uint32_t now, const ClawdGeom& g, int bx, int by) {
-    if (now - s_clawd.flyLastMove < CLAWD_FLY_MOVE_MS) return;
-    s_clawd.flyLastMove = now;
+    if (now - s_clawd->flyLastMove < CLAWD_FLY_MOVE_MS) return;
+    s_clawd->flyLastMove = now;
     int cx[9], cy[9], cw[9], n = 0, total = 0;
     for (int ddx = -1; ddx <= 1; ddx++) {
         for (int ddy = -1; ddy <= 1; ddy++) {
-            int x = s_clawd.flyX + ddx, y = s_clawd.flyY + ddy;
+            int x = s_clawd->flyX + ddx, y = s_clawd->flyY + ddy;
             if (x < g.colL || x > g.colR || y < g.top || y > g.bottom - 2) continue;
             if (x >= bx && x <= bx + 13 && y >= by && y <= by + 9) continue;
             cx[n] = x; cy[n] = y; cw[n] = (ddy < 0) ? 2 : 1;
@@ -1500,53 +1510,53 @@ static void clawdMoveFly(uint32_t now, const ClawdGeom& g, int bx, int by) {
     if (n == 0) return;
     int r = (int)(esp_random() % (uint32_t)total);
     for (int i = 0; i < n; i++) {
-        if (r < cw[i]) { s_clawd.flyX = cx[i]; s_clawd.flyY = cy[i]; return; }
+        if (r < cw[i]) { s_clawd->flyX = cx[i]; s_clawd->flyY = cy[i]; return; }
         r -= cw[i];
     }
 }
 
 static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute, const ClawdGeom& g) {
-    if (s_clawd.startMs == 0) clawdStart(ClawdAct::IDLE, now, g);
+    if (s_clawd->startMs == 0) clawdStart(ClawdAct::IDLE, now, g);
 
-    if (night && Config::clawdAnimOn(Config::CLAWD_ANIM_NIGHT_SLEEP)) {
-        if (s_clawd.act != ClawdAct::SLEEP) clawdStart(ClawdAct::SLEEP, now, g);
-    } else if (s_clawd.act == ClawdAct::SLEEP) {
+    if (night && clawdOn(Config::CLAWD_ANIM_NIGHT_SLEEP)) {
+        if (s_clawd->act != ClawdAct::SLEEP) clawdStart(ClawdAct::SLEEP, now, g);
+    } else if (s_clawd->act == ClawdAct::SLEEP) {
         clawdStart(ClawdAct::SURPRISED, now, g);   // se despierta de golpe
     }
 
     // Si el % de la ventana de 5h sube es que estas usando Claude: lo
     // celebra con unos saltitos (incluso si estaba echando la siesta).
     if (fiveUsed >= 0) {
-        if (s_clawd.lastFiveUsed >= 0 && fiveUsed > s_clawd.lastFiveUsed + 1e-6 &&
-            s_clawd.act != ClawdAct::SLEEP && Config::clawdAnimOn(Config::CLAWD_ANIM_REACT_USAGE)) {
+        if (s_clawd->lastFiveUsed >= 0 && fiveUsed > s_clawd->lastFiveUsed + 1e-6 &&
+            s_clawd->act != ClawdAct::SLEEP && clawdOn(Config::CLAWD_ANIM_REACT_USAGE)) {
             clawdStart(ClawdAct::HOP, now, g);
         }
-        s_clawd.lastFiveUsed = fiveUsed;
+        s_clawd->lastFiveUsed = fiveUsed;
     }
     if (minute >= 0) {
-        if (s_clawd.lastMinute >= 0 && minute == 0 && s_clawd.lastMinute != 0 &&
-            s_clawd.act != ClawdAct::SLEEP && Config::clawdAnimOn(Config::CLAWD_ANIM_HOUR_DANCE)) {
+        if (s_clawd->lastMinute >= 0 && minute == 0 && s_clawd->lastMinute != 0 &&
+            s_clawd->act != ClawdAct::SLEEP && clawdOn(Config::CLAWD_ANIM_HOUR_DANCE)) {
             clawdStart(ClawdAct::DANCE, now, g);     // baile en la hora en punto
         }
-        s_clawd.lastMinute = minute;
+        s_clawd->lastMinute = minute;
     }
 
-    if (s_clawd.act != ClawdAct::SLEEP && s_clawd.act != ClawdAct::WALK &&
-        s_clawd.act != ClawdAct::PEEK && now - s_clawd.startMs >= s_clawd.durMs) {
-        clawdStart(s_clawd.act == ClawdAct::IDLE ? clawdPickAct() : ClawdAct::IDLE, now, g);
+    if (s_clawd->act != ClawdAct::SLEEP && s_clawd->act != ClawdAct::WALK &&
+        s_clawd->act != ClawdAct::PEEK && now - s_clawd->startMs >= s_clawd->durMs) {
+        clawdStart(s_clawd->act == ClawdAct::IDLE ? clawdPickAct() : ClawdAct::IDLE, now, g);
     }
 
-    if (s_clawd.dx < g.minDx) s_clawd.dx = g.minDx;
-    if (s_clawd.dx > g.maxDx) s_clawd.dx = g.maxDx;
+    if (s_clawd->dx < g.minDx) s_clawd->dx = g.minDx;
+    if (s_clawd->dx > g.maxDx) s_clawd->dx = g.maxDx;
 
     // Los timers de mirada y parpadeo corren siempre, aunque el acto actual
     // no los use, para que no se queden congelados a medio guiño.
     int look = clawdLookOffset(now);
 
     ClawdPose p;
-    uint32_t e = now - s_clawd.startMs;
-    auto walkLegs = []() -> uint8_t { return (s_clawd.steps & 1) ? LEGS_STEP_A : LEGS_STEP_B; };
-    switch (s_clawd.act) {
+    uint32_t e = now - s_clawd->startMs;
+    auto walkLegs = []() -> uint8_t { return (s_clawd->steps & 1) ? LEGS_STEP_A : LEGS_STEP_B; };
+    switch (s_clawd->act) {
     case ClawdAct::IDLE:
         p.eyeOff = look;
         p.blinkable = true;
@@ -1557,22 +1567,22 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
         p.armR = ((e / 250) & 1) ? 1 : 2;
         break;
     case ClawdAct::WALK: {
-        int dir = (s_clawd.walkTarget > s_clawd.dx) ? 1 : (s_clawd.walkTarget < s_clawd.dx ? -1 : 0);
-        if (now - s_clawd.lastStepMs >= CLAWD_STEP_MS) {
+        int dir = (s_clawd->walkTarget > s_clawd->dx) ? 1 : (s_clawd->walkTarget < s_clawd->dx ? -1 : 0);
+        if (now - s_clawd->lastStepMs >= CLAWD_STEP_MS) {
             if (dir == 0) {
                 clawdStart(ClawdAct::IDLE, now, g);
                 p.blinkable = true;
                 break;
             }
-            s_clawd.dx += dir;
-            s_clawd.steps++;
-            s_clawd.lastStepMs = now;
+            s_clawd->dx += dir;
+            s_clawd->steps++;
+            s_clawd->lastStepMs = now;
         }
         // Balanceo: sube 1 px en la primera mitad de cada paso.
         p.eyeOff = dir;
         p.blinkable = true;
         p.legs = walkLegs();
-        if (now - s_clawd.lastStepMs < CLAWD_STEP_MS / 2) { p.dy = -1; p.legs = LEGS_STAND; }
+        if (now - s_clawd->lastStepMs < CLAWD_STEP_MS / 2) { p.dy = -1; p.legs = LEGS_STAND; }
         break;
     }
     case ClawdAct::HOP: {
@@ -1613,10 +1623,10 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
     case ClawdAct::THINK: {
         // Mira arriba hacia el bocadillo y se rasca la cabeza.
         p.eyesUp = true;
-        p.eyeOff = s_clawd.side;
+        p.eyeOff = s_clawd->side;
         p.think = (uint8_t)min<uint32_t>(3, e / 400);
         uint8_t scratch = ((e / 300) & 1) ? 1 : 2;
-        if (s_clawd.side > 0) p.armR = scratch; else p.armL = scratch;
+        if (s_clawd->side > 0) p.armR = scratch; else p.armL = scratch;
         break;
     }
     case ClawdAct::HEART:
@@ -1651,29 +1661,29 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
         }
         break;
     case ClawdAct::FIREFLY: {
-        int bx = g.x0 + s_clawd.dx, by = g.y0;
+        int bx = g.x0 + s_clawd->dx, by = g.y0;
         float cx = bx + 6.5f;
-        if (e + CLAWD_CATCH_MS < s_clawd.durMs) {
+        if (e + CLAWD_CATCH_MS < s_clawd->durMs) {
             clawdMoveFly(now, g, bx, by);
-            int dir = (s_clawd.flyX > cx) ? 1 : -1;
+            int dir = (s_clawd->flyX > cx) ? 1 : -1;
             p.eyeOff = dir;
-            p.eyesUp = s_clawd.flyY < by + 2;
-            if (fabsf(s_clawd.flyX - cx) > 8 && now - s_clawd.lastStepMs >= CLAWD_STEP_MS) {
-                int nd = s_clawd.dx + dir;
+            p.eyesUp = s_clawd->flyY < by + 2;
+            if (fabsf(s_clawd->flyX - cx) > 8 && now - s_clawd->lastStepMs >= CLAWD_STEP_MS) {
+                int nd = s_clawd->dx + dir;
                 if (nd >= g.minDx && nd <= g.maxDx) {
-                    s_clawd.dx = nd; s_clawd.steps++; s_clawd.lastStepMs = now;
+                    s_clawd->dx = nd; s_clawd->steps++; s_clawd->lastStepMs = now;
                 }
             }
-            p.legs = (now - s_clawd.lastStepMs < CLAWD_STEP_MS && s_clawd.steps) ? walkLegs() : LEGS_STAND;
+            p.legs = (now - s_clawd->lastStepMs < CLAWD_STEP_MS && s_clawd->steps) ? walkLegs() : LEGS_STAND;
             // Si la tiene justo encima, intenta alcanzarla con la mano.
-            if (s_clawd.flyY < by && fabsf(s_clawd.flyX - cx) < 5) {
-                if (s_clawd.flyX > cx) p.armR = 2; else p.armL = 2;
+            if (s_clawd->flyY < by && fabsf(s_clawd->flyX - cx) < 5) {
+                if (s_clawd->flyX > cx) p.armR = 2; else p.armL = 2;
             }
-            p.hasFly = true; p.flyX = s_clawd.flyX; p.flyY = s_clawd.flyY;
+            p.hasFly = true; p.flyX = s_clawd->flyX; p.flyY = s_clawd->flyY;
             p.blinkable = true;
         } else {
             // Baja sobre su cabeza y la caza de un salto de 3 px.
-            uint32_t t = e - (s_clawd.durMs - CLAWD_CATCH_MS);
+            uint32_t t = e - (s_clawd->durMs - CLAWD_CATCH_MS);
             int flyX = (int)lroundf(cx);
             if (t < 250) {
                 p.hasFly = true; p.flyX = flyX; p.flyY = g.top;
@@ -1711,9 +1721,9 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
     }
     case ClawdAct::CODE:
         p.laptop = true;
-        if (e + 900 >= s_clawd.durMs) {
+        if (e + 900 >= s_clawd->durMs) {
             // Compila a la primera: check verde encima y saltito.
-            uint32_t t = e + 900 - s_clawd.durMs;
+            uint32_t t = e + 900 - s_clawd->durMs;
             p.happy = true; p.armL = p.armR = 2; p.check = true;
             if (t < 300) p.dy = -clawdArc(t / 300.0f, 1);
         } else {
@@ -1749,26 +1759,26 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
         break;
     case ClawdAct::PEEK: {
         // Sale por el borde derecho del panel, asoma medio ojo, saluda y vuelve.
-        bool stepDue = now - s_clawd.lastStepMs >= CLAWD_STEP_MS;
-        uint32_t pe = now - s_clawd.phaseStart;
-        auto next = [&](uint8_t ph) { s_clawd.phase = ph; s_clawd.phaseStart = now; s_clawd.lastStepMs = now; };
-        switch (s_clawd.phase) {
+        bool stepDue = now - s_clawd->lastStepMs >= CLAWD_STEP_MS;
+        uint32_t pe = now - s_clawd->phaseStart;
+        auto next = [&](uint8_t ph) { s_clawd->phase = ph; s_clawd->phaseStart = now; s_clawd->lastStepMs = now; };
+        switch (s_clawd->phase) {
         case 0:   // hasta el borde
-            if (s_clawd.dx >= g.maxDx) next(1);
-            else if (stepDue) { s_clawd.dx++; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            if (s_clawd->dx >= g.maxDx) next(1);
+            else if (stepDue) { s_clawd->dx++; s_clawd->steps++; s_clawd->lastStepMs = now; }
             p.eyeOff = 1; p.legs = walkLegs();
             break;
         case 1:   // sale del panel
-            if (s_clawd.extra >= CLAWD_PEEK_OUT) next(2);
-            else if (stepDue) { s_clawd.extra++; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            if (s_clawd->extra >= CLAWD_PEEK_OUT) next(2);
+            else if (stepDue) { s_clawd->extra++; s_clawd->steps++; s_clawd->lastStepMs = now; }
             p.eyeOff = 1; p.legs = walkLegs();
             break;
         case 2:   // escondido
             if (pe >= CLAWD_PEEK_HIDE_MS) next(3);
             break;
         case 3:   // asoma
-            if (s_clawd.extra <= CLAWD_PEEK_SHOW) next(4);
-            else if (now - s_clawd.lastStepMs >= CLAWD_PEEK_IN_MS) { s_clawd.extra--; s_clawd.lastStepMs = now; }
+            if (s_clawd->extra <= CLAWD_PEEK_SHOW) next(4);
+            else if (now - s_clawd->lastStepMs >= CLAWD_PEEK_IN_MS) { s_clawd->extra--; s_clawd->lastStepMs = now; }
             p.eyeOff = -1;
             break;
         case 4:   // mira, parpadea y saluda
@@ -1778,25 +1788,25 @@ static ClawdPose clawdTick(uint32_t now, bool night, double fiveUsed, int minute
             if (pe >= CLAWD_PEEK_HOLD_MS) next(5);
             break;
         default:  // vuelve a entrar
-            if (s_clawd.extra <= 0) {
+            if (s_clawd->extra <= 0) {
                 clawdStart(ClawdAct::IDLE, now, g);
                 p.blinkable = true;
                 break;
             }
-            if (stepDue) { s_clawd.extra--; s_clawd.steps++; s_clawd.lastStepMs = now; }
+            if (stepDue) { s_clawd->extra--; s_clawd->steps++; s_clawd->lastStepMs = now; }
             p.eyeOff = -1; p.legs = walkLegs();
             break;
         }
-        p.extra = s_clawd.extra;
+        p.extra = s_clawd->extra;
         break;
     }
     }
-    p.dx = s_clawd.dx;
+    p.dx = s_clawd->dx;
     return p;
 }
 
 // Pinta a Clawd (14x10) en su zona. minute < 0 = sin hora valida.
-static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minute) {
+static void drawClawd(const ClawdGeom& g, uint8_t who, bool night, double fiveUsed, int minute) {
     // Sprite SIN ojos: los huecos se pintan despues para poder moverlos.
     // Filas 0-7 cuerpo (brazos en 4-5), 8-9 patas.
     static const uint16_t BODY[8] = {
@@ -1827,7 +1837,10 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
     if (!p.blinkable) blink = 0;
     if (p.halfClosed) blink = 1;
 
-    const uint16_t orange = rgb888to565(0xE07A2F);
+    s_clawd = &s_clawdStates[who ? 1 : 0];
+    s_clawdAnimOff = who ? Config::cfg.chatgptAnimOff : Config::cfg.claudeAnimOff;
+    // Azul claro, no marino: en el HUB75 un azul oscuro apenas se ve.
+    const uint16_t bodyCol = rgb888to565(who ? 0x3A9BFF : 0xE07A2F);
     int bx = g.x0 + p.dx + p.extra, by = g.y0 + p.dy;
 
     // Todo se recorta a la zona de Clawd: en PEEK sale por el borde derecho.
@@ -1837,7 +1850,7 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
     };
     auto drawRow = [&](uint16_t bits, int y) {
         for (int xx = 0; xx < 14; xx++)
-            if (bits & (0x2000 >> xx)) px(bx + xx, y, orange);
+            if (bits & (0x2000 >> xx)) px(bx + xx, y, bodyCol);
     };
     auto blit = [&](const uint8_t* rows, int nRows, int w, int x, int y, uint16_t c) {
         for (int yy = 0; yy < nRows; yy++)
@@ -1861,14 +1874,14 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
     auto arm = [&](uint8_t lvl, int cx) {
         if (!lvl) return;
         px(cx, by + 5, 0);
-        if (lvl == 2) { px(cx, by + 4, 0); px(cx, by + 2, orange); }
-        px(cx, by + 3, orange);
+        if (lvl == 2) { px(cx, by + 4, 0); px(cx, by + 2, bodyCol); }
+        px(cx, by + 3, bodyCol);
     };
     arm(p.armL, bx);
     arm(p.armR, bx + 13);
     // Teclear: la punta de la mano baja a la fila 6, sobre el teclado.
-    if (p.typeL) { px(bx,      by + 4, 0); px(bx,      by + 6, orange); }
-    if (p.typeR) { px(bx + 13, by + 4, 0); px(bx + 13, by + 6, orange); }
+    if (p.typeL) { px(bx,      by + 4, 0); px(bx,      by + 6, bodyCol); }
+    if (p.typeR) { px(bx + 13, by + 4, 0); px(bx + 13, by + 6, bodyCol); }
     // De perfil el brazo del fondo queda oculto tras el cuerpo.
     if (p.view == VIEW_SIDE_R) for (int y = 4; y <= 5; y++) { px(bx, by + y, 0); px(bx + 1, by + y, 0); }
     if (p.view == VIEW_SIDE_L) for (int y = 4; y <= 5; y++) { px(bx + 12, by + y, 0); px(bx + 13, by + y, 0); }
@@ -1911,7 +1924,7 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
         px(bx + 7, by + 7, logo);
     }
 
-    const int sideX = (s_clawd.side > 0) ? bx + 15 : bx - 4;
+    const int sideX = (s_clawd->side > 0) ? bx + 15 : bx - 4;
     const int restTop = g.y0;
     if (p.zzz) {
         // Dos "z" que suben desde la cabeza hasta el techo, desfasadas.
@@ -1928,10 +1941,10 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
         // van encendiendo, como el indicador de que Claude esta pensando.
         static const uint8_t CLOUD[3] = { 0b01110, 0b11111, 0b01110 };
         uint16_t cloud = rgb888to565(0xC9C9C9), dot = rgb888to565(0x555A63);
-        int dotX = (s_clawd.side > 0) ? bx + 13 : bx;
+        int dotX = (s_clawd->side > 0) ? bx + 13 : bx;
         px(dotX, restTop - 1, cloud);
         if (p.think >= 2) {
-            int cx = (s_clawd.side > 0) ? bx + 13 : bx - 4;
+            int cx = (s_clawd->side > 0) ? bx + 13 : bx - 4;
             blit(CLOUD, 3, 5, cx, g.top, cloud);
             if (p.think >= 3) {
                 int on = (int)((now / 250) % 4);
@@ -1975,7 +1988,7 @@ static void drawClawd(const ClawdGeom& g, bool night, double fiveUsed, int minut
         for (int i = 0; i < 3; i++) {
             int xx = F[p.spray][i][0], yy = F[p.spray][i][1];
             if (xx < 0) continue;
-            int x = (s_clawd.side > 0) ? bx + 14 + xx : bx - 1 - xx;
+            int x = (s_clawd->side > 0) ? bx + 14 + xx : bx - 1 - xx;
             px(x, by + yy, sc);
         }
     }
@@ -2204,7 +2217,7 @@ void renderClaude(const Row& weatherRow, const ClaudeView& cv, float secondOfMin
         g.colR = WIDTH - 1;
         g.minDx = g.colL - g.x0;
         g.maxDx = g.colR - (g.x0 + 13);
-        drawClawd(g, cv.night, cv.fiveValid ? cv.fiveUsed : -1.0,
+        drawClawd(g, cv.mascot, cv.night, cv.fiveValid ? cv.fiveUsed : -1.0,
                   weatherRow.hasTime ? (int)weatherRow.minute : -1);
     }
 
