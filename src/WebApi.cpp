@@ -669,6 +669,17 @@ void begin() {
         req->send(res);
     });
 
+    // GET /api/userimg: la imagen actual del modo IMAGE (RGB565 crudo, el
+    // mismo formato que se sube), para la vista previa de la web.
+    server.on("/api/userimg", HTTP_GET, [](AsyncWebServerRequest* req) {
+        LittleFS.begin(true, "/littlefs", 10, "littlefs");
+        if (!LittleFS.exists("/userimg.bin")) {
+            req->send(404, "application/json", "{\"error\":\"sin imagen\"}");
+            return;
+        }
+        req->send(LittleFS, "/userimg.bin", "application/octet-stream");
+    });
+
     // ---------- POST /api/userimg: subida de la imagen del modo IMAGE
     // 64x23 = 1472 pixels * 2 bytes RGB565 = 2944 bytes exactos. La UI
     // convierte la imagen del usuario a ese formato antes de subirla.

@@ -125,6 +125,7 @@ platformio.ini           # dos envs: matrixportal_s3 (USB) y ota (espota)
 | GET | `/api/openai/status` | Sesión de ChatGPT (o código pendiente) y uso de Codex 5h/semanal |
 | POST | `/api/openai/login` / `/api/openai/logout` | Login por código de dispositivo / borrar sesión |
 | POST | `/api/openai/hola` | Manda un «hola» a Codex (abre la ventana de 5h) |
+| GET | `/api/userimg` | Imagen actual del modo Imagen (RGB565 64x23), para la preview de la web |
 | GET | `/api/openai/debug` | Última respuesta cruda de `wham/usage` |
 
 ## Persistencia: NVS + LittleFS

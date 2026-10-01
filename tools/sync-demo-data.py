@@ -20,7 +20,9 @@ bm_body = re.sub(r'/\*.*?\*/', '', bm_src.split('{', 1)[1], flags=re.S)
 bitmaps = [int(h, 16) for h in re.findall(r'0x([0-9A-Fa-f]{2})', bm_body)]
 gl_src = font[font.index('TomThumbGlyphs[]'):]
 glyphs = re.findall(r'\{\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(-?\d+),\s*(-?\d+)\s*\},\s*/\*\s*0x([0-9A-Fa-f]{2})', gl_src)
-chars = '0123456789:/-'
+# Digitos para la fila de hora/fecha y minusculas para el aviso del modo
+# Imagen sin imagen ("upload an image").
+chars = '0123456789:/- abcdefghijklmnopqrstuvwxyz'
 out_font = {}
 for off, w, h, adv, xo, yo, code in glyphs:
     ch = chr(int(code, 16))
