@@ -38,10 +38,13 @@ static constexpr time_t TIME_VALID_THRESHOLD = 1672531200;   // 2023-01-01
 //   MENU             : izq/der mueven seleccion (Brillo/Jitter/Salir), centro ejecuta
 //   MENU_BRIGHTNESS  : der=+brillo, izq=-brillo, centro=vuelve al menu
 //   MENU_JITTER      : der=activa jitter, izq=desactiva, centro=vuelve al menu
-enum class UiState : uint8_t { NORMAL, MENU, MENU_BRIGHTNESS, MENU_JITTER, MENU_HOLA, MENU_KEEPAWAKE };
+//   MENU_RESTART     : confirmar reinicio (Restart now / Back)
+enum class UiState : uint8_t { NORMAL, MENU, MENU_BRIGHTNESS, MENU_JITTER, MENU_HOLA, MENU_KEEPAWAKE, MENU_RESTART };
 static UiState  g_uiState = UiState::NORMAL;
-static int      g_menuIndex = 0;             // 0=Brightness,1=Jitter,2=Session,3=Keep Awake,4=Exit
-static constexpr int      MENU_COUNT = 5;
+static int      g_menuIndex = 0;             // 0=Brightness,1=Jitter,2=Session,3=Keep Awake,4=Restart,5=Exit
+static constexpr int      MENU_COUNT = 6;
+static constexpr int      MENU_RESTART_IDX = 4;
+static constexpr int      MENU_EXIT_IDX = 5;
 // Navegacion dentro de un submenu (Brillo/Jitter/Sesion). Modelo de 2 niveles:
 //   - g_editing=false (navegar): izq/der mueven g_subIndex entre los campos +
 //     la opcion "Atras" (siempre la ultima); centro entra a editar el campo, o
@@ -151,8 +154,13 @@ static void handleButtonAction(int idx, const char* source) {
         } else if (idx == 2) {                // derecha: opcion siguiente
             g_menuIndex = (g_menuIndex + 1) % MENU_COUNT;
         } else {                              // centro: entrar en la opcion
-            if (g_menuIndex == 4) {           // Exit -> reloj
+            if (g_menuIndex == MENU_EXIT_IDX) {           // Exit -> reloj
                 g_uiState = UiState::NORMAL;
+            } else if (g_menuIndex == MENU_RESTART_IDX) {
+                // Pide confirmacion: un TTP que se dispara solo por ruido no
+                // debe poder reiniciar el panel con una pulsacion.
+                g_uiState = UiState::MENU_RESTART;
+                g_subIndex = 1;               // arranca en "Back", el lado seguro
             } else {
                 g_uiState = (g_menuIndex == 0) ? UiState::MENU_BRIGHTNESS
                           : (g_menuIndex == 1) ? UiState::MENU_JITTER
@@ -165,6 +173,19 @@ static void handleButtonAction(int idx, const char* source) {
         }
         break;
 
+    case UiState::MENU_RESTART:
+        if (idx != 1) {
+            g_subIndex = 1 - g_subIndex;      // izq/der alternan Restart now / Back
+        } else if (g_subIndex == 0) {
+            const char* lines[] = {"Pixelario", "Restarting", "...", ""};
+            Display::drawSplash(lines, 4);
+            Serial.printf("[%s] reinicio desde el menu\n", source);
+            g_pendingReset = true;
+        } else {
+            g_uiState = UiState::MENU;
+            g_subIndex = 0;
+        }
+        break;
     // Submenus (Brightness/Jitter/Session/Keep Awake): modelo navegar -> entrar
     // -> editar -> aceptar, con "Back" como ultima opcion. Logica comun.
     case UiState::MENU_BRIGHTNESS:
@@ -733,6 +754,8 @@ void loop() {
         delay(5);
         return;
     }
+    // Reinicio pendiente: dejar el splash de "Restarting" en pantalla.
+    if (g_pendingReset) return;
     lastRender = millis();
 
     time_t utc = time(nullptr);
@@ -891,6 +914,7 @@ void loop() {
                 : (g_uiState == UiState::MENU_JITTER)     ? Display::MenuView::JITTER
                 : (g_uiState == UiState::MENU_HOLA)       ? Display::MenuView::HOLA
                 : (g_uiState == UiState::MENU_KEEPAWAKE)  ? Display::MenuView::KEEPAWAKE
+                : (g_uiState == UiState::MENU_RESTART)    ? Display::MenuView::RESTART
                                                           : Display::MenuView::MAIN;
         // En el menu principal la fila es g_menuIndex; en un submenu es g_subIndex.
         ms.selected        = (g_uiState == UiState::MENU) ? g_menuIndex : g_subIndex;

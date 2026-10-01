@@ -144,7 +144,7 @@ bool isIconPreviewActive();
 // Overlay a pantalla completa para el menu que abre el boton central. La
 // maquina de estados (navegacion + ejecucion) vive en main.cpp; aqui solo se
 // pinta el estado actual, de forma clara y con feedback de que hace cada boton.
-enum class MenuView : uint8_t { MAIN = 0, BRIGHTNESS = 1, JITTER = 2, HOLA = 3, KEEPAWAKE = 4 };
+enum class MenuView : uint8_t { MAIN = 0, BRIGHTNESS = 1, JITTER = 2, HOLA = 3, KEEPAWAKE = 4, RESTART = 5 };
 struct MenuState {
     MenuView view;
     int      selected;         // MAIN: opcion; submenus: fila navegada (campo o Back)

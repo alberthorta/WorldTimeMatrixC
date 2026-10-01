@@ -2369,22 +2369,32 @@ void renderMenu(const MenuState& m) {
     };
 
     if (m.view == MenuView::MAIN) {
-        // 5 opciones sin titulo (el listado resaltado ya se lee como menu).
-        static const char* const OPTS[5] = {"Brightness", "Jitter", "Session", "Keep Awake", "Exit"};
+        // Caben 5 filas de 6 px: con mas opciones la lista se desplaza para
+        // mantener la seleccionada a la vista (centrada cuando se puede).
+        static const char* const OPTS[] = {"Brightness", "Jitter", "Session", "Keep Awake", "Restart", "Exit"};
+        const int nOpts = sizeof(OPTS) / sizeof(OPTS[0]);
+        const int VISIBLE = 5;
+        int first = m.selected - VISIBLE / 2;
+        if (first > nOpts - VISIBLE) first = nOpts - VISIBLE;
+        if (first < 0) first = 0;
         const int by[5] = {7, 13, 19, 25, 31};
-        for (int i = 0; i < 5; i++) {
+        // Puntitos en el borde derecho si hay opciones fuera de la vista.
+        if (first > 0)                 dma->drawPixel(WIDTH - 1, 1, dim);
+        if (first + VISIBLE < nOpts)   dma->drawPixel(WIDTH - 1, HEIGHT - 1, dim);
+        for (int r = 0; r < VISIBLE && first + r < nOpts; r++) {
+            int i = first + r;
             bool sel = (m.selected == i);
             if (sel) {
                 // Barra de resaltado de la opcion activa.
-                dma->fillRoundRect(2, by[i] - 6, WIDTH - 4, 7, 2, accent);
+                dma->fillRoundRect(2, by[r] - 6, WIDTH - 4, 7, 2, accent);
                 // Chevrons que recuerdan que izq/der mueven la seleccion.
                 dma->setTextColor(dark);
-                dma->setCursor(3, by[i]);           dma->print("<");
-                dma->setCursor(WIDTH - 6, by[i]);   dma->print(">");
+                dma->setCursor(3, by[r]);           dma->print("<");
+                dma->setCursor(WIDTH - 6, by[r]);   dma->print(">");
             }
             int x = (WIDTH - textW(OPTS[i])) / 2;
             dma->setTextColor(sel ? dark : dim);
-            dma->setCursor(x, by[i]);
+            dma->setCursor(x, by[r]);
             dma->print(OPTS[i]);
         }
     } else if (m.view == MenuView::BRIGHTNESS) {
@@ -2409,6 +2419,12 @@ void renderMenu(const MenuState& m) {
             centerText(m.jitterConnected ? "Mac linked" : "no Mac", 22,
                        m.jitterConnected ? green : dim);
         }
+        drawRow(30, "Back", m.selected == 1, false);
+    } else if (m.view == MenuView::RESTART) {
+        // Filas: [0]=Restart now, [1]=Back. Se entra con Back seleccionado.
+        centerText("RESTART", 5, accent);
+        centerText("Sure?", 14, dim);
+        drawRow(23, "Restart now", m.selected == 0, false);
         drawRow(30, "Back", m.selected == 1, false);
     } else if (m.view == MenuView::KEEPAWAKE) {
         // Campos: [0]=Keep awake on/off, [1]=Back.
