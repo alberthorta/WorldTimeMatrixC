@@ -49,8 +49,11 @@ enum UpdateChecker {
         }
     }
 
+    // No vale /releases/latest: muchas releases son solo de firmware (sin .zip),
+    // y compararse con ellas avisaba de una update que no se podia instalar.
+    // Buscamos la release mas reciente que trae la app.
     private static func fetchLatest() async throws -> LatestRelease {
-        let url = URL(string: "https://api.github.com/repos/\(repoSlug)/releases/latest")!
+        let url = URL(string: "https://api.github.com/repos/\(repoSlug)/releases?per_page=50")!
         var req = URLRequest(url: url)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("WorldTimeJitter", forHTTPHeaderField: "User-Agent")
@@ -60,16 +63,27 @@ enum UpdateChecker {
             throw NSError(domain: "GitHub", code: http.statusCode,
                           userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
         }
-        let decoded = try JSONDecoder().decode(GHRelease.self, from: data)
-        let normalized = decoded.tag_name.hasPrefix("v")
-            ? String(decoded.tag_name.dropFirst()) : decoded.tag_name
+        let releases = try JSONDecoder().decode([GHRelease].self, from: data)
+            .filter { !$0.draft && !$0.prerelease }
+        func version(_ r: GHRelease) -> String {
+            r.tag_name.hasPrefix("v") ? String(r.tag_name.dropFirst()) : r.tag_name
+        }
         // Solo el .zip: el firmware.bin de la misma release es para el ESP32.
-        let downloadURL = decoded.assets.first { $0.name.hasSuffix(".zip") }
-            .flatMap { URL(string: $0.browser_download_url) }
+        func zipAsset(_ r: GHRelease) -> GHAsset? {
+            r.assets.first { $0.name.hasSuffix(".zip") }
+        }
+        guard let decoded = releases
+            .filter({ zipAsset($0) != nil })
+            .max(by: { compareVersions(version($0), version($1)) < 0 })
+        else {
+            throw NSError(domain: "GitHub", code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "Ninguna release trae la app"])
+        }
+        let downloadURL = zipAsset(decoded).flatMap { URL(string: $0.browser_download_url) }
         guard let html = URL(string: decoded.html_url) else { throw URLError(.badURL) }
         return LatestRelease(
             tag: decoded.tag_name,
-            normalizedVersion: normalized,
+            normalizedVersion: version(decoded),
             htmlURL: html,
             downloadURL: downloadURL,
             publishedAt: decoded.published_at
@@ -99,6 +113,8 @@ enum UpdateChecker {
         let tag_name: String
         let html_url: String
         let published_at: String?
+        let draft: Bool
+        let prerelease: Bool
         let assets: [GHAsset]
     }
 
