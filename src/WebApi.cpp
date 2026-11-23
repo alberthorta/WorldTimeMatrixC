@@ -99,8 +99,27 @@ static void handleGetWifi(AsyncWebServerRequest* req) {
     doc["ap_ssid"] = mode == WifiSetup::Mode::Ap ? WifiSetup::AP_SSID : "";
     doc["ip"] = WifiSetup::currentIp();
     doc["hostname"] = WifiSetup::currentHostname();
+    doc["custom_hostname"] = Config::getHostname();
+    doc["default_hostname"] = mode == WifiSetup::Mode::Sta ? WifiSetup::defaultHostname() : "";
     doc["configured_ssid"] = Config::getWifi().ssid;
     sendJson(req, doc);
+}
+
+// POST /api/hostname {hostname} -> guarda y reinicia. Vacio = nombre automatico.
+static void handlePostHostname(AsyncWebServerRequest* req, JsonDocument& body) {
+    if (!body["hostname"].is<const char*>()) {
+        req->send(400, "application/json", "{\"error\":\"missing hostname\"}");
+        return;
+    }
+    String name = body["hostname"].as<const char*>();
+    name.trim();
+    if (name.length() && !Config::isValidHostname(name)) {
+        req->send(400, "application/json", "{\"error\":\"invalid hostname\"}");
+        return;
+    }
+    Config::setHostname(name);
+    req->send(200, "application/json", "{\"ok\":true,\"reload\":true}");
+    g_pendingReset = true;
 }
 
 static void handleGetWifiScan(AsyncWebServerRequest* req) {
@@ -644,6 +663,13 @@ void begin() {
     // startsWith con barra, asi que /api/wifi atraparia /api/wifi/scan.
     server.on("/api/wifi/scan", HTTP_GET, handleGetWifiScan);
     server.on("/api/wifi", HTTP_GET, handleGetWifi);
+
+    server.on("/api/hostname", HTTP_POST,
+        /*onRequest=*/[](AsyncWebServerRequest* req) {},
+        /*onUpload=*/nullptr,
+        /*onBody=*/[](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+            accumulateJsonBody(req, data, len, index, total, handlePostHostname);
+        });
 
     // POST /api/wifi: usamos AsyncCallbackJsonWebHandler-like approach manual,
     // ESPAsyncWebServer 3.x expone JsonHandler via setBodyParser en algunas

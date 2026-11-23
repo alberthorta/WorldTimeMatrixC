@@ -55,7 +55,7 @@ Si todo lo anterior falla, subir `STABLE_THRESH` en `main.cpp` a 4-5 (a costa de
 
 AP fallback: SSID `Pixelario-Setup`, password `matrixportal`, IP `192.168.4.1`.
 
-mDNS: cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP (p.ej. `Pixelario62.local`).
+mDNS: cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP (p.ej. `Pixelario62.local`), salvo que se le ponga otro nombre desde la web (Sistema → WiFi → "Nombre en la red", guardado en NVS como `hostname`). `ArduinoOTA.begin()` llama por dentro a `MDNS.begin()`: hay que pasarle el mismo hostname o lo pisa.
 
 ## Build & deploy
 
@@ -113,6 +113,7 @@ platformio.ini           # dos envs: matrixportal_s3 (USB) y ota (espota)
 | GET | `/api/wifi` | Modo, SSID actual, hostname, IP |
 | GET | `/api/wifi/scan` | Lista de redes cercanas |
 | POST | `/api/wifi` | `{ssid, password}` → guarda en NVS y reinicia |
+| POST | `/api/hostname` | `{hostname}` → guarda en NVS y reinicia. Vacío = nombre automático `PixelarioXXX` |
 | GET | `/api/config` | Config completa JSON (sin wifi creds) |
 | POST | `/api/config` | Patch JSON; `cities_changed=true` → `Weather::requestRefresh()` |
 | POST | `/api/brightness` | Live, sin escribir NVS |

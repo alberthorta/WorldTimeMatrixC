@@ -448,7 +448,7 @@ pio run -e matrixportal_s3 -t upload
 
 ### Encontrar la IP
 
-Cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP. O escanea por mDNS o ARP:
+Cada device se anuncia como `PixelarioXXX.local` donde XXX es el último octeto de su IP. El nombre se puede cambiar en la web: Sistema → WiFi → "Nombre en la red". O escanea por mDNS o ARP:
 
 ```bash
 ping -c 1 Pixelario62.local            # si conoces el octeto

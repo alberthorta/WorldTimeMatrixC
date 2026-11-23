@@ -821,4 +821,26 @@ void clearWifi() {
     prefs.remove("wifi_pwd");
 }
 
+String getHostname() {
+    String h = prefs.getString("hostname", "");
+    return isValidHostname(h) ? h : String();
+}
+
+void setHostname(const String& name) {
+    if (name.isEmpty()) prefs.remove("hostname");
+    else prefs.putString("hostname", name);
+}
+
+// Una etiqueta DNS (RFC 1123). Tope de 31 por el limite de hostname de esp_netif.
+bool isValidHostname(const String& name) {
+    size_t n = name.length();
+    if (n == 0 || n > 31) return false;
+    if (name[0] == '-' || name[n - 1] == '-') return false;
+    for (size_t i = 0; i < n; i++) {
+        char c = name[i];
+        if (!isalnum((unsigned char)c) && c != '-') return false;
+    }
+    return true;
+}
+
 }  // namespace Config

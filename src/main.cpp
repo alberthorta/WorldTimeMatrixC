@@ -556,7 +556,10 @@ void setup() {
     if (WifiSetup::currentMode() == WifiSetup::Mode::Sta) {
         configTime(0, 0, "pool.ntp.org", "time.google.com");
         Serial.println("[time] NTP requested");
-        ArduinoOTA.setHostname("pixelario");
+        // ArduinoOTA.begin() vuelve a llamar a MDNS.begin() con este nombre: si
+        // no coincide con el de WifiSetup, lo pisa y todos los devices acaban
+        // anunciandose igual (pixelario, pixelario-2...).
+        ArduinoOTA.setHostname(WifiSetup::currentHostname().c_str());
         ArduinoOTA.setPassword("matrix");
         ArduinoOTA.onStart([]() { Serial.println("[ota] start"); });
         ArduinoOTA.onEnd([]() { Serial.println("\n[ota] end"); });
@@ -565,7 +568,8 @@ void setup() {
         });
         ArduinoOTA.onError([](ota_error_t e) { Serial.printf("[ota] err %u\n", e); });
         ArduinoOTA.begin();
-        Serial.println("[ota] ArduinoOTA up (host=pixelario auth=matrix)");
+        Serial.printf("[ota] ArduinoOTA up (host=%s auth=matrix)\n",
+                      WifiSetup::currentHostname().c_str());
     }
     WebApi::begin();
     Weather::taskStart();

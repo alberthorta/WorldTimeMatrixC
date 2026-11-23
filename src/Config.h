@@ -278,4 +278,10 @@ WifiCreds getWifi();
 void setWifi(const String& ssid, const String& password);
 void clearWifi();
 
+// Nombre de red elegido por el usuario. Vive en NVS y no en cfg: restaurar un
+// backup en otro device duplicaria el nombre en la LAN. Vacio = automatico.
+String getHostname();
+void setHostname(const String& name);
+bool isValidHostname(const String& name);
+
 }  // namespace Config

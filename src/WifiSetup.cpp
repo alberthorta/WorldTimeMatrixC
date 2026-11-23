@@ -23,11 +23,17 @@ static bool tryConnect(const String& ssid, const String& password, uint32_t time
     // Hostname ANTES de begin: si lo cambiamos despues, DHCP ya negocio con
     // el nombre auto-generado y algunos APs/routers tardan en propagar el
     // nuevo, dejando el device alcanzable solo via IP por minutos.
-    // Pre-fix con last3 del MAC para que sea unico hasta que sepamos el IP.
-    uint8_t mac[6]; WiFi.macAddress(mac);
-    char tmpHost[24];
-    snprintf(tmpHost, sizeof(tmpHost), "Pixelario-%02X%02X%02X", mac[3], mac[4], mac[5]);
-    WiFi.setHostname(tmpHost);
+    // Sin nombre elegido: pre-fix con last3 del MAC para que sea unico hasta
+    // que sepamos el IP.
+    String custom = Config::getHostname();
+    if (custom.length()) {
+        WiFi.setHostname(custom.c_str());
+    } else {
+        uint8_t mac[6]; WiFi.macAddress(mac);
+        char tmpHost[24];
+        snprintf(tmpHost, sizeof(tmpHost), "Pixelario-%02X%02X%02X", mac[3], mac[4], mac[5]);
+        WiFi.setHostname(tmpHost);
+    }
     // IP estatica vs DHCP. Si wifiUseDhcp=false, intentamos parsear los
     // strings y aplicar antes de WiFi.begin. Si algun campo es invalido
     // (ip/gw/subnet vacios o malformados), retrocedemos a DHCP silenciosamente
@@ -86,13 +92,13 @@ Mode begin() {
     if (tryConnect(w.ssid, w.password, /*timeoutMs=*/15000)) {
         g_mode = Mode::Sta;
         g_ssid = w.ssid;
-        // Hostname PixelarioXXX (ultimo octeto de la IP) + mDNS para que aparezca
-        // en routers, dispositivos compatibles con Bonjour, etc.
-        IPAddress ip = WiFi.localIP();
-        char host[24];
-        snprintf(host, sizeof(host), "Pixelario%d", (int)ip[3]);
+        // Hostname elegido por el usuario o, por defecto, PixelarioXXX (ultimo
+        // octeto de la IP) + mDNS para que aparezca en routers, dispositivos
+        // compatibles con Bonjour, etc.
+        g_hostname = Config::getHostname();
+        if (g_hostname.isEmpty()) g_hostname = defaultHostname();
+        const char* host = g_hostname.c_str();
         WiFi.setHostname(host);
-        g_hostname = host;
         if (MDNS.begin(host)) {
             MDNS.addService("http", "tcp", 80);
             Serial.printf("[mdns] up: %s.local\n", host);
@@ -118,6 +124,9 @@ Mode begin() {
 Mode currentMode() { return g_mode; }
 String currentSsid() { return g_ssid; }
 String currentHostname() { return g_hostname; }
+String defaultHostname() {
+    return "Pixelario" + String((int)WiFi.localIP()[3]);
+}
 
 String currentIp() {
     if (g_mode == Mode::Sta) return WiFi.localIP().toString();

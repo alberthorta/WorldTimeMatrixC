@@ -1074,6 +1074,13 @@ a.btn{text-decoration:none}
     <label class="field"><span>Contraseña</span><input id="pwd" type="password"/></label>
   </div>
   <div class="btn-row" style="margin-top:14px"><button id="connect" class="btn btn-primary">Conectar y reiniciar</button></div>
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+    <div class="fields">
+      <label class="field"><span>Nombre en la red</span><input id="hostname" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="31"/></label>
+    </div>
+    <p class="note">El panel responde en <code id="hostname-preview">—</code>. Letras, números y guiones. Déjalo vacío para el nombre automático.</p>
+    <div class="btn-row" style="margin-top:14px"><button id="hostname-save" class="btn">Guardar y reiniciar</button></div>
+  </div>
   <div data-save style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
     <div class="settings">
       <label class="setting"><div class="t"><b>DHCP</b><span>Recomendado. Desactívalo para fijar la IP.</span></div><span class="toggle"><input id="wifi-dhcp" type="checkbox" checked/><span class="toggle-slider"></span></span></label>
@@ -1278,6 +1285,9 @@ async function loadWifi(){
     $('#ov-host').textContent = d.hostname ? d.hostname + '.local' : '';
     $('#ov-conn').textContent = d.mode === 'sta' ? (d.current_ssid || 'WiFi') : d.mode === 'ap' ? 'Punto de acceso' : 'Sin conexión';
     if (d.current_ssid && !$('#ssid').value) $('#ssid').value = d.current_ssid;
+    $('#hostname').value = d.custom_hostname || '';
+    $('#hostname').placeholder = d.default_hostname || 'Pixelario';
+    updateHostnamePreview();
   }catch(e){}
 }
 async function loadConfig(){
@@ -1752,6 +1762,24 @@ $('#connect').onclick = async () => {
   try{
     await fetch('/api/wifi', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ssid,password})});
     setMsg('Guardado. Reiniciando — reconecta a la nueva red.', 'ok');
+  }catch(e){ setMsg('Error: '+e.message, 'err'); }
+};
+function updateHostnamePreview(){
+  const h = $('#hostname').value.trim() || $('#hostname').placeholder;
+  $('#hostname-preview').textContent = h + '.local';
+}
+$('#hostname').addEventListener('input', updateHostnamePreview);
+$('#hostname-save').onclick = async () => {
+  const hostname = $('#hostname').value.trim();
+  if (hostname && !/^[A-Za-z0-9]([A-Za-z0-9-]{0,29}[A-Za-z0-9])?$/.test(hostname)) {
+    setMsg('Nombre no válido: solo letras, números y guiones (máx. 31).', 'err'); return;
+  }
+  const target = (hostname || $('#hostname').placeholder) + '.local';
+  if (!confirm(`Cambiar el nombre a "${target}" y reiniciar?`)) return;
+  try{
+    const r = await fetch('/api/hostname', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({hostname})});
+    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    setMsg(`Guardado. Reiniciando — vuelve a entrar en http://${target}/`, 'ok');
   }catch(e){ setMsg('Error: '+e.message, 'err'); }
 };
 
